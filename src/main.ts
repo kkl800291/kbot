@@ -1,0 +1,101 @@
+import './desktop.css';
+import { command, loadState, native, installPersistence } from './services/runtime';
+import { installDesktop } from './services/desktop';
+import { installBrain } from './services/brain';
+import { installAI } from './services/ai';
+import { installWeather } from './services/weather';
+import { isWorkday } from './services/calendar';
+import { onboarding } from './onboarding';
+import { installSettingsOwner } from './services/settings-owner';
+import { getVersion } from '@tauri-apps/api/app';
+import { installInteractionDiagnostics } from './services/interaction-diagnostics';
+
+async function boot() {
+  if (native && new URLSearchParams(location.search).get('view') === 'settings') {
+    const { bootSettingsWindow } = await import('./settings-window');
+    await bootSettingsWindow();
+    return;
+  }
+  window.__COMPANION_STATE__ = await loadState();
+  await import('./ui/robot-math.js');
+  await import('./ui/robot-states.js');
+  await import('./ui/robot-shape.js');
+  await import('./ui/robot-face.js');
+  await import('./ui/robot-parts.js');
+  await import('./ui/robot-clips.js');
+  await import('./ui/robot-life.js');
+  await import('./ui/robot.js');
+  await import('./ui/markdown.js');
+  await import('./ui/icons.js');
+  await import('./ui/core.js');
+  const A = window.App;
+  A.native = native;
+  if (native) document.documentElement.classList.add('native-host');
+  A.version = native ? await getVersion() : '开发预览';
+  installPersistence(A);
+  if (native) {
+    const keys = await command('key_status');
+    for (const slot of ['chat', 'vision', 'search']) {
+      if (typeof keys[slot] === 'boolean') A.S.ai[slot].hasKey = keys[slot];
+    }
+  }
+  await import('./ui/pet.js');
+  await import('./ui/bubble.js');
+  await import('./ui/panel.js');
+  await import('./ui/chat.js');
+  await import('./ui/composer.js');
+  await import('./ui/reply.js');
+  A.calendarWorkday = (date: Date) => isWorkday(date, A.S.holidays);
+  installBrain(A);
+  installAI(A);
+  await import('./ui/settings.js');
+  await import('./ui/settings-a.js');
+  await import('./ui/settings-b.js');
+  await import('./ui/settings-c.js');
+  await import('./ui/settings-d.js');
+  await import('./ui/menus.js');
+  installDesktop(A);
+  if (native) await installInteractionDiagnostics(A);
+  installWeather(A);
+  if (native) await installSettingsOwner(A);
+  window.Icons.mount();
+  await A.start();
+  window.Icons.mount();
+  onboarding(A);
+
+  // All links from model output go through the system browser, never inside the webview.
+  document.addEventListener('click', event => {
+    const a = (event.target as Element).closest?.('a[href]') as HTMLAnchorElement | null;
+    if (a && !event.defaultPrevented) { event.preventDefault(); A.openUrl(a.href); }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const lb = document.querySelector('#lightbox')!;
+    if (lb.classList.contains('open')) { lb.classList.remove('open'); return; }
+    if (A.menu.isOpen()) { A.menu.close(); return; }
+    if (A.closeSettings()) return;
+    if (document.querySelector('#history')!.classList.contains('open')) { A.chat.closeHistory(); return; }
+    if (A.panel.isOpen()) { A.panel.close(); return; }
+    if (A.bubble.current()?.kind === 'speech') A.bubble.hide(false);
+  });
+  // The menu entry is explicit; closing settings or chat never exits the process.
+  A.quit = async () => {
+    A.chat.stop?.();
+    try { await A.flush(); if (native) await command('quit_app'); }
+    catch { A.toast('保存失败，尚未退出。请检查磁盘空间后重试。'); }
+  };
+  if (import.meta.env.DEV && native && await command('debug_smoke_enabled')) {
+    const { nativeSmoke } = await import('./smoke');
+    await nativeSmoke(A);
+  }
+}
+
+boot().catch(error => {
+  console.error('Companion startup failed', error);
+  document.body.replaceChildren();
+  const message = document.createElement('div');
+  message.className = 'startup-error';
+  message.textContent = `启动失败：${String(error)}。数据未被覆盖，请重启应用。`;
+  document.body.append(message);
+  if (native) command('desktop_ready').then(() => command('focus_companion')).catch(() => {});
+});

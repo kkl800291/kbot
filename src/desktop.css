@@ -1,0 +1,39 @@
+html, body { background: transparent !important; }
+[hidden] { display: none !important; }
+#menubar { display: none; }
+#pet:focus-visible { outline: 2px solid var(--ink); outline-offset: -16px; border-radius: 38%; }
+/* Native hit regions already pass transparent areas through to other apps.
+   Requiring a second asynchronous DOM hover update can swallow mouse-down. */
+.native-host #pet:not(.hidden) { pointer-events: auto; }
+#sheet { background: transparent; backdrop-filter: none; pointer-events: none; }
+#sheet .sh-win { pointer-events: auto; max-height: calc(100vh - 32px); }
+#panel, #sheet, #quick, .bubble { color: var(--text); }
+#preview { position: fixed; top: 24px; left: 24px; display: flex; align-items: center; gap: 16px; color: #eef1f8; font: 13px var(--font); }
+#preview span { opacity: .7; }
+#preview button { border: 1px solid var(--line); background: var(--surface); color: var(--text); padding: 8px 12px; border-radius: 8px; }
+.browser-preview body { background: radial-gradient(ellipse at 80% 90%, #343b5c, #171e30 65%) !important; }
+#onboarding { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; pointer-events: none; font-family: var(--font); color: var(--text); }
+.welcome-card { width: min(440px, calc(100vw - 32px)); padding: 30px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); pointer-events: auto; max-height: calc(100vh - 32px); overflow-y: auto; }
+.welcome-mark { width: 52px; height: 52px; display: grid; place-items: center; color: var(--ink); background: rgba(var(--glow-rgb), .1); border: 1px solid rgba(var(--glow-rgb), .2); border-radius: 16px; margin-bottom: 22px; }
+.welcome-eyebrow { font-size: 12px; color: var(--text-2); letter-spacing: .08em; }
+.welcome-card h1 { font-size: 28px; letter-spacing: -.04em; margin: 8px 0 14px; font-weight: 600; }
+.welcome-card p { font-size: 13px; line-height: 1.8; margin: 0; color: var(--text-2); }
+.welcome-options { margin: 24px 0 18px; display: grid; gap: 16px; }
+.welcome-option { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.welcome-option input { margin: 3px 0 0; width: 15px; height: 15px; accent-color: rgb(var(--glow-rgb)); flex: none; }
+.welcome-option span { display: grid; gap: 4px; }
+.welcome-option b { font-size: 13px; font-weight: 500; }
+.welcome-option small { color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.welcome-card .welcome-privacy { font-size: 11px; line-height: 1.8; }
+.welcome-actions { display: flex; gap: 10px; margin-top: 24px; }
+.welcome-actions button { flex: 1; }
+.startup-error { position: fixed; inset: 20%; padding: 32px; border-radius: 12px; background: #20283b; color: #fff; font: 14px/1.8 system-ui; }
+/* The native settings window owns its title bar, traffic lights and dragging. */
+html.settings-host, .settings-host body { background: var(--window) !important; }
+.settings-host #stage, .settings-host #quick, .settings-host #panel, .settings-host #preview, .settings-host #notify { display: none !important; }
+.settings-host #sheet { inset: 0; opacity: 1; transform: none; transition: none; }
+.settings-host #sheet .sh-win { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+.settings-host .sh-bar { display: none; }
+.settings-host .sh-nav { padding-top: 16px; }
+.settings-host .sh-main h2 { padding-top: 22px; }
+@media (prefers-reduced-motion: reduce) { .welcome-card { animation: none; } }

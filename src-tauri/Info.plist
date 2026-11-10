@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>LSUIElement</key><false/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>读取日历中的会议时间，在会议中保持安静，并提前提醒你。不会修改你的日历。</string>
+  <key>NSCalendarsUsageDescription</key><string>读取会议时间，以便提前提醒并自动勿扰。</string>
+</dict></plist>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN" class="theme-dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>赛博伙伴 · 交互原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 模拟的 Mac 桌面：用来展示角色悬浮在其他应用之上 -->
+  <div id="menubar">
+    <div class="mb-left"><b>访达</b><span>文件</span><span>编辑</span><span>显示</span><span>前往</span><span>窗口</span><span>帮助</span></div>
+    <div class="mb-right"><button id="tray" title="赛博伙伴" data-icon="robot"></button><span id="clock"></span></div>
+  </div>
+  <div class="fake-window">
+    <div class="fw-bar"><i></i><i></i><i></i><span>main.ts — 我的项目</span></div>
+    <div class="fw-body">
+      <div class="fw-code" id="fwCode"></div>
+      <div class="fw-note">
+        <label for="fwInput">在这里打字试试：气泡和提醒出现时不会抢走你的输入焦点</label>
+        <textarea id="fwInput" placeholder="随便打点什么…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="pet"><canvas aria-label="赛博伙伴角色"></canvas></div>
+  </div>
+  <div id="quick">
+    <button data-q="dnd" data-icon="moon"><span>勿扰</span></button>
+    <button data-q="settings" data-icon="gear"><span>设置</span></button>
+  </div>
+
+  <section id="panel" hidden aria-label="对话面板">
+    <header class="p-head">
+      <div class="p-avatar"><i></i><i></i></div>
+      <div class="p-title">
+        <div class="p-name">小派<em>暂名</em></div>
+        <div class="p-sub" id="pSub"></div>
+      </div>
+      <div class="p-tools">
+        <button class="ib" data-p="history" title="历史对话" data-icon="history"></button>
+        <button class="ib" data-p="new" title="新对话" data-icon="plus"></button>
+        <button class="ib" data-p="expand" title="放大" id="expandBtn" data-icon="expand"></button>
+        <button class="ib" data-p="close" title="收起（Esc）" data-icon="minus"></button>
+      </div>
+    </header>
+    <div class="p-history" id="history">
+      <div class="h-search"><input type="text" placeholder="搜索对话"></div>
+      <div class="h-list"></div>
+    </div>
+    <div class="p-body" id="messages"></div>
+    <footer class="p-composer">
+      <div class="att-row" id="attRow" hidden></div>
+      <div class="hint" id="hint" hidden></div>
+      <div class="input-wrap">
+        <textarea id="input" rows="1"></textarea>
+        <div class="toolbar">
+          <button class="tb" data-t="image" title="添加图片（也可以粘贴或拖入）" data-icon="image"></button>
+          <button class="tb" data-t="shot" title="截图提问" id="shotBtn" data-icon="shot" hidden></button>
+          <button class="web-toggle on" data-t="web" id="webBtn" data-icon="globe"><span>联网</span></button>
+          <span class="model-tag" id="modelTag"></span>
+          <span class="sp"></span>
+          <button class="send" id="sendBtn" title="发送（Enter）"></button>
+        </div>
+      </div>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic" multiple hidden>
+    </footer>
+    <div class="drop-overlay">松手就发给我～</div>
+    <div class="resize" id="resize" title="拖动调整大小"></div>
+  </section>
+
+  <div id="menu" role="menu"></div>
+  <div id="toast" role="status"></div>
+  <div id="notify"></div>
+  <div id="lightbox"><img alt="图片预览"></div>
+  <aside id="console"></aside>
+
+  <script src="robot-math.js"></script>
+  <script src="robot-states.js"></script>
+  <script src="robot-shape.js"></script>
+  <script src="robot-face.js"></script>
+  <script src="robot-parts.js"></script>
+  <script src="robot-clips.js"></script>
+  <script src="robot-life.js"></script>
+  <script src="robot.js"></script>
+  <script src="markdown.js"></script>
+  <script src="mock-ai.js"></script>
+  <script src="icons.js"></script>
+  <script src="core.js"></script>
+  <script src="pet.js"></script>
+  <script src="bubble.js"></script>
+  <script src="panel.js"></script>
+  <script src="chat.js"></script>
+  <script src="composer.js"></script>
+  <script src="reply.js"></script>
+  <script src="brain.js"></script>
+  <script src="settings.js"></script>
+  <script src="settings-a.js"></script>
+  <script src="settings-b.js"></script>
+  <script src="settings-c.js"></script>
+  <script src="settings-d.js"></script>
+  <script src="menus.js"></script>
+  <script src="console.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>角色实验页</title>
+  <style>
+    body { margin: 0; padding: 8px; background: #1a2036; color: #cfd6ea; font: 12px/1.4 -apple-system, "PingFang SC", sans-serif; }
+    body.light { background: #e9edf5; color: #2a3350; }
+    h3 { margin: 10px 0 4px; font-size: 12px; font-weight: 600; opacity: .8; }
+    .grid { display: flex; flex-wrap: wrap; gap: 2px; }
+    .cell { text-align: center; }
+    .cell canvas { display: block; }
+    .cell span { display: block; margin-top: -8px; font-size: 11px; opacity: .75; }
+    #out canvas { display: block; margin-bottom: 4px; max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="out"></div>
+  <script src="robot-math.js"></script>
+  <script src="robot-states.js"></script>
+  <script src="robot-shape.js"></script>
+  <script src="robot-face.js"></script>
+  <script src="robot-parts.js"></script>
+  <script src="robot-clips.js"></script>
+  <script src="robot-life.js"></script>
+  <script src="robot.js"></script>
+  <script>
+    const out = document.getElementById('out');
+    const mk = (size, seed) => {
+      const c = document.createElement('canvas');
+      const r = new Robot(c, { manual: true, seed: seed || 7 });
+      r.setSize(size);
+      return r;
+    };
+    const title = t => { const h = document.createElement('h3'); h.textContent = t; out.appendChild(h); };
+    window.lab = {
+      clear() { out.innerHTML = ''; },
+      theme(light, shell) { document.body.classList.toggle('light', !!light); window.__shell = shell || 'light'; },
+      // 16 个表情的静帧：每个先稳定 1 秒再截
+      states(size = 64, names) {
+        title('表情静帧');
+        const g = document.createElement('div'); g.className = 'grid'; out.appendChild(g);
+        for (const k of names || Object.keys(Robot.STATES)) {
+          const r = mk(size); r.shell = window.__shell || 'light';
+          r.setBase(k); r.advance(1.0);
+          const d = document.createElement('div'); d.className = 'cell';
+          d.appendChild(r.canvas);
+          const s = document.createElement('span'); s.textContent = Robot.STATES[k].label; d.appendChild(s);
+          g.appendChild(d);
+        }
+      },
+      // 连拍：先在 from 状态稳定，然后切到 to（flash 或 base），按 at 里的时间点（秒）截帧
+      strip(o) {
+        const size = o.size || 52, at = o.at, cols = o.cols || 8;
+        const r = mk(size, o.seed); r.shell = window.__shell || 'light';
+        r.setBase(o.from || 'idle'); r.advance(o.pre ?? 1.0);
+        if (o.before) o.before(r);
+        if (o.to) { if (o.mode === 'base') r.setBase(o.to); else r.flash(o.to, 1e6); }
+        if (o.run) o.run(r);
+        const w = r.canvas.width, h = r.canvas.height, rows = Math.ceil(at.length / cols);
+        const cv = document.createElement('canvas');
+        const cw = Math.round(w * 0.75), ch = Math.round(h * 0.9);
+        cv.width = cw * cols; cv.height = ch * rows;
+        cv.style.width = cv.width / (devicePixelRatio || 1) + 'px';
+        const cx = cv.getContext('2d');
+        cx.fillStyle = document.body.classList.contains('light') ? '#2a3350' : '#cfd6ea';
+        cx.font = `${Math.round(10 * (devicePixelRatio || 1))}px sans-serif`;
+        let now = 0;
+        at.forEach((t, i) => {
+          if (t > now) r.advance(t - now, 1 / 120);
+          now = Math.max(now, t);
+          if (o.at_hook) o.at_hook(r, t, i);
+          // 截取角色主体区域（去掉两侧空白）
+          const sx = w * 0.125, sy = h * 0.02, ox = (i % cols) * cw, oy = Math.floor(i / cols) * ch;
+          cx.drawImage(r.canvas, sx, sy, cw, ch, ox, oy, cw, ch);
+          cx.fillText(t.toFixed(2) + 's', ox + 4, oy + ch - 4);
+        });
+        title(o.title || (o.from + ' → ' + o.to));
+        out.appendChild(cv);
+        return r;
+      },
+      // 单个大图，看细节
+      big(name, size = 150, adv = 1.0) {
+        const r = mk(size); r.shell = window.__shell || 'light';
+        r.setBase(name); r.advance(adv);
+        title(name); out.appendChild(r.canvas);
+        return r;
+      },
+    };
+  </script>
+</body>
+</html>
