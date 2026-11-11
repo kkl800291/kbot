@@ -41,14 +41,15 @@ export function summarizeUpdateNotes(notes?: string | null, maxChars = 110): str
 }
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
-export const DEFAULT_UPDATE_REPO = 'kkl800291/kbot';
+export const DEFAULT_UPDATE_ENDPOINT = 'https://schathub.xyz/kbot/releases/latest.json';
+export const DEFAULT_UPDATE_REPO = DEFAULT_UPDATE_ENDPOINT;
 
 export function installUpdater(A: any) {
   const state: UpdateState = {
     status: 'idle',
     configured: true,
-    endpoint: A.S?.updater?.endpoint || DEFAULT_UPDATE_REPO,
-    currentVersion: A.version || '0.1.8',
+    endpoint: A.S?.updater?.endpoint || DEFAULT_UPDATE_ENDPOINT,
+    currentVersion: A.version || '0.1.9',
     latestVersion: null,
     hasUpdate: false,
     downloadUrl: null,

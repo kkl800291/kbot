@@ -78,8 +78,8 @@
       X.group('关于与版本更新',
         updateSlot,
         X.row('自动检查更新', '启动时及后台定期检测新版本；发现更新时由 KBOT 主动在气泡或对话窗提醒你一键升级', X.toggle('updater.autoCheck')),
-        X.row('更新源地址', '默认绑定 kkl800291/kbot Releases；也支持自定义 GitHub 仓库、.git 地址或 latest.json 清单链接（留空自动回退默认仓库或 ~/KBOT/releases/latest.json）', X.text('updater.endpoint', {
-          ph: '默认 kkl800291/kbot',
+        X.row('更新源地址', '默认连接自建高速更新源（https://schathub.xyz/kbot/releases/latest.json）；也支持自定义 latest.json 清单链接或 GitHub 仓库', X.text('updater.endpoint', {
+          ph: '默认 https://schathub.xyz/kbot/releases/latest.json',
           w: 250,
           max: 280,
           allowEmpty: true,

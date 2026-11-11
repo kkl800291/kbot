@@ -72,7 +72,7 @@
     },
     updater: {
       autoCheck: true,
-      endpoint: 'kkl800291/kbot',
+      endpoint: 'https://schathub.xyz/kbot/releases/latest.json',
       skippedVersion: '',
     },
     voice: {
@@ -104,6 +104,9 @@
   };
   A.defaults = () => clone(DEFAULTS);
   A.S = merge(clone(DEFAULTS), stored.S);
+  if (A.S?.updater?.endpoint === 'kkl800291/kbot') {
+    A.S.updater.endpoint = DEFAULTS.updater.endpoint;
+  }
   if (!('reduced' in (stored.S || {})) && window.matchMedia) A.S.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   // 按路径读写设置（如 'params.waterEvery'）；写入后保存并广播 set:<顶层键>
   A.sget = path => path.split('.').reduce((o, k) => (o == null ? o : o[k]), A.S);

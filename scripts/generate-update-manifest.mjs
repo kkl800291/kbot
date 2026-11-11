@@ -18,6 +18,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8
 const args = process.argv.slice(2);
 let artifactArg = '';
 let baseUrl = '';
+let releaseUrl = '';
 let notes = '';
 let outPath = '';
 
@@ -25,6 +26,8 @@ for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--base-url' && args[i + 1]) {
     baseUrl = args[++i];
+  } else if (a === '--release-url' && args[i + 1]) {
+    releaseUrl = args[++i];
   } else if (a === '--notes' && args[i + 1]) {
     notes = args[++i];
   } else if (a === '--out' && args[i + 1]) {
@@ -80,6 +83,7 @@ const manifest = {
   pubDate: new Date().toISOString(),
   notes: notes || `KBOT v${pkg.version} 更新`,
   downloadUrl: resolvedDownload,
+  ...(releaseUrl ? { releaseUrl } : {}),
   sha256,
 };
 

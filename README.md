@@ -21,7 +21,7 @@
    - **双模自动（Auto）**：优先复用已挂载桥接的外部 DSH 实例；未检测到时自动在后台拉起并托管 `dsh --profile web`。
    - **默认养成目录 `~/KBOT`**：首次启动非破坏性初始化 `AGENTS.md`（角色设定）、`MEMORY.md`（长期记忆）与 `diary/`（相处日记），支持在设置中自定义目录。
 6. **内置静默自更新**
-   - 默认绑定 [`kkl800291/kbot`](https://github.com/kkl800291/kbot) GitHub Releases（亦支持自定义 `latest.json` 清单地址或本地 `~/KBOT/releases/latest.json`），检测到新版本后可一键下载校验、替换 `/Applications/KBOT.app` 并自动重启。
+   - 默认连接自有 HTTPS 高速更新源 [`https://schathub.xyz/kbot/releases/latest.json`](https://schathub.xyz/kbot/releases/latest.json)（亦支持自定义 `latest.json` 地址、GitHub Releases 或本地 `~/KBOT/releases/latest.json`），检测到新版本后可一键下载校验、替换 `/Applications/KBOT.app` 并自动重启。
 
 ---
 
@@ -46,19 +46,13 @@ ditto src-tauri/target/release/bundle/macos/KBOT.app /Applications/KBOT.app
 
 ---
 
-## 自动打包发版（GitHub Actions）
+## 一键打包与自动发版
 
-完整图文与命令步骤见 **[`发版说明.md`](发版说明.md)**。仓库已内置两条工作流：
-
-- **CI（`.github/workflows/ci.yml`）**：每次推送到 `main` 或发起 PR 时自动在 `macos-15` 运行前端测试、TypeScript 构建校验与 Rust 单元测试。
-- **Release（`.github/workflows/release.yml`）**：推送 `v*` 标签（或在 Actions 页面手动触发 `workflow_dispatch`）时自动完成测试、构建 Apple Silicon `.app.zip` 与 `.dmg`、生成含 SHA-256 校验值的 `latest.json` 并发布到 GitHub Releases：
+完整步骤见 **[`发版说明.md`](发版说明.md)**。配置好本机 `.env.release.local`（已加入 `.gitignore`，不入库）后，只需一行命令即可完成本机测试、打包 `.app.zip` + `.dmg`、生成 SHA-256 `latest.json` 并原子发布到自有 HTTPS 更新源：
 
 ```sh
-git tag v0.1.9
-git push origin v0.1.9
+npm run release -- patch "本次更新说明"
 ```
-
-> 提示：若希望未配置 GitHub Token 的桌面客户端直接通过 GitHub Releases 自动检测并下载更新，请保持仓库为 **Public**（或在设置中配置公开可访问的 `latest.json` 地址）。
 
 ---
 

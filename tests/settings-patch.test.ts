@@ -38,7 +38,7 @@ describe('settings window state patches', () => {
     after.S.dsh.workspace = '~/MyKBOT';
     after.S.voice.enabled = true;
     after.S.voice.mimoVoice = '小团子';
-    after.S.updater.endpoint = 'mingqukj/kbot';
+    after.S.updater.endpoint = 'https://schathub.xyz/kbot/releases/latest.json';
     current.S.voice.hasKey = true; // updated concurrently in main window
     current.S.updater.skippedVersion = '0.1.7';
     const changes = diffSettings(before, after);
@@ -47,7 +47,7 @@ describe('settings window state patches', () => {
     expect(result.S.voice.enabled).toBe(true);
     expect(result.S.voice.mimoVoice).toBe('小团子');
     expect(result.S.voice.hasKey).toBe(true);
-    expect(result.S.updater).toEqual({ autoCheck: true, endpoint: 'mingqukj/kbot', skippedVersion: '0.1.7' });
+    expect(result.S.updater).toEqual({ autoCheck: true, endpoint: 'https://schathub.xyz/kbot/releases/latest.json', skippedVersion: '0.1.7' });
   });
 
   it('syncs the companion rewrite switch without treating it as derived state', () => {

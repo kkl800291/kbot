@@ -90,7 +90,7 @@ fn expand_home(raw: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
-const DEFAULT_GITHUB_REPO: &str = "kkl800291/kbot";
+const DEFAULT_UPDATE_URL: &str = "https://schathub.xyz/kbot/releases/latest.json";
 
 fn normalize_endpoint(input: Option<String>) -> Option<String> {
     let explicit = input
@@ -140,6 +140,13 @@ fn normalize_endpoint(input: Option<String>) -> Option<String> {
                 ));
             }
         }
+        // Self-hosted release directory shorthand: "https://.../releases" or "https://.../releases/"
+        if (raw.starts_with("https://") || raw.starts_with("http://"))
+            && !raw.contains("api.github.com/")
+            && (raw.ends_with('/') || raw.ends_with("/releases"))
+        {
+            return Some(format!("{}/latest.json", raw.trim_end_matches('/')));
+        }
         return Some(raw);
     }
 
@@ -147,9 +154,7 @@ fn normalize_endpoint(input: Option<String>) -> Option<String> {
     if local_default.is_file() {
         return Some(local_default.to_string_lossy().into_owned());
     }
-    Some(format!(
-        "https://api.github.com/repos/{DEFAULT_GITHUB_REPO}/releases/latest"
-    ))
+    Some(DEFAULT_UPDATE_URL.to_string())
 }
 
 fn resolve_relative_download(base_source: &str, raw_url: &str) -> String {
@@ -790,6 +795,14 @@ mod tests {
             normalize_endpoint(Some("https://cdn.example.com/kbot/latest.json".into())),
             Some("https://cdn.example.com/kbot/latest.json".into())
         );
+        assert_eq!(
+            normalize_endpoint(Some("https://schathub.xyz/kbot/releases".into())),
+            Some("https://schathub.xyz/kbot/releases/latest.json".into())
+        );
+        assert_eq!(
+            normalize_endpoint(Some("https://schathub.xyz/kbot/releases/".into())),
+            Some("https://schathub.xyz/kbot/releases/latest.json".into())
+        );
     }
 
     #[test]
@@ -817,7 +830,7 @@ mod tests {
         let gh = json!({
             "tag_name": "v0.2.0",
             "body": "GitHub Release Notes",
-            "html_url": "https://github.com/mingqukj/cyber-companion/releases/tag/v0.2.0",
+            "html_url": "https://github.com/example/kbot/releases/tag/v0.2.0",
             "assets": [
                 {
                     "name": "KBOT_0.2.0_x86_64.msi",
