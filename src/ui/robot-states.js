@@ -32,13 +32,13 @@
     // blush 腮红；bright 亮度；ears 耳朵外展角；tilt 头部倾斜；fl/fs 悬浮幅度与速度；sq0 静态压扁；ant 天线偏角；core 底座亮度
     m: Object.assign({ blush: 0, bright: 1, ears: 0, tilt: 0, fl: 2.2, fs: 1.9, sq0: 0, ant: 0, core: 0.6 }, o.misc),
   });
-  const S = (label, o, flags) => Object.assign({ label, pose: pose(o) }, flags);
+  const S = (label, o, flags) => Object.assign({ label, pose: pose(o), opts: o }, flags);
 
   const STATES = {
     idle: S('待机', { mouth: { ma: 4.6, mk: 2.2 } }, { idle: true }),
     talk: S('说话', { eye: { b: 14.5 }, mouth: { ma: 6, mt: 1.6, mb: 1.6, mk: 1.5 }, misc: { ears: 6, core: 0.8 } }, { enter: 'nod', talk: true }),
     think: S('思考', { eye: { a: 9, b: 13.5 }, mouth: { mv: 0, md: 1 }, misc: { ears: 10, ant: 6, tilt: 4, core: 0.9 } },
-      { color: 'think', look: [0.6, -0.7], enter: 'ponder', pulse: 6 }),
+      { look: [0.6, -0.7], enter: 'ponder', pulse: 6, aura: true }),
     remind: S('提醒', { eye: { a: 10.5, b: 17 }, mouth: { ma: 3, mt: 2.8, mb: 2.8, my: 23 }, misc: { ears: 16, fl: 3, fs: 2.6, core: 1 } },
       { color: 'remind', enter: 'alert', loop: ['alert', 1.9], pulse: 6 }),
     happy: S('开心', { eye: arch(12, 12.5, 17, 10, { oy: 2 }), mouth: { ma: 7.5, mt: 1.4, mb: 4.5, mk: 2.5 }, head: { n: 3 }, misc: { blush: 0.8, ears: 12, fl: 3.5, fs: 3, core: 0.9 } },
@@ -66,6 +66,20 @@
     dnd: S('勿扰', { eye: { a: 10, b: 14, t0: 0, tS: -1 }, mouth: { ma: 4, mk: 0 }, misc: { bright: 0.6, ears: -10, fl: 1.4, fs: 1.1, core: 0.3 } },
       { color: 'dnd', moon: true, speed: 0.7 }),
   };
+
+  // 玻璃气泡的表情：所有眼睛都是同一只胶囊，只用眼睑和比例变化；不用 ^、> < 这类符号眼，也没有腮红
+  const smileEye = o => ({ a: 9.5, b: 13.5, b0: 3, bQ: 0.6, ...o });
+  const GLASS = {
+    happy: { eye: smileEye() },
+    coy: { eye: smileEye({ rot: -4 }) },
+    wink: { eyeR: closed(9.5, 1, -3.5, 3.4, { oy: 2 }) },
+    lifted: { eye: { a: 9.5, b: 12.5 } },
+    hover: { eye: smileEye({ a: 10, b: 15.5, b0: 6 }) },
+  };
+  for (const [k, st] of Object.entries(STATES)) {
+    const o = st.opts, g = GLASS[k] || {};
+    st.gpose = pose({ ...o, ...g, eyeR: g.eyeR || (g.eye ? undefined : o.eyeR), misc: { ...o.misc, blush: 0 } });
+  }
 
   RB.STATES = STATES;
   RB.eyeDefault = eye;

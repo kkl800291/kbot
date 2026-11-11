@@ -11,9 +11,9 @@
   ];
 
   const MODES = [
-    ['auto', '双模自动（优先连外部实例，否则自动托管启动）'],
-    ['external', '仅连接外部已运行的 DeepSeek Harness'],
-    ['managed', '始终由 KBOT 独立后台托管进程'],
+    ['auto', '自动'],
+    ['external', '仅连接已打开的实例'],
+    ['managed', '始终由 KBOT 托管'],
   ];
 
   pages.agent = el => {
@@ -42,16 +42,16 @@
       if (st.port) detailParts.push(`桥接端口：127.0.0.1:${st.port}`);
       if (st.pid) detailParts.push(`托管 PID：${st.pid}`);
       if (!connected && st.error) detailParts.push(st.error);
-      const detail = detailParts.join(' · ') || '智能推理、工具调用、长期记忆与定时提醒均由本机 DeepSeek Harness 驱动';
+      const detail = detailParts.join(' · ') || '推理、工具、记忆与提醒都由本机 DeepSeek Harness 提供';
 
-      const reconnectBtn = X.btn(connecting ? '连接中…' : '重新检测连接', async () => {
+      const reconnectBtn = X.btn(connecting ? '连接中…' : '重新连接', async () => {
         reconnectBtn.disabled = true;
         try { await A.agent?.reconnect?.(); }
         finally { reconnectBtn.disabled = false; drawStatus(); }
       }, connected ? 'ghost' : 'primary');
       reconnectBtn.disabled = connecting;
 
-      const restartBtn = X.btn('重启托管核心', async () => {
+      const restartBtn = X.btn('重启', async () => {
         restartBtn.disabled = true;
         try {
           await A.agent?.restart?.();
@@ -78,7 +78,7 @@
       });
 
       statusSlot.append(
-        X.row('当前状态', detail, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
+        X.row('状态', detail, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
           h('span', { class: badgeCls }, badgeText),
           reconnectBtn,
           restartBtn,
@@ -88,7 +88,7 @@
     };
     drawStatus();
 
-    const openConsoleBtn = X.btn('打开 DSH 模型与扩展控制台', async () => {
+    const openConsoleBtn = X.btn('打开控制台', async () => {
       openConsoleBtn.disabled = true;
       try {
         await A.agent?.openConsole?.();
@@ -97,15 +97,15 @@
       }
     }, 'primary');
 
-    const statusGroup = X.group('DeepSeek Harness 连接状态',
+    const statusGroup = X.group('DeepSeek Harness',
       statusSlot,
-      X.row('模型与扩展配置', '一键打开当前 DeepSeek Harness 控制台，填写模型 API Key、切换默认模型或管理 MCP 插件；不开启 DeepSeek Harness.app 也能独立运行', openConsoleBtn),
-      X.row('接入模式', '双模自动模式下，已打开带桥接的 DeepSeek Harness 时直接复用，未打开时由 KBOT 自动后台拉起', X.select('dsh.mode', MODES, () => {
+      X.row('模型与扩展', 'API Key、默认模型和 MCP 插件', openConsoleBtn),
+      X.row('接入方式', null, X.select('dsh.mode', MODES, () => {
         A.agent?.reconnect?.();
-      }, 290)),
-      X.row('注入桥接到 DeepSeek Harness.app', '在 ~/.dsh/profiles/desktop/cordis.patch.yml 登记桥接插件（保留你现有的桌面端配置），实现桌面端 App 与 KBOT 实时互通', patchSlot),
-      X.row('自定义 dsh 可执行路径', '留空则自动查找 PATH、~/.dsh/bin/dsh 与 DeepSeek Harness.app', X.text('dsh.binary', {
-        ph: '自动检测（可留空）',
+      }, 190)),
+      X.row('与 DeepSeek Harness.app 互通', '写入桌面端插件配置，保留你现有的设置', patchSlot),
+      X.row('dsh 路径', '留空时自动查找', X.text('dsh.binary', {
+        ph: '自动',
         w: 240,
         max: 240,
         allowEmpty: true,
@@ -149,17 +149,18 @@
 
     el.append(
       statusGroup,
-      X.group('专属养成目录（记忆、日记与定时任务）',
-        X.row('养成目录路径', 'KBOT 的人格提示词（AGENTS.md）、长期记忆（MEMORY.md）与相处日记（diary/）均以纯 Markdown 保存在此目录中', wsInput),
-        X.row('目录管理', '你可以直接用任意编辑器查看或修改记忆文件，也可以在 DeepSeek Harness 中打开同一目录协同使用', h('div', { style: 'display:flex;gap:8px' }, [openWsBtn, initWsBtn])),
+      X.note('“自动”会优先复用已打开的 DeepSeek Harness，没有打开时由 KBOT 在后台启动。'),
+      X.group('养成目录',
+        X.row('位置', '人格、长期记忆和日记都以 Markdown 保存在这里', wsInput),
+        X.row('管理', null, h('div', { style: 'display:flex;gap:8px' }, [openWsBtn, initWsBtn])),
       ),
-      X.note('提示：在对话里说「20 分钟后提醒我喝水」或「每天早上 9:30 提醒我站会」，DSH 会使用内置定时调度器创建提醒，到点自动通过 KBOT 气泡与语音通知你。'),
-      X.group('角色性格与称呼（实时同步至 DSH 上下文与语音风格）',
+      X.note('在对话里说“20 分钟后提醒我喝水”，到点后 KBOT 会用气泡和语音提醒你。'),
+      X.group('性格与称呼',
         cards,
-        X.row('你希望我怎么叫你', '默认称呼「你」，修改后立即同步到桌面感知上下文', nick),
+        X.row('怎么称呼你', null, nick),
       ),
-      X.group('今日互动统计',
-        X.row('今日对话回复次数', '仅在本机统计', h('span', { class: 'sx-status' }, `${callsToday} 次`)),
+      X.group('今天',
+        X.row('对话回复', null, h('span', { class: 'sx-status' }, `${callsToday} 次`)),
       ),
     );
 

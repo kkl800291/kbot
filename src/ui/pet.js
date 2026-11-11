@@ -55,7 +55,7 @@
     root.classList.toggle('shell-graphite', S.shell === 'graphite');
     root.classList.toggle('reduced', !!S.reduced);
     root.classList.toggle('no-top', S.onTop === false);
-    root.style.setProperty('--glow-rgb', Robot.PALETTES[S.palette].join(', '));
+    root.style.setProperty('--glow-rgb', (Robot.PALETTES[S.palette] || Robot.PALETTES.blue).join(', '));
     robot.palette = S.palette; robot.shell = S.shell; robot.reduced = !!S.reduced;
     if (robot.size !== S.size) A.resizePet(S.size);
   };

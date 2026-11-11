@@ -155,10 +155,31 @@
   };
 
   // ---------- 外壳 ----------
+  const PAGE_INFO = {
+    general: '软件更新、启动方式与外观',
+    agent: '连接 DeepSeek Harness，管理记忆与性格',
+    voice: '语音播报与发音引擎',
+    sense: '让 KBOT 了解你在做什么，全部在本机完成',
+    chat: '唤出快捷键与对话记录',
+  };
+  let search, results, cardStatus, index = null;
+
   function build() {
-    titleEl = h('h2');
+    titleEl = h('h2', { 'data-tauri-drag-region': '' });
     pageEl = h('div', { class: 'sh-page' });
-    nav = h('nav', { class: 'sh-nav', 'aria-label': '设置分类' }, PAGES.map(([id, label, ic]) => h('button', { type: 'button', 'data-page': id }, [h('span', { html: A.icon(ic, 15) }), label])));
+    search = h('input', { class: 'sh-search', type: 'search', placeholder: '搜索', 'aria-label': '搜索设置', spellcheck: 'false', autocomplete: 'off' });
+    cardStatus = h('span');
+    const card = h('button', { class: 'sh-card', type: 'button', 'data-go': 'agent', 'aria-label': 'KBOT 智能核心' }, [
+      h('div', { class: 'p-avatar sh-av', 'aria-hidden': 'true' }, [h('i'), h('i')]),
+      h('div', { class: 'sh-card-t' }, [h('b', {}, 'KBOT'), cardStatus]),
+    ]);
+    results = h('div', { class: 'sh-results', hidden: true, role: 'listbox', 'aria-label': '搜索结果' });
+    nav = h('nav', { class: 'sh-nav', 'aria-label': '设置分类', 'data-tauri-drag-region': '' }, [
+      h('div', { class: 'sh-search-wrap' }, [h('span', { html: A.icon('search', 13) }), search]),
+      card,
+      h('div', { class: 'sh-pages' }, PAGES.map(([id, label, ic]) => h('button', { type: 'button', 'data-page': id }, [h('span', { html: A.icon(ic, 15) }), label]))),
+      results,
+    ]);
     sheet = h('div', { id: 'sheet', hidden: true, role: 'dialog', 'aria-label': '设置' }, h('div', { class: 'sh-win' }, [
       h('div', { class: 'sh-bar' }, [
         h('button', { class: 'sh-dot', type: 'button', title: '关闭（Esc）', 'aria-label': '关闭设置', onclick: () => A.closeSettings() }),
@@ -166,9 +187,64 @@
       ]),
       h('div', { class: 'sh-body' }, [nav, h('div', { class: 'sh-main' }, [titleEl, pageEl])]),
     ]));
-    nav.addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); });
+    nav.addEventListener('click', e => {
+      const b = e.target.closest('[data-page], [data-go], [data-hit]'); if (!b) return;
+      if (b.dataset.hit != null) { reveal(index[+b.dataset.hit]); return; }
+      go(b.dataset.page || b.dataset.go);
+    });
+    search.addEventListener('input', find);
+    search.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && search.value) { e.stopPropagation(); search.value = ''; find(); }
+      if (e.key === 'Enter') results.querySelector('[data-hit]')?.click();
+    });
     document.body.append(sheet);
     markNav();
+  }
+
+  // 搜索索引：把每一页渲染到游离节点里，只收集行标题和所属分组
+  function buildIndex() {
+    const out = [];
+    for (const [id, pageLabel] of PAGES) {
+      const tmp = h('div');
+      try { A.settingsPages[id](tmp); } catch (_) { continue; }
+      tmp.querySelectorAll('.sx-t').forEach(t => {
+        const label = t.textContent.trim();
+        if (!label) return;
+        const group = t.closest('.sx-group')?.querySelector('h4')?.textContent.trim() || '';
+        out.push({ id, pageLabel, label, group, key: (label + ' ' + group + ' ' + pageLabel).toLowerCase() });
+      });
+    }
+    return out;
+  }
+
+  function find() {
+    const q = search.value.trim().toLowerCase();
+    nav.classList.toggle('searching', !!q);
+    results.hidden = !q;
+    if (!q) { results.replaceChildren(); return; }
+    if (!index) index = buildIndex();
+    const hits = index.map((it, i) => [it, i]).filter(([it]) => it.key.includes(q)).slice(0, 30);
+    results.replaceChildren(...(hits.length
+      ? hits.map(([it, i]) => h('button', { type: 'button', 'data-hit': String(i), role: 'option' }, [h('span', {}, it.label), h('em', {}, it.pageLabel)]))
+      : [h('div', { class: 'sh-none' }, '没有结果')]));
+  }
+
+  function reveal(it) {
+    if (!it) return;
+    go(it.id);
+    const row = $$('.sx-t', pageEl).find(t => t.textContent.trim() === it.label)?.closest('.sx-row');
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    row.classList.remove('sx-found'); void row.offsetWidth; row.classList.add('sx-found');
+  }
+
+  function hero(id) {
+    const [, label, ic] = PAGES.find(p => p[0] === id);
+    return h('div', { class: 'sh-hero' }, [
+      h('span', { class: 'sh-hero-ic', 'data-k': id, html: A.icon(ic, 26) }),
+      h('b', {}, label),
+      h('p', {}, PAGE_INFO[id]),
+    ]);
   }
 
   function markNav() {
@@ -178,6 +254,8 @@
     const st = A.dshState;
     const disconnected = st ? (!st.connected && st.status !== 'connecting') : A.S.model === 'none';
     btn.classList.toggle('warn', disconnected);
+    cardStatus.textContent = st?.connected ? '智能核心已连接' : st?.status === 'connecting' ? '正在连接…' : '智能核心未连接';
+    cardStatus.className = st?.connected ? 'ok' : disconnected ? 'bad' : '';
   }
 
   function go(id, keepScroll) {
@@ -188,10 +266,10 @@
     $$('[data-page]', nav).forEach(b => b.classList.toggle('on', b.dataset.page === id));
     titleEl.textContent = PAGES.find(p => p[0] === id)[1];
     pageEl.innerHTML = ''; pageEl._redraw = null;
+    pageEl.append(hero(id));
     A.settingsPages[id](pageEl);
     pageEl.scrollTop = keepScroll ? top : 0;
   }
-
   A.openSettings = page => {
     if (!sheet) build();
     A.menu?.close?.();

@@ -8,25 +8,34 @@ html, body { background: transparent !important; }
 #sheet { background: transparent; backdrop-filter: none; pointer-events: none; }
 #sheet .sh-win { pointer-events: auto; max-height: calc(100vh - 32px); }
 #panel, #sheet, .bubble { color: var(--text); }
-#preview { position: fixed; top: 24px; left: 24px; display: flex; align-items: center; gap: 16px; color: #eef1f8; font: 13px var(--font); }
-#preview span { opacity: .7; }
-#preview button { border: 1px solid var(--line); background: var(--surface); color: var(--text); padding: 8px 12px; border-radius: 8px; }
-.browser-preview body { background: radial-gradient(ellipse at 80% 90%, #343b5c, #171e30 65%) !important; }
+#preview { position: fixed; top: 20px; left: 20px; display: flex; align-items: center; gap: 10px; color: #f5f5f7; font: 13px var(--font); }
+#preview b { font-weight: 600; }
+#preview span { opacity: .7; margin-right: 6px; }
+#preview button { border: 0; background: rgba(255, 255, 255, .16); color: #fff; height: 28px; padding: 0 13px; border-radius: 14px; font-weight: 500; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .2); }
+#preview button:hover { background: rgba(255, 255, 255, .26); }
+.browser-preview body { background: radial-gradient(1100px 700px at 78% 14%, #8ea2d8 0%, transparent 60%), radial-gradient(900px 700px at 8% 96%, #b79ac4 0%, transparent 60%), linear-gradient(160deg, #4b5c86, #6a6d97 52%, #8f7a96) !important; }
+html.theme-dark.browser-preview body { background: radial-gradient(1100px 700px at 78% 14%, #2c3a64 0%, transparent 60%), radial-gradient(900px 700px at 8% 96%, #3d2d4c 0%, transparent 60%), linear-gradient(160deg, #141826, #1d1d30 52%, #251c2b) !important; }
 #onboarding { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; pointer-events: none; font-family: var(--font); color: var(--text); }
-.welcome-card { width: min(440px, calc(100vw - 32px)); padding: 30px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); pointer-events: auto; max-height: calc(100vh - 32px); overflow-y: auto; }
-.welcome-mark { width: 52px; height: 52px; display: grid; place-items: center; color: var(--ink); background: rgba(var(--glow-rgb), .1); border: 1px solid rgba(var(--glow-rgb), .2); border-radius: 16px; margin-bottom: 22px; }
-.welcome-eyebrow { font-size: 12px; color: var(--text-2); letter-spacing: .08em; }
-.welcome-card h1 { font-size: 28px; letter-spacing: -.04em; margin: 8px 0 14px; font-weight: 600; }
-.welcome-card p { font-size: 13px; line-height: 1.8; margin: 0; color: var(--text-2); }
-.welcome-options { margin: 24px 0 18px; display: grid; gap: 16px; }
-.welcome-option { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
-.welcome-option input { margin: 3px 0 0; width: 15px; height: 15px; accent-color: rgb(var(--glow-rgb)); flex: none; }
-.welcome-option span { display: grid; gap: 4px; }
+.welcome-card { width: min(420px, calc(100vw - 32px)); padding: 32px 28px 24px; background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8); pointer-events: auto; max-height: calc(100vh - 32px); overflow-y: auto; text-align: center; animation: welcome .42s var(--spring); }
+.welcome-mark { width: 64px; height: 42px; border-radius: 15px; gap: 9px; margin: 4px auto 22px; --mark-drop: 0 10px 26px -8px rgba(var(--glow-rgb), .6), 0 1px 2px rgba(0, 0, 0, .1); }
+.welcome-mark::after { width: 10px; height: 10px; bottom: -5px; }
+.welcome-mark i { width: 6px; height: 16px; animation: eblink 4.5s infinite; }
+.welcome-eyebrow { font-size: 12px; font-weight: 500; color: var(--ink); }
+.welcome-card h1 { font-family: var(--font-display); font-size: 26px; letter-spacing: -.025em; margin: 6px 0 10px; font-weight: 700; }
+.welcome-card p { font-size: 13px; line-height: 1.65; margin: 0 auto; color: var(--text-2); max-width: 330px; }
+.welcome-options { margin: 22px 0 14px; display: grid; text-align: left; border-radius: 12px; background: var(--raised); box-shadow: var(--lift); overflow: hidden; }
+.welcome-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; cursor: default; }
+.welcome-option + .welcome-option::before { content: ''; position: absolute; left: 44px; right: 0; top: 0; height: .5px; background: var(--line-strong); }
+.welcome-option input { -webkit-appearance: none; appearance: none; margin: 1px 0 0; width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px var(--text-3); background: transparent; transition: background .15s, box-shadow .15s; }
+.welcome-option input:checked { box-shadow: none; background: rgb(var(--glow-rgb)) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 12.5l3.2 3.2L17 8.8'/%3E%3C/svg%3E") center / 18px no-repeat; }
+.welcome-option input:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(var(--glow-rgb), .35); }
+.welcome-option span { display: grid; gap: 2px; }
 .welcome-option b { font-size: 13px; font-weight: 500; }
-.welcome-option small { color: var(--text-2); font-size: 12px; line-height: 1.5; }
-.welcome-card .welcome-privacy { font-size: 11px; line-height: 1.8; }
-.welcome-actions { display: flex; gap: 10px; margin-top: 24px; }
-.welcome-actions button { flex: 1; }
+.welcome-option small { color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+.welcome-card .welcome-privacy { font-size: 11px; line-height: 1.6; color: var(--text-3); }
+.welcome-actions { display: flex; gap: 8px; margin-top: 20px; }
+.welcome-actions button { flex: 1; height: 34px; border-radius: 10px; font-size: 13px; }
+@keyframes welcome { from { opacity: 0; transform: translateY(10px) scale(.97); } }
 .startup-error { position: fixed; inset: 20%; padding: 32px; border-radius: 12px; background: #20283b; color: #fff; font: 14px/1.8 system-ui; }
 /* The native settings window owns its title bar, traffic lights and dragging. */
 html.settings-host, .settings-host body { background: var(--window) !important; }
@@ -34,6 +43,9 @@ html.settings-host, .settings-host body { background: var(--window) !important; 
 .settings-host #sheet { inset: 0; opacity: 1; transform: none; transition: none; }
 .settings-host #sheet .sh-win { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .settings-host .sh-bar { display: none; }
-.settings-host .sh-nav { padding-top: 16px; }
-.settings-host .sh-main h2 { padding-top: 22px; }
+/* 透明标题栏：红绿灯落在侧栏顶部，页面标题与红绿灯同一行 */
+.settings-host .sh-nav { padding-top: 64px; }
+.settings-host .sh-main h2 { height: 52px; padding: 0 28px; display: flex; align-items: center; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; user-select: none; -webkit-user-select: none; }
+.settings-host .sh-page { padding-left: 28px; padding-right: 28px; }
+.settings-host .sh-page > :first-child { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { .welcome-card { animation: none; } }

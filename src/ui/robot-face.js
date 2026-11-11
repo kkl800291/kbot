@@ -7,6 +7,7 @@
   const EX = 21.5, EY = -5;   // 眼睛的静止位置
   const GX = 8, GY = 5.5;     // 视线能带动眼睛移动的最大距离
   const NO_MOUTH_DY = 5;      // 不画嘴时，眼睛下移到屏幕正中
+  const BUBBLE_EX = 17.5;     // 气泡机身两眼更靠拢，比例取自应用图标
 
   // 看向一侧时靠外的那只眼睛略微变窄，像头转过去后的透视
   RB.eyeWiden = (M, side) => side < 0
@@ -19,6 +20,7 @@
       case 'pebble': return { sw: hw - 9, sh: hh * 0.6, oy: -hh * 0.26, n: M.n + 1.4 };
       case 'retro': return { sw: hw - 10.5, sh: hh - 10.5, oy: 0, n: M.n - 0.6 };
       case 'pro': case 'visor': return { sw: hw - 6.5, sh: hh - 6.5, oy: 0, n: M.n + 0.7 };
+      case 'bubble': return { sw: hw - 4, sh: hh - 4, oy: 0, n: M.n + 0.3 };
       default: return { sw: hw - 8.5, sh: hh - 8.5, oy: 0, n: M.n + 0.7 };
     }
   };
@@ -32,7 +34,7 @@
   // 眼睛的最终位置：静止位置 + 表情偏移 + 视线 + 头部转动的视差。
   // 眼睛放大（惊讶、提醒）时，视线偏到一侧会撞上屏幕边缘，所以外侧要被边缘挡住，不能被切掉
   RB.eyeCenter = (M, e, side) => {
-    let x = side * EX + e.ox + M.gx * GX + M.yaw * 7;
+    let x = side * (M.body === 'bubble' ? BUBBLE_EX : EX) + e.ox + M.gx * GX + M.yaw * 7;
     const y = EY + (M.mouth ? 0 : NO_MOUTH_DY) + e.oy + M.gy * GY + M.pitch * 5;
     const reach = e.a * (1 + 0.07 * e.close) * RB.eyeWiden(M, side);
     const lim = edgeAt(M, Math.abs(y) + e.b * 0.7) - reach - 2.5;
@@ -96,7 +98,39 @@
     });
   }
 
+  // 玻璃气泡只靠两只胶囊眼表达情绪，不画腮红、闪光和符号。
+  // 彩色机身上是微微凸起的白色眼睛；石墨机身上是主色的发光眼睛
+  function bubbleFace(ctx, M) {
+    const c = M.rgb, k = M.scale, dark = M.shell.dark;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, 0.5 + 0.5 * M.bright);
+    if (dark) {
+      ctx.fillStyle = RB.tint(c, 255, 0.28);
+      ctx.shadowColor = RB.tint(c, 255, 0.1, 0.9); ctx.shadowBlur = 10 * k;
+    } else {
+      const g = ctx.createLinearGradient(0, -20, 0, 18);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(1, 'rgba(236,243,255,1)');
+      ctx.fillStyle = g;
+      ctx.shadowColor = 'rgba(0,24,72,0.28)'; ctx.shadowBlur = 3 * k; ctx.shadowOffsetY = 1 * k;
+    }
+    ctx.beginPath();
+    for (const [side, e, dir] of [[-1, M.eL, 1], [1, M.eR, -1]]) {
+      const [x, y] = RB.eyeCenter(M, e, side);
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(rad(e.rot) * dir);
+      RB.eyePath(ctx, e, dir, e.close, RB.eyeWiden(M, side));
+      ctx.restore();
+    }
+    ctx.fill();
+    ctx.restore();
+    if (M.mouth) {
+      const ink = dark ? (a => RB.tint(c, 255, 0.28, a)) : (a => `rgba(255,255,255,${a})`);
+      drawMouth(ctx, M, ink, M.yaw * 7, M.pitch * 5, M.t, M.bright, k);
+    }
+  }
+
   RB.drawFace = (ctx, M) => {
+    if (M.body === 'bubble') { bubbleFace(ctx, M); return; }
     if (M.face === 'matrix') { matrixFace(ctx, M); faceExtras(ctx, M); return; }
     const [r, g, b] = M.rgb, k = M.scale, t = M.t, bright = M.bright;
     const rgba = a => `rgba(${r},${g},${b},${a})`;
@@ -178,16 +212,21 @@
     const [r, g, b] = M.rgb, rgba = a => `rgba(${r},${g},${b},${a})`;
     const st = M.st;
     if (st.moon) {
-      ctx.fillStyle = rgba(0.85);
-      ctx.beginPath(); ctx.arc(33, -26, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#0d1328';
-      ctx.beginPath(); ctx.arc(35.6, -28, 4.4, 0, Math.PI * 2); ctx.fill();
+      // 气泡机身没有深色屏幕，月牙用白色，缺口挖成机身颜色
+      const bub = M.body === 'bubble' && !M.shell.dark;
+      const mx = M.body === 'bubble' ? 36 : 33, my = M.body === 'bubble' ? -17 : -26;
+      ctx.fillStyle = bub ? 'rgba(255,255,255,0.92)' : rgba(0.85);
+      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = M.body === 'bubble' ? M.bodyFill : '#0d1328';
+      ctx.beginPath(); ctx.arc(mx + 2.6, my - 2, 4.4, 0, Math.PI * 2); ctx.fill();
     }
     if (st.tear) {
       const ph = (M.age * 0.45) % 1;
       if (ph < 0.8) {
         const [x, y] = RB.eyeCenter(M, M.eL, -1), u = ph / 0.8;
-        ctx.fillStyle = `rgba(170,225,255,${0.85 * Math.sin(Math.PI * Math.min(1, u * 1.15))})`;
+        ctx.fillStyle = M.body === 'bubble' && !M.shell.dark
+          ? `rgba(255,255,255,${0.9 * Math.sin(Math.PI * Math.min(1, u * 1.15))})`
+          : `rgba(170,225,255,${0.85 * Math.sin(Math.PI * Math.min(1, u * 1.15))})`;
         ctx.beginPath(); RB.drop(ctx, x - 2, y + 15 + u * 13, 2.1); ctx.fill();
       }
     }

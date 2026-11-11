@@ -491,7 +491,7 @@
     if (A.S.model === 'none') { box.append(guideEl()); c.messages.forEach(m => box.append(msgEl(m))); }
     else if (!c.messages.length) box.append(emptyEl());
     else c.messages.forEach(m => box.append(msgEl(m)));
-    toBottom();
+    if (c.messages.length) toBottom(); else box.scrollTo({ top: 0, behavior: 'auto' });
     if (!C.generating) C.status();
     if (C.refreshComposer) C.refreshComposer();
   };

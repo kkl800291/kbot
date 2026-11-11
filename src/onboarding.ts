@@ -20,7 +20,7 @@ export function onboarding(A: any) {
   };
   const overlay = h('div', { id: 'onboarding', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'welcome-title' },
     h('div', { class: 'welcome-card' }, [
-      h('div', { class: 'welcome-mark', html: A.icon('robot', 28) }),
+      h('div', { class: 'welcome-mark', 'aria-hidden': 'true' }, [h('i'), h('i')]),
       h('div', { class: 'welcome-eyebrow' }, '很高兴，住进你的桌面'),
       h('h1', { id: 'welcome-title' }, '你好，我是 KBOT。'),
       h('p', {}, '我是你的桌面分身，所有思考、记忆与定时行动都交由 DeepSeek Harness 驱动。点我就能聊。'),

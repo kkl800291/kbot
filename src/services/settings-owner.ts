@@ -89,7 +89,7 @@ export async function installSettingsOwner(A: any) {
     A.cancelFocusRelease?.();
     try {
       await command('release_focus');
-      await command('open_settings_window', { page: page || null });
+      await command('open_settings_window', { page: page || null, theme: A.S.theme });
     } catch (error) {
       A.toast(`无法打开设置：${String(error)}`, 5000);
     }

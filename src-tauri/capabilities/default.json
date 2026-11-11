@@ -4,7 +4,7 @@
   "description": "Local companion window",
   "windows": ["main", "settings"],
   "permissions": [
-    "core:default",
+    "core:default", "core:window:allow-start-dragging",
     "global-shortcut:allow-register", "global-shortcut:allow-unregister", "global-shortcut:allow-is-registered",
     "autostart:default", "notification:default", "opener:allow-open-url"
   ]

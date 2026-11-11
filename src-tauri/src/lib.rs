@@ -49,23 +49,42 @@ fn debug_smoke_report(
 }
 
 fn tray_image() -> tauri::image::Image<'static> {
-    let mut data = vec![0u8; 22 * 22 * 4];
-    for y in 0..22 {
-        for x in 0..22 {
-            let outline = (3..19).contains(&x)
-                && (5..18).contains(&y)
-                && !(5..17)
-                    .contains(&x)
-                    .then_some((7..16).contains(&y))
-                    .unwrap_or(false);
-            let eyes = ((7..9).contains(&x) || (13..15).contains(&x)) && (9..13).contains(&y);
-            let antenna = x == 10 && (2..5).contains(&y);
-            if outline || eyes || antenna {
-                data[(y * 22 + x) * 4 + 3] = 255;
+    // 36 px renders at the 18 pt menu-bar height as an exact 2x bitmap.
+    const S: usize = 36;
+    let rounded = |px: f64, py: f64, cx: f64, cy: f64, hw: f64, hh: f64, r: f64| {
+        let dx = ((px - cx).abs() - (hw - r)).max(0.0);
+        let dy = ((py - cy).abs() - (hh - r)).max(0.0);
+        dx * dx + dy * dy <= r * r
+    };
+    let tail = |px: f64, py: f64| {
+        let side = |(x1, y1): (f64, f64), (x2, y2): (f64, f64)| {
+            (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+        };
+        let (a, b, c) = ((8.0, 21.0), (17.0, 24.0), (6.5, 31.0));
+        let d = [side(a, b), side(b, c), side(c, a)];
+        d.iter().all(|v| *v >= 0.0) || d.iter().all(|v| *v <= 0.0)
+    };
+    let inside = |px: f64, py: f64| {
+        let body = rounded(px, py, 18.0, 15.0, 15.0, 10.5, 8.0) || tail(px, py);
+        let eye = rounded(px, py, 14.0, 15.0, 1.6, 3.4, 1.6)
+            || rounded(px, py, 22.0, 15.0, 1.6, 3.4, 1.6);
+        body && !eye
+    };
+    let mut data = vec![0u8; S * S * 4];
+    for y in 0..S {
+        for x in 0..S {
+            let mut hits = 0u32;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let px = x as f64 + (sx as f64 + 0.5) / 4.0;
+                    let py = y as f64 + (sy as f64 + 0.5) / 4.0;
+                    hits += inside(px, py) as u32;
+                }
             }
+            data[(y * S + x) * 4 + 3] = (hits * 255 / 16) as u8;
         }
     }
-    tauri::image::Image::new_owned(data, 22, 22)
+    tauri::image::Image::new_owned(data, S as u32, S as u32)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

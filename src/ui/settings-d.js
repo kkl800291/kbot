@@ -64,23 +64,23 @@
     A.on('sense:city', () => { cityInfo.textContent = A.S.cityInfo; });
 
     el.append(
-      X.group('桌面感知上报（每一项均可独立开关，实时注入 DSH 环境上下文）',
-        X.row('离开电脑检测', '连续 5 分钟无键鼠操作时机器人自动进入休眠状态，回到电脑前自动唤醒并补报离线提醒', X.toggle('senseIdle')),
-        X.row('前台应用类别与会议勿扰', '识别当前前台应用所属类别（如开发、会议、视频）；检测到会议软件在前台时自动进入勿扰', X.toggle('senseApp')),
-        X.row('向智能核心发送具体应用名', '默认关闭（只上报「编程开发」「在线会议」等宽泛类别，不读窗口标题或屏幕内容）', X.toggle('send.appName')),
-        X.row('框选截图提问', '仅在你主动点击输入框相机按钮框选时截取屏幕，需要 macOS 屏幕录制权限', X.btn('检查／申请权限', async () => {
+      X.group('桌面感知',
+        X.row('离开检测', '5 分钟没有操作时休息，回来后自动醒来', X.toggle('senseIdle')),
+        X.row('前台应用', '识别应用类别，开会时自动勿扰', X.toggle('senseApp')),
+        X.row('发送具体应用名', '关闭时只发送“开发”“会议”这类类别', X.toggle('send.appName')),
+        X.row('截图提问', '需要屏幕录制权限', X.btn('检查权限', async () => {
           try {
             const allowed = await A.nativeCommand('screen_permission', { request: true });
             A.set('screenPerm', allowed);
             A.toast(allowed ? '已允许框选截图提问' : '请在系统设置 → 隐私与安全性 → 屏幕录制中允许 KBOT，之后重启应用');
           } catch (e) { A.toast(String(e)); }
         })),
-        X.row('城市天气感知', '使用所选城市获取 Open-Meteo 实时天气（无需定位权限），同步至 DSH 上下文', X.toggle('senseWeather')),
+        X.row('天气', '不需要定位权限', X.toggle('senseWeather')),
         city,
       ),
-      X.note('天气数据来自 Open-Meteo（免费、无需 API Key），每小时最多缓存刷新一次；网络不可用时静默降级，绝不弹窗打扰。'),
-      X.group('前台应用类别映射', appsCard),
-      X.note('「会议」类别下的应用处于前台时，机器人会自动切换为勿扰模式，结束后自动恢复。'),
+      X.note('天气来自 Open-Meteo，每小时最多刷新一次。'),
+      X.group('应用类别', appsCard),
+      X.note('“会议”里的应用在前台时，KBOT 会自动勿扰，结束后恢复。'),
     );
   };
 
@@ -130,18 +130,18 @@
     const stat = h('div', { class: 'sx-d' });
     const count = () => {
       const n = (A.chat?.convs || []).filter(c => c.messages?.length).length;
-      stat.textContent = `当前保存了 ${n} 个本地对话窗口记录（DSH 侧完整会话同时保存在本机 DeepSeek Harness 中）`;
+      stat.textContent = `本机保存了 ${n} 个对话`;
     };
     count();
-    const keepRow = X.row('对话面板记录保留期限', null, X.select('retention', KEEP, v => { if (v) A.chat.prune(); count(); }, 100));
+    const keepRow = X.row('保留期限', null, X.select('retention', KEEP, v => { if (v) A.chat.prune(); count(); }, 100));
     $$('.sx-l', keepRow)[0].append(stat);
     el.append(
       X.group('唤出与收起',
-        X.row('全局唤出 / 收起快捷键', '在任何应用里都能一键呼出对话窗；点击右侧按键框后按下新组合', hotkeyCtl()),
-        X.row('点击面板外部自动收起', '关闭后仅通过 Esc、点击角色或收起按钮关闭面板', X.toggle('outsideClose')),
+        X.row('快捷键', '点击按键框，再按下新的组合键', hotkeyCtl()),
+        X.row('点击外部时收起', null, X.toggle('outsideClose')),
       ),
-      X.group('本地对话记录', keepRow,
-        X.row('清空面板对话记录', '清空桌面壳中的历史列表与附图缓存（不影响 ~/KBOT 中的长期记忆文件）', X.danger('清空…', '再点一次确认清空', () => { A.chat.clearAll(); count(); A.toast('对话面板记录已清空'); })),
+      X.group('对话记录', keepRow,
+        X.row('清空对话记录', '不影响 ~/KBOT 里的长期记忆', X.danger('清空…', '再点一次确认', () => { A.chat.clearAll(); count(); A.toast('对话记录已清空'); })),
       ),
     );
   };

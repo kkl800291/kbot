@@ -155,7 +155,7 @@
   let nTimer;
   A.sysNotify = ev => {
     const n = A.$('#notify');
-    n.innerHTML = `<div class="n-icon">${A.icon('robot', 20)}</div><div><div class="n-title">${MD.esc(ev.title || 'KBOT')}</div><div class="n-text">${MD.esc(ev.text)}</div><div class="n-from">KBOT · 刚刚${A.isDnd() ? ' · 静默' : ''}</div></div>`;
+    n.innerHTML = `<div class="n-icon" aria-hidden="true"><i></i><i></i></div><div><div class="n-title">${MD.esc(ev.title || 'KBOT')}</div><div class="n-text">${MD.esc(ev.text)}</div><div class="n-from">KBOT · 刚刚${A.isDnd() ? ' · 静默' : ''}</div></div>`;
     n.classList.add('show');
     clearTimeout(nTimer); nTimer = setTimeout(() => n.classList.remove('show'), 7000);
   };

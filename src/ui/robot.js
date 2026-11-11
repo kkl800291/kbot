@@ -5,19 +5,23 @@
   const RB = window.RB, { clamp, Spring } = RB;
   const W = 180, H = 192;   // 画布的逻辑尺寸，角色在其中按 180×192 绘制
 
+  // 与 macOS 系统强调色一致；界面强调色也取自这里
   const PALETTES = {
-    cyan: [92, 225, 255],
-    violet: [172, 148, 255],
-    amber: [255, 198, 106],
-    mint: [112, 242, 192],
+    blue: [10, 132, 255],
+    indigo: [94, 92, 230],
+    orange: [255, 149, 0],
+    green: [48, 199, 89],
   };
   const MOOD = {
-    remind: [255, 172, 74],
-    think: [160, 142, 255],
-    annoyed: [255, 112, 142],
-    sleep: [96, 126, 212],
-    dnd: [122, 138, 204],
+    remind: [255, 149, 0],
+    think: [120, 104, 245],
+    annoyed: [255, 69, 110],
+    sleep: [88, 104, 168],
+    dnd: [104, 112, 176],
   };
+  // 气泡机身的眼睛是窄长的药丸形：横向收窄，纵向参数（含眼睑曲线）略压扁
+  const BUBBLE_EYE = [0.6, 0.8];
+  const EYE_V = ['b', 'oy', 't0', 'tS', 'tQ', 'tA', 'b0', 'bS', 'bQ', 'bA'];
   const STATES = RB.STATES;
 
   // 各组参数向目标缓动的速度（越大越快）：眼睛最利落，头型和整体亮度更从容
@@ -37,15 +41,15 @@
     constructor(canvas, opts = {}) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
-      this.palette = 'cyan'; this.shell = 'light'; this.reduced = false;
-      this.face = 'matrix'; this.body = 'visor'; this.mouth = false;
+      this.palette = 'blue'; this.shell = 'light'; this.reduced = false;
+      this.face = 'smooth'; this.body = 'bubble'; this.mouth = false;
       this.base = 'idle'; this.temp = null; this.tempUntil = 0;
       this.held = false; this.hover = false; this.paused = false; this.pressed = false;
       this.manual = !!opts.manual;
-      this.clock = 0; this.age = 0; this.settle = 1;
+      this.clock = 0; this.age = 0; this.settle = 1; this.aura = 0;
       this.p = clonePose(STATES.idle.pose);
-      this.color = PALETTES.cyan.slice();
-      this.hsl = RB.rgb2hsl(PALETTES.cyan); this._ck = ''; this._th = this.hsl;
+      this.color = PALETTES.blue.slice();
+      this.hsl = RB.rgb2hsl(PALETTES.blue); this._ck = ''; this._th = this.hsl;
       this.life = new RB.Life(opts.seed);
       const S = (k, z) => new Spring(k, z);
       this.sp = {
@@ -138,11 +142,17 @@
       const first = this._name === null;
       this.life.onState(this._name, st, first);
       this._name = name; this.age = 0; this.settle = 0.9;
-      if (first) this.p = clonePose(st.pose);
+      if (first) this.p = clonePose(this.poseOf(st));
     }
+
+    poseOf(st) { return this.body === 'bubble' && st.gpose ? st.gpose : st.pose; }
 
     fillEye(dst, src, close, es) {
       for (const k in src) dst[k] = src[k];
+      if (this.body === 'bubble') {
+        dst.a *= BUBBLE_EYE[0]; dst.ox *= BUBBLE_EYE[0];
+        for (const k of EYE_V) dst[k] *= BUBBLE_EYE[1];
+      }
       dst.a *= es; dst.b *= es; dst.r *= es; dst.close = close;
     }
 
@@ -152,9 +162,10 @@
       this.clock += dt; this.age += dt;
       const t = this.clock, mot = this.reduced ? 0.3 : 1;
 
-      followPose(p, st.pose, dt, st.speed || 1);
+      followPose(p, this.poseOf(st), dt, st.speed || 1);
+      this.aura += ((st.aura && this.body === 'bubble' ? 1 : 0) - this.aura) * (1 - Math.exp(-dt * 5));
       const ck = st.color || this.palette;
-      if (ck !== this._ck) { this._ck = ck; this._th = RB.rgb2hsl(st.color ? MOOD[st.color] : (PALETTES[this.palette] || PALETTES.cyan)); }
+      if (ck !== this._ck) { this._ck = ck; this._th = RB.rgb2hsl(st.color ? MOOD[st.color] : (PALETTES[this.palette] || PALETTES.blue)); }
       const h = this.hsl, th = this._th, kc = 1 - Math.exp(-dt * 6);
       let dh = th[0] - h[0]; dh -= 360 * Math.round(dh / 360);
       h[0] = (h[0] + dh * kc + 360) % 360; h[1] += (th[1] - h[1]) * kc; h[2] += (th[2] - h[2]) * kc;
@@ -178,7 +189,7 @@
       sp.ant1.t = p.m.ant + L.ant + sway - vx * 0.02 - sp.roll.v * 0.04;
       sp.ant2.t = sp.ant1.x + sway * 0.6 - vx * 0.015;
       sp.pod.t = L.pod - vx * 0.012;
-      let busy = L.busy || this.pressed || this.held || this.settle > 0;
+      let busy = L.busy || this.pressed || this.held || this.settle > 0 || this.aura > 0.01;
       for (const k in sp) {
         sp[k].step(dt);
         if (Math.abs(sp[k].v) > REST[k]) busy = true;
@@ -212,6 +223,7 @@
       M.core = clamp(p.m.core + L.speech * 0.4, 0, 1);
       M.antGlow = st.pulse ? 0.6 + 0.4 * Math.sin(t * st.pulse) : 0.85 + 0.15 * Math.sin(t * 2);
       M.glint = L.glint;
+      M.aura = this.aura;
     }
 
     render() {
@@ -246,6 +258,11 @@
     classic: {
       box: { l: 26, r: 154, t: 14, b: 167, cy: RB.CY },
       regions: [[33, 43, 114, 98, 32], [24, 74, 132, 35, 12], [70, 138, 40, 28, 14], [84, 24, 12, 22, 6]],
+    },
+    // 气泡形：与应用图标同一轮廓，左下角一条小尾巴
+    bubble: {
+      box: { l: 26, r: 154, t: 50, b: 148, cy: RB.CY },
+      regions: [[28, 53, 124, 82, 30], [46, 126, 34, 22, 8]],
     },
     // 面罩形：宽扁的头，没有天线和耳朵，下方悬浮一圈光环
     visor: {

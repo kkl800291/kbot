@@ -3,14 +3,14 @@
   'use strict';
   const RB = window.RB;
 
-  // 超椭圆：n=2 是正圆，n 越大越接近圆角方块。头部形状靠这一个参数连续变形
-  RB.superellipse = (ctx, a, b, n, steps = 96) => {
-    const e = 2 / n;
+  // 超椭圆：n=2 是正圆，n 越大越接近圆角方块。头部形状靠这一个参数连续变形。
+  // 按极角均匀取点：参数式取点会把点挤在四条边的中段、圆角处稀疏，放大后轮廓会出现折线
+  RB.superellipse = (ctx, a, b, n, steps = 128) => {
     ctx.beginPath();
     for (let i = 0; i < steps; i++) {
       const t = (i / steps) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
-      const x = a * Math.sign(c) * Math.pow(Math.abs(c), e), y = b * Math.sign(s) * Math.pow(Math.abs(s), e);
-      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      const r = Math.pow(Math.pow(Math.abs(c / a), n) + Math.pow(Math.abs(s / b), n), -1 / n);
+      if (i) ctx.lineTo(r * c, r * s); else ctx.moveTo(r * c, r * s);
     }
     ctx.closePath();
   };

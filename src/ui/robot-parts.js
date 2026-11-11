@@ -6,13 +6,13 @@
 
   RB.CX = 90; RB.CY = 93;
   RB.SHELLS = {
-    light: { top: '#f7f9fd', bottom: '#c2cbd9', line: 'rgba(60,72,96,0.35)', edge: '#a9b3c3', hl: 0.85 },
-    graphite: { top: '#4d5568', bottom: '#222733', line: 'rgba(0,0,0,0.55)', edge: '#5b6377', hl: 0.2 },
+    light: { top: '#f7f9fd', bottom: '#c2cbd9', line: 'rgba(60,72,96,0.35)', edge: '#a9b3c3', hl: 0.85, dark: false },
+    graphite: { top: '#4d5568', bottom: '#222733', line: 'rgba(0,0,0,0.55)', edge: '#5b6377', hl: 0.2, dark: true },
   };
   // 各机身对头部的缩放：[宽, 高, 超椭圆指数增量]。表情里的头型变化在此基础上叠加
   RB.BODY_SHAPE = {
     classic: [1, 1, 0], pro: [1, 1, 0],
-    visor: [1.17, 0.8, -0.5], pebble: [1, 1.24, -1], retro: [1, 0.92, 2.2],
+    visor: [1.17, 0.8, -0.5], pebble: [1, 1.24, -1], retro: [1, 0.92, 2.2], bubble: [1.1, 0.78, 0.6],
   };
   // 除了最初的机身，其余都用精工材质（体积阴影、玻璃面罩、细天线）
   const fine = M => M.body !== 'classic';
@@ -208,6 +208,119 @@
     ctx.strokeStyle = rg; ctx.lineWidth = 2.4; ctx.stroke();
   }
 
+  const mixc = (c, to, f) => Math.round(c + (to - c) * f);
+  RB.tint = ([r, g, b], to, f, a = 1) => `rgba(${mixc(r, to, f)},${mixc(g, to, f)},${mixc(b, to, f)},${a})`;
+  const tint = RB.tint;
+
+  // 机身和尾巴是同一条闭合轮廓：沿超椭圆走到底边时绕出尾巴再接回去，描边和发光边才不会在接缝处多出一道线
+  function bubblePath(ctx, M, hw, hh) {
+    const n = M.n, steps = 180, w = hw, ang = rad(M.podA * 0.5), ca = Math.cos(ang), sa = Math.sin(ang);
+    const tx = -hw * 0.4, ty = hh - 1;
+    const T = (x, y) => [tx + x * ca - y * sa, ty + x * sa + y * ca];
+    const xr = T(0.205 * w, 0)[0], xl = T(-0.19 * w, 0)[0];
+    let tail = false;
+    ctx.beginPath();
+    for (let i = 0; i < steps; i++) {
+      const t = (i / steps) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+      const r = Math.pow(Math.pow(Math.abs(c / hw), n) + Math.pow(Math.abs(s / hh), n), -1 / n), x = r * c, y = r * s;
+      if (s > 0 && x < xr && x > xl) {
+        if (!tail) {
+          tail = true;
+          ctx.lineTo(...T(0.205 * w, 0));
+          ctx.quadraticCurveTo(...T(0.06 * w, 0.6), ...T(-0.04 * w, 4.4));
+          ctx.lineTo(...T(-0.15 * w, 10.4));
+          ctx.quadraticCurveTo(...T(-0.235 * w, 14), ...T(-0.215 * w, 8.6));
+          ctx.lineTo(...T(-0.19 * w, 0));
+        }
+        continue;
+      }
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  }
+  // 思考时沿轮廓缓慢流动的彩色光边；outer 画在机身后面做外发光，否则是机身边缘的一道细亮线
+  const AURA = ['#ff6fb5', '#a56bff', '#4aa8ff', '#5fe0c8', '#ffb35c', '#ff6fb5'];
+  function aura(ctx, M, hw, hh, k, outer) {
+    const t = M.t, R = hw + 12, ang = t * 1.4;
+    const g = ctx.createLinearGradient(Math.cos(ang) * R, Math.sin(ang) * R, -Math.cos(ang) * R, -Math.sin(ang) * R);
+    AURA.forEach((col, i) => g.addColorStop(i / (AURA.length - 1), col));
+    ctx.save();
+    bubblePath(ctx, M, hw, hh);
+    ctx.strokeStyle = g; ctx.lineJoin = 'round';
+    if (outer) {
+      ctx.globalAlpha = M.aura * (0.6 + 0.25 * Math.sin(t * 2.6));
+      ctx.lineWidth = 5; ctx.shadowColor = 'rgba(150,110,255,0.9)'; ctx.shadowBlur = 16 * k;
+    } else {
+      ctx.globalAlpha = M.aura * 0.9; ctx.lineWidth = 1.6;
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 玻璃气泡：主色半透明机身，顶部柔光、底部汇聚的折射光、左上与右下的边缘高光；石墨外壳是深色烟熏玻璃
+  function bubbleBody(ctx, M, hw, hh, k) {
+    const c = M.rgb, dark = M.shell.dark;
+    M.bodyFill = dark ? '#2c3038' : `rgb(${c[0]},${c[1]},${c[2]})`;
+    if (M.aura > 0.01) aura(ctx, M, hw, hh, k, true);
+
+    bubblePath(ctx, M, hw, hh);
+    const base = ctx.createLinearGradient(0, -hh, 0, hh + 12);
+    if (dark) {
+      base.addColorStop(0, 'rgba(72,78,92,0.95)'); base.addColorStop(1, 'rgba(22,25,32,0.95)');
+    } else {
+      base.addColorStop(0, tint(c, 255, 0.24, 0.95)); base.addColorStop(0.55, tint(c, 255, 0, 0.93)); base.addColorStop(1, tint(c, 0, 0.16, 0.95));
+    }
+    ctx.save();
+    ctx.fillStyle = base;
+    ctx.shadowColor = dark ? 'rgba(0,0,0,0.42)' : 'rgba(0,20,60,0.24)';
+    ctx.shadowBlur = 18 * k; ctx.shadowOffsetY = 8 * k;
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    bubblePath(ctx, M, hw, hh);
+    ctx.clip();
+    const rf = ctx.createRadialGradient(0, hh * 1.05, 0, 0, hh * 1.05, hw * 1.15);
+    rf.addColorStop(0, tint(c, 255, dark ? 0.2 : 0.6, dark ? 0.3 : 0.6));
+    rf.addColorStop(1, tint(c, 255, dark ? 0.2 : 0.6, 0));
+    ctx.fillStyle = rf; ctx.fillRect(-hw * 1.5, -hh, hw * 3, hh * 2 + 24);
+
+    ctx.save();
+    ctx.translate(-M.yaw * 4, -hh * 0.08);
+    RB.superellipse(ctx, hw - 5, hh - 6, M.n, 180);
+    const sp = ctx.createLinearGradient(0, -hh, 0, -hh * 0.1);
+    sp.addColorStop(0, `rgba(255,255,255,${dark ? 0.16 : 0.36})`); sp.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sp; ctx.fill();
+    ctx.restore();
+
+    bubblePath(ctx, M, hw, hh);
+    const rim = ctx.createLinearGradient(-hw, -hh, hw, hh);
+    rim.addColorStop(0, `rgba(255,255,255,${dark ? 0.5 : 0.9})`);
+    rim.addColorStop(0.35, 'rgba(255,255,255,0.08)');
+    rim.addColorStop(0.7, 'rgba(255,255,255,0.05)');
+    rim.addColorStop(1, `rgba(255,255,255,${dark ? 0.3 : 0.55})`);
+    ctx.strokeStyle = rim; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.stroke();
+    ctx.translate(M.yaw * 2.4, M.pitch * 1.6);
+    RB.drawFace(ctx, M);
+    ctx.restore();
+
+    // 一圈极细的轮廓线，浅色壁纸上也能看清玻璃的边
+    bubblePath(ctx, M, hw, hh);
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,30,80,0.12)'; ctx.lineWidth = 0.6; ctx.stroke();
+    if (M.aura > 0.01) aura(ctx, M, hw, hh, k, false);
+  }
+
+  // 柔和的接触阴影：离地越高越大越淡
+  function contactShadow(ctx, M) {
+    const lift = RB.clamp((RB.CY - M.cy) / 40, -0.3, 1), R = 46 * (1 + 0.25 * lift), a = 0.2 * (1 - 0.5 * lift);
+    ctx.save();
+    ctx.translate(90, 154); ctx.scale(1, 0.16);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+    g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(0.5, `rgba(0,0,0,${a * 0.45})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
   function extras(ctx, M, rgba) {
     const st = M.st, t = M.t, x = M.cx, y = M.cy;
     if (st.zzz) {
@@ -254,11 +367,20 @@
 
   RB.render = (ctx, M) => {
     const [r, g, b] = M.rgb, k = M.scale, rgba = a => `rgba(${r},${g},${b},${a})`;
+    if (M.body === 'bubble') {
+      contactShadow(ctx, M);
+      ctx.save();
+      ctx.translate(M.cx, M.cy); ctx.rotate(rad(M.roll)); ctx.scale(M.sx, M.sy);
+      bubbleBody(ctx, M, M.hw * (1 - 0.04 * Math.abs(M.yaw)), M.hh * (1 - 0.03 * Math.abs(M.pitch)), k);
+      ctx.restore();
+      return;
+    }
     const up = RB.CY - M.cy, sc = RB.clamp(1 - up / 80, 0.55, 1.2);
+    const gy = 182;
     ctx.fillStyle = `rgba(0,0,0,${0.22 * Math.min(1, sc)})`;
-    ctx.beginPath(); ctx.ellipse(90, 182, 30 * sc, 5 * sc, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(90, gy, 30 * sc, 5 * sc, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = rgba(0.1 * M.bright * Math.min(1, sc));
-    ctx.beginPath(); ctx.ellipse(90, 182, 42 * sc, 8 * sc, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(90, gy, 42 * sc, 8 * sc, 0, 0, TAU); ctx.fill();
 
     ctx.save();
     ctx.translate(M.cx, M.cy); ctx.rotate(rad(M.roll)); ctx.scale(M.sx, M.sy);

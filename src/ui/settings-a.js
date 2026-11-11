@@ -4,7 +4,7 @@
   const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
   const look = () => A.applyLook();
 
-  const PAL_NAMES = { cyan: '青色', violet: '紫色', amber: '琥珀', mint: '薄荷' };
+  const PAL_NAMES = { blue: '蓝色', indigo: '靛蓝', orange: '橙色', green: '绿色' };
   function swatches() {
     const el = h('div', { class: 'sx-swatches' }, Object.keys(Robot.PALETTES).map(k => h('button', {
       type: 'button', 'data-pal': k, title: PAL_NAMES[k] || k, 'aria-label': PAL_NAMES[k] || k, style: `--c:${Robot.PALETTES[k].join(',')}`,
@@ -29,7 +29,7 @@
       const installing = u.status === 'installing';
       const hasUpdate = !!u.hasUpdate && !!u.latestVersion;
 
-      let desc = '纯桌面壳架构 · 检测到新版本时将由角色气泡或对话主动提醒，支持静默替换并自动重启';
+      let desc = '有新版本时，KBOT 会主动提醒你';
       if (installing && u.progress) {
         const pct = typeof u.progress.percent === 'number' ? ` (${u.progress.percent}%)` : '';
         desc = `${u.progress.message || '正在安装更新…'}${pct}`;
@@ -37,7 +37,7 @@
         const noteText = (u.notes || '').replace(/\s+/g, ' ').trim();
         desc = noteText
           ? `发现新版本 v${u.latestVersion}：${noteText.slice(0, 88)}${noteText.length > 88 ? '…' : ''}`
-          : `发现新版本 v${u.latestVersion}，可一键下载替换当前应用并自动重启`;
+          : `发现新版本 v${u.latestVersion}，更新后会自动重启`;
       } else if (u.status === 'up-to-date') {
         desc = `已是最新版本（v${curVer}）`;
       } else if (u.status === 'error' && u.error) {
@@ -75,11 +75,11 @@
     el._redraw = drawUpdate;
 
     el.append(
-      X.group('关于与版本更新',
+      X.group('软件更新',
         updateSlot,
-        X.row('自动检查更新', '启动时及后台定期检测新版本；发现更新时由 KBOT 主动在气泡或对话窗提醒你一键升级', X.toggle('updater.autoCheck')),
-        X.row('更新源地址', '默认连接自建高速更新源（https://schathub.xyz/kbot/releases/latest.json）；也支持自定义 latest.json 清单链接或 GitHub 仓库', X.text('updater.endpoint', {
-          ph: '默认 https://schathub.xyz/kbot/releases/latest.json',
+        X.row('自动检查更新', null, X.toggle('updater.autoCheck')),
+        X.row('更新源', null, X.text('updater.endpoint', {
+          ph: '默认更新源',
           w: 250,
           max: 280,
           allowEmpty: true,
@@ -88,23 +88,25 @@
           },
         })),
       ),
+      X.note('默认使用 KBOT 自建更新源，也可以填写 latest.json 链接或 GitHub 仓库。'),
       X.group('启动与窗口',
-        X.row('开机启动', '登录 macOS 后自动出现在桌面，默认关闭', X.toggle('autostart')),
-        X.row('角色置顶', '关闭后，角色会被其他应用的窗口遮住', X.toggle('onTop', look)),
+        X.row('登录时打开', null, X.toggle('autostart')),
+        X.row('角色置顶', '关闭后，角色可能被其他窗口遮住', X.toggle('onTop', look)),
       ),
-      X.group('机器人外观',
+      X.group('外观',
+        X.row('界面主题', null, X.seg('theme', [['light', '浅色'], ['dark', '深色']], look)),
+        X.row('强调色', null, swatches()),
+        X.row('机身', null, X.seg('shell', [['light', '彩色玻璃'], ['graphite', '石墨']], look)),
         X.row('角色大小', null, X.seg('size', [[96, '小'], [120, '中'], [150, '大']], look)),
-        X.row('界面主题', '对话面板、气泡和设置窗口的明暗风格', X.seg('theme', [['dark', '深色'], ['light', '浅色']], look)),
-        X.row('发光颜色', '屏幕脸的主色；思考、提醒、休眠等状态会自动切换光效', swatches()),
-        X.row('机身外壳', null, X.seg('shell', [['light', '亮色'], ['graphite', '石墨']], look)),
-        X.row('减少动态效果', '开启后面板改为淡入淡出，角色弹簧与呼吸动作更克制', X.toggle('reduced', look)),
+        X.row('减少动态效果', null, X.toggle('reduced', look)),
       ),
+      X.note('提醒、被戳和休息时，角色会临时换成对应的颜色；思考时边缘会出现流动的彩色光。'),
       X.group('提示与通知',
-        X.row('轻提示音', '气泡与提醒出现时播放一声轻响；勿扰期间自动静音', X.toggle('sound', v => { if (v) A.blip(); })),
-        X.row('系统通知', '角色隐藏后通过 macOS 系统通知送达提醒', X.btn('允许系统通知', () => A.requestNotifications())),
+        X.row('提示音', '勿扰时自动静音', X.toggle('sound', v => { if (v) A.blip(); })),
+        X.row('系统通知', '角色隐藏时，用系统通知送达提醒', X.btn('允许通知', () => A.requestNotifications())),
       ),
       X.group('本机数据',
-        X.row('重置桌面壳数据', '清空外观设置、本地对话缓存与保存的语音 API Key（不会删除 ~/KBOT 养成目录中的记忆与日记文件）', X.danger('重置…', '再次点击确认重置', () => A.resetData())),
+        X.row('重置 KBOT', '清空外观设置、本地对话和语音 Key，不会删除 ~/KBOT 里的记忆和日记', X.danger('重置…', '再点一次确认', () => A.resetData())),
       ),
     );
   };

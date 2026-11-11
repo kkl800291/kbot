@@ -38,11 +38,17 @@ export async function bootSettingsWindow() {
   let tail = Promise.resolve();
   const roots = ['S', 'builtin', 'birthdays'] as const;
   const edited = () => ({ S: A.S, builtin: A.builtin || {}, birthdays: A.birthdays || [] });
+  let windowTheme = '';
   const theme = () => {
+    if (A.S.theme !== windowTheme) {
+      windowTheme = A.S.theme;
+      command('settings_window_action', { action: 'theme:' + windowTheme }).catch(() => { windowTheme = ''; });
+    }
     document.documentElement.classList.toggle('theme-dark', A.S.theme === 'dark');
     document.documentElement.classList.toggle('theme-light', A.S.theme === 'light');
     document.documentElement.classList.toggle('reduced', !!A.S.reduced);
-    document.documentElement.style.setProperty('--glow-rgb', window.Robot.PALETTES[A.S.palette].join(', '));
+    document.documentElement.classList.toggle('shell-graphite', A.S.shell === 'graphite');
+    document.documentElement.style.setProperty('--glow-rgb', (window.Robot.PALETTES[A.S.palette] || window.Robot.PALETTES.blue).join(', '));
   };
   const merge = (target: any, source: any) => {
     for (const k of Object.keys(target)) if (!(k in source)) delete target[k];
@@ -127,7 +133,8 @@ export async function bootSettingsWindow() {
     install: () => action('updater-install'),
   };
 
-  window.Robot = { PALETTES: { cyan: [92, 225, 255], violet: [172, 148, 255], amber: [255, 198, 106], mint: [112, 242, 192] } };
+  // 设置窗口不加载角色绘制代码，这里保持与 ui/robot.js 的 PALETTES 一致
+  window.Robot = { PALETTES: { blue: [10, 132, 255], indigo: [94, 92, 230], orange: [255, 149, 0], green: [48, 199, 89] } };
   await import('./ui/settings.js');
   await import('./ui/settings-a.js');
   await import('./ui/settings-b.js');

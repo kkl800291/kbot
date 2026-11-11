@@ -42,7 +42,7 @@
   const stored = window.__COMPANION_STATE__ || {};
   A.stored = stored;
   const DEFAULTS = {
-    theme: 'light', palette: 'cyan', shell: 'light', size: 120, reduced: false,
+    theme: 'light', palette: 'blue', shell: 'light', size: 120, reduced: false,
     outsideClose: true, sound: false, persona: 'cute', freq: 'normal', nickname: '你',
     work: 60, rest: 5, model: 'none', webAvailable: false, webDefault: false, screenPerm: false,
     panelW: 360, panelH: 480, expanded: false, pos: null, speed: 1,
@@ -104,6 +104,9 @@
   };
   A.defaults = () => clone(DEFAULTS);
   A.S = merge(clone(DEFAULTS), stored.S);
+  // 旧版发光色（青/紫/琥珀/薄荷）对应到新的系统强调色
+  const OLD_PALETTE = { cyan: 'blue', violet: 'indigo', amber: 'orange', mint: 'green' };
+  if (OLD_PALETTE[A.S.palette]) A.S.palette = OLD_PALETTE[A.S.palette];
   if (A.S?.updater?.endpoint === 'kkl800291/kbot') {
     A.S.updater.endpoint = DEFAULTS.updater.endpoint;
   }
