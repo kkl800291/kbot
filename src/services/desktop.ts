@@ -104,13 +104,13 @@ export function installDesktop(A: any) {
       for (const [x, y, w, h, radius] of A.robot.shape.regions as number[][]) {
         regions.push({ x: pet.x + x * s, y: pet.y + y * s, w: w * s, h: h * s, radius: radius * s });
       }
-      for (const element of document.querySelectorAll('#panel.open, #quick.show, #menu.open, .bubble.show, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
+      for (const element of document.querySelectorAll('#panel.open, #menu.open, .bubble.show, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
         const r = element.getBoundingClientRect();
         if (r.width && r.height) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height, radius: 10 });
       }
     }
     const dragging = !!A.petPointerActive || !!document.querySelector('#pet.dragging, #panel.resizing');
-    const interactive = A.panel.isOpen() || !!document.querySelector('#sheet.open, #onboarding');
+    const interactive = A.panel.isOpen() || !!document.querySelector('#menu.open, #sheet.open, #onboarding');
     const key = JSON.stringify([regions, dragging, interactive]);
     if (key === regionKey) return;
     regionPending = true;
@@ -121,6 +121,7 @@ export function installDesktop(A: any) {
   }
   A.on('petpointer', updateRegions);
   A.on('pethover', updateRegions);
+  A.on('menu', updateRegions);
 
   A.sysNotify = async (ev: any) => {
     if (!native) { A.toast(`${ev.title || '提醒'}：${ev.text}`, 8000); return; }
@@ -148,7 +149,10 @@ export function installDesktop(A: any) {
       A.robot.lookAtPoint(p.x, p.y);
       A.updatePetHover(p.x, p.y);
     });
-    await listen('desktop-outside', () => { if (A.S.outsideClose && A.panel.isOpen()) A.panel.close(); });
+    await listen('desktop-outside', () => {
+      if (A.menu?.isOpen?.()) A.menu.close();
+      if (A.S.outsideClose && A.panel.isOpen()) A.panel.close();
+    });
     await listen<any>('desktop-sensors', ({ payload }) => A.emit('sensors', payload));
     await listen('desktop-tick', () => A.emit('tick'));
     await listen<string>('desktop-action', async ({ payload: action }) => {
@@ -163,7 +167,12 @@ export function installDesktop(A: any) {
       else if (action === 'reposition') { if (A.hidden) A.setHidden(false); A.S.pos = null; A.placePet(); A.save(); }
     });
     const win = getCurrentWindow();
-    await win.onFocusChanged(({ payload: focused }) => { if (!focused && A.S.outsideClose && A.panel.isOpen()) A.panel.close(); });
+    await win.onFocusChanged(({ payload: focused }) => {
+      if (!focused) {
+        if (A.menu?.isOpen?.()) A.menu.close();
+        if (A.S.outsideClose && A.panel.isOpen()) A.panel.close();
+      }
+    });
     A.S.autostart = await isEnabled().catch(() => false);
     A.set('screenPerm', await command('screen_permission', { request: false }));
     sensors(); await hotkey();

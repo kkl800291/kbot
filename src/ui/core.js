@@ -165,12 +165,14 @@
       menuEl.style.left = A.clamp(o.right ? x - w : x, 8, innerWidth - w - 8) + 'px';
       menuEl.style.top = A.clamp(y, 8, Math.max(8, innerHeight - h - 8)) + 'px';
       menuOpen = true; menuClose = o.onClose || null;
+      A.emit('menu', true);
       A.focusWindow?.(); setTimeout(() => { if (menuOpen) menuEl.querySelector('.mi:not(:disabled)')?.focus(); }, 30);
     },
     close() {
       if (!menuOpen) return;
       menuOpen = false; menuEl.classList.remove('open'); menuEl.innerHTML = '';
       const f = menuClose; menuClose = null; if (f) f();
+      A.emit('menu', false);
       if (!A.panel?.isOpen() && !document.querySelector('#sheet.open, #onboarding')) A.releaseWindow?.();
     },
   };

@@ -7,7 +7,7 @@ html, body { background: transparent !important; }
 .native-host #pet:not(.hidden) { pointer-events: auto; }
 #sheet { background: transparent; backdrop-filter: none; pointer-events: none; }
 #sheet .sh-win { pointer-events: auto; max-height: calc(100vh - 32px); }
-#panel, #sheet, #quick, .bubble { color: var(--text); }
+#panel, #sheet, .bubble { color: var(--text); }
 #preview { position: fixed; top: 24px; left: 24px; display: flex; align-items: center; gap: 16px; color: #eef1f8; font: 13px var(--font); }
 #preview span { opacity: .7; }
 #preview button { border: 1px solid var(--line); background: var(--surface); color: var(--text); padding: 8px 12px; border-radius: 8px; }
@@ -30,7 +30,7 @@ html, body { background: transparent !important; }
 .startup-error { position: fixed; inset: 20%; padding: 32px; border-radius: 12px; background: #20283b; color: #fff; font: 14px/1.8 system-ui; }
 /* The native settings window owns its title bar, traffic lights and dragging. */
 html.settings-host, .settings-host body { background: var(--window) !important; }
-.settings-host #stage, .settings-host #quick, .settings-host #panel, .settings-host #preview, .settings-host #notify { display: none !important; }
+.settings-host #stage, .settings-host #panel, .settings-host #preview, .settings-host #notify { display: none !important; }
 .settings-host #sheet { inset: 0; opacity: 1; transform: none; transition: none; }
 .settings-host #sheet .sh-win { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .settings-host .sh-bar { display: none; }

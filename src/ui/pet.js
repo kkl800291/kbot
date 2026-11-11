@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const A = window.App, { $, clamp } = A;
-  const petEl = $('#pet'), quick = $('#quick');
+  const petEl = $('#pet');
   const robot = A.robot = new Robot($('canvas', petEl));
   const pet = A.pet = { x: 0, y: 0 };
   A.hidden = false; A.away = false; A.meeting = false;
@@ -61,44 +61,24 @@
   };
   A.setBase = name => { robot.setBase(name); A.emit('base', name); };
 
-  // ---- 悬停与快捷按钮 ----
-  let overPet = false, overQuick = false, leaveTimer = 0, drag = null;
+  // ---- 悬停（不弹出悬浮快捷按钮，设置与勿扰统一走右键菜单）----
+  let overPet = false, drag = null;
   petEl.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); A.panel.toggle(); } });
   const panelOpen = () => A.panel && A.panel.isOpen();
-  function placeQuick() {
-    const b = A.petBody(), qw = quick.offsetWidth || 88, qh = quick.offsetHeight || 62;
-    const right = b.right + 8 + qw < innerWidth - 8;
-    quick.style.left = (right ? b.right + 4 : b.left - qw - 4) + 'px';
-    quick.style.top = clamp(b.cy - qh / 2, 36, innerHeight - qh - 8) + 'px';
+  function setOver(p) {
+    overPet = !!p;
+    robot.hover = overPet && !drag && !panelOpen() && !A.hidden;
+    A.emit('pethover');
   }
-  function setOver(p, q) {
-    overPet = p; overQuick = q;
-    robot.hover = p && !drag && !panelOpen();
-    clearTimeout(leaveTimer);
-    if ((p || q) && !drag && !panelOpen() && !A.hidden) {
-      placeQuick(); quick.classList.add('show'); A.emit('pethover');
-    } else leaveTimer = setTimeout(() => { quick.classList.remove('show'); A.emit('pethover'); }, 200);
-  }
-  A.refreshHover = () => setOver(overPet, overQuick);
-  const inside = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  A.refreshHover = () => setOver(overPet);
   A.updatePetHover = (x, y) => {
     if (drag) return;
     const target = document.elementFromPoint(x, y);
     const blocked = target?.closest('#panel, .bubble, #menu, #console, #sheet.open .sh-win, #onboarding, #lightbox.open');
     const p = !A.hidden && !blocked && robot.hitTest(x, y);
-    const q = !A.hidden && quick.classList.contains('show') && inside(quick.getBoundingClientRect(), x, y);
     petEl.classList.toggle('interactive', p);
-    // Native samples arrive continuously. Re-arming the leave timer on each
-    // sample would keep the quick actions open forever after moving away.
-    if (p !== overPet || q !== overQuick) setOver(p, q);
+    if (p !== overPet) setOver(p);
   };
-  quick.addEventListener('pointerenter', () => { if (!A.native) setOver(overPet, true); });
-  quick.addEventListener('pointerleave', () => { if (!A.native) setOver(overPet, false); });
-  quick.addEventListener('click', e => {
-    const b = e.target.closest('[data-q]'); if (!b) return;
-    if (b.dataset.q === 'dnd') A.isDnd() ? A.setDnd(0) : A.setDnd(30);
-    else A.openSettings && A.openSettings();
-  });
 
   addEventListener('pointermove', e => {
     robot.lookAtPoint(e.clientX, e.clientY);
@@ -107,7 +87,7 @@
   }, { passive: true });
   document.addEventListener('pointerleave', () => {
     if (A.native) return; // OS cursor samples remain authoritative while unfocused.
-    if (!drag) petEl.classList.remove('interactive'); setOver(false, false);
+    if (!drag) petEl.classList.remove('interactive'); setOver(false);
   });
   addEventListener('keydown', () => A.touch());
 
@@ -132,7 +112,7 @@
     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
     if (!drag.moved && Math.hypot(dx, dy) > 5) {
       drag.moved = true; robot.release(false); robot.setHeld(true); robot.hover = false;
-      petEl.classList.add('dragging'); quick.classList.remove('show');
+      petEl.classList.add('dragging');
     }
     if (drag.moved) {
       robot.drag(e.clientX - drag.lx, e.clientY - drag.ly);
@@ -151,7 +131,7 @@
     if (d.moved) {
       robot.setHeld(false); robot.drop(); robot.flash('happy', 1100);
       A.setPetPos(pet.x, pet.y, true);
-      setOver(overPet, overQuick);
+      setOver(overPet);
     } else {
       const click = e.type === 'pointerup';
       robot.release(click);
@@ -199,8 +179,6 @@
     if (on && robot.base !== 'dnd' && !A.away) A.setBase('dnd');
     if (!on && robot.base === 'dnd') A.setBase('idle');
     $('#tray').classList.toggle('dnd', on);
-    const q = $('[data-q="dnd"]', quick);
-    q.classList.toggle('on', on); $('span', q).textContent = on ? '结束勿扰' : '勿扰';
     A.emit('dnd', on);
   }
   A.setDnd = m => {
@@ -240,7 +218,7 @@
     petEl.setAttribute('aria-hidden', String(A.hidden));
     petEl.classList.toggle('hidden', A.hidden); robot.paused = A.hidden;
     if (A.hidden) {
-      A.panel.close(); A.bubble.hide(true); quick.classList.remove('show');
+      A.panel.close(); A.bubble.hide(true);
       A.toast('角色已隐藏。提醒仍会以系统通知出现，点菜单栏图标可以再叫我出来', 3800);
     } else A.toast('我回来啦～');
     A.emit('hidden', A.hidden);

@@ -137,20 +137,6 @@ svg { display: block; flex: none; }
 #pet.hidden { opacity: 0; pointer-events: none !important; }
 #pet canvas { display: block; }
 
-#quick {
-  position: fixed; z-index: 26; width: max-content; display: flex; flex-direction: column; gap: 6px;
-  opacity: 0; transform: scale(0.92); pointer-events: none;
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-#quick.show { opacity: 1; transform: none; pointer-events: auto; }
-#quick button {
-  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-  border-radius: 14px; border: 1px solid var(--line); background: var(--raised);
-  color: var(--text); font-size: 12px; box-shadow: var(--shadow);
-}
-#quick button:hover { background: var(--surface-solid); }
-#quick button.on { color: var(--ink); }
-
 /* ---------- 气泡 ---------- */
 .bubble {
   position: fixed; z-index: 25; width: max-content; max-width: 270px; min-width: 120px;

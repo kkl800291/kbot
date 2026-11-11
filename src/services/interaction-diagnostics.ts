@@ -28,8 +28,7 @@ export async function installInteractionDiagnostics(A: any) {
       pointerActive: !!A.petPointerActive, pressed: A.robot.pressed, held: A.robot.held,
       petInteractive: pet.classList.contains('interactive'), petDragging: pet.classList.contains('dragging'), petInert: pet.inert,
       panelOpen: A.panel.isOpen(), panelHidden: panel.hidden, panelInert: panel.inert,
-      quickShown: document.querySelector('#quick')!.classList.contains('show'),
-      quickBounds: document.querySelector('#quick')!.getBoundingClientRect().toJSON(), robotHover: A.robot.hover,
+      menuOpen: !!A.menu?.isOpen?.(), robotHover: A.robot.hover,
       documentFocused: document.hasFocus(), documentVisible: !document.hidden,
     } }).catch(() => {}).finally(() => { writing = false; });
   };

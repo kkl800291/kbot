@@ -106,22 +106,27 @@ export async function nativeSmoke(A: any) {
     await new Promise(r => setTimeout(r, 250));
     const focusedBeforeHover = await getCurrentWindow().isFocused();
     await emitTo('main', 'desktop-cursor', { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, buttonsDown: false, sampledAt: Date.now() });
-    await until(() => !!document.querySelector('#quick.show'));
-    assert('native cursor sampling reveals actions without a DOM hover or click', !A.panel.isOpen() && !!document.querySelector('#quick.show'));
-    assert('quick-action hover does not activate the window', await getCurrentWindow().isFocused() === focusedBeforeHover);
-    document.querySelector<HTMLButtonElement>('#quick [data-q="dnd"]')!.click();
-    assert('hover DND action does not toggle chat', A.isDnd() && !A.panel.isOpen());
-    document.querySelector<HTMLButtonElement>('#quick [data-q="dnd"]')!.click();
-    assert('hover DND action can be switched off', !A.isDnd() && !A.panel.isOpen());
+    await until(() => !!A.robot.hover);
+    assert('native cursor sampling updates robot hover without quick pills or window focus', !A.panel.isOpen() && !document.querySelector('#quick') && await getCurrentWindow().isFocused() === focusedBeforeHover);
+
+    pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
+    await until(() => A.menu.isOpen());
+    Array.from(document.querySelectorAll<HTMLButtonElement>('#menu .mi')).find(b => b.textContent?.includes('勿扰 30 分钟'))!.click();
+    assert('right-click DND menu item activates DND without toggling chat', A.isDnd() && !A.panel.isOpen());
+    pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
+    await until(() => A.menu.isOpen());
+    Array.from(document.querySelectorAll<HTMLButtonElement>('#menu .mi')).find(b => b.textContent?.includes('结束勿扰'))!.click();
+    assert('right-click DND menu item can be switched off', !A.isDnd() && !A.panel.isOpen());
 
     let ready!: () => void;
     const readyPromise = new Promise<void>(resolve => { ready = resolve; });
     const unready = await listen('settings-smoke-ready', ready);
-    A.updatePetHover(rect.x + rect.width / 2, rect.y + rect.height / 2);
-    document.querySelector<HTMLButtonElement>('#quick [data-q="settings"]')!.click();
+    pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
+    await until(() => A.menu.isOpen());
+    Array.from(document.querySelectorAll<HTMLButtonElement>('#menu .mi')).find(b => b.textContent?.includes('设置…'))!.click();
     await Promise.race([readyPromise, new Promise((_, reject) => setTimeout(() => reject(new Error('settings window boot timeout')), 10_000))]);
     unready();
-    assert('hover settings action opens settings without toggling chat', A.settingsVisible && !A.panel.isOpen());
+    assert('right-click settings action opens settings without toggling chat', A.settingsVisible && !A.panel.isOpen());
     const runSettings = (step: string) => new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(() => { stop(); reject(new Error('settings step timeout: ' + step)); }, 10_000);
       const stop = await listen<any>('settings-smoke-result', ({ payload }) => {

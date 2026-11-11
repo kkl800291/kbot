@@ -157,7 +157,7 @@
   // ---- 点外部收起、快捷键 ----
   document.addEventListener('pointerdown', e => {
     if (!open || !A.S.outsideClose) return;
-    if (e.target.closest('#panel, #pet, #quick, #menu, #lightbox, .bubble, #toast, #console, #notify, #tray, #sheet, #shot')) return;
+    if (e.target.closest('#panel, #pet, #menu, #lightbox, .bubble, #toast, #console, #notify, #tray, #sheet, #shot')) return;
     closePanel();
   }, true);
   const hotkeyHit = e => { const k = A.S.hotkey; return e.code === k.code && e.altKey === k.alt && e.metaKey === k.meta && e.ctrlKey === k.ctrl && e.shiftKey === k.shift; };
