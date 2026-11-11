@@ -48,7 +48,7 @@ ditto src-tauri/target/release/bundle/macos/KBOT.app /Applications/KBOT.app
 
 ## 自动打包发版（GitHub Actions）
 
-仓库已内置两条工作流：
+完整图文与命令步骤见 **[`发版说明.md`](发版说明.md)**。仓库已内置两条工作流：
 
 - **CI（`.github/workflows/ci.yml`）**：每次推送到 `main` 或发起 PR 时自动在 `macos-15` 运行前端测试、TypeScript 构建校验与 Rust 单元测试。
 - **Release（`.github/workflows/release.yml`）**：推送 `v*` 标签（或在 Actions 页面手动触发 `workflow_dispatch`）时自动完成测试、构建 Apple Silicon `.app.zip` 与 `.dmg`、生成含 SHA-256 校验值的 `latest.json` 并发布到 GitHub Releases：
