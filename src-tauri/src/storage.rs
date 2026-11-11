@@ -82,13 +82,7 @@ pub fn save_state(
 }
 
 const SERVICE: &str = "com.cybercompanion.desktop";
-fn service() -> &'static str {
-    if cfg!(debug_assertions) && std::env::var("COMPANION_SMOKE").as_deref() == Ok("1") {
-        "com.cybercompanion.smoke"
-    } else {
-        SERVICE
-    }
-}
+
 fn account(slot: &str) -> Result<&str, String> {
     match slot {
         "tts" | "chat" | "vision" | "search" => Ok(slot),
@@ -172,67 +166,12 @@ fn vault_delete_in(path: &Path, slot: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn legacy_keychain_exists(slot: &str) -> Option<bool> {
-    use security_framework::item::{ItemClass, ItemSearchOptions};
-    // Metadata-only lookup: never triggers macOS authentication dialogs.
-    match ItemSearchOptions::new()
-        .class(ItemClass::generic_password())
-        .service(service())
-        .account(slot)
-        .load_attributes(true)
-        .load_data(false)
-        .skip_authenticated_items(true)
-        .limit(1)
-        .search()
-    {
-        Ok(items) => Some(!items.is_empty()),
-        Err(error) if error.code() == -25300 => Some(false),
-        Err(_) => None,
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn cleanup_legacy_keychain(slot: &str) {
-    // Deleting generic password metadata does not require reading secret bytes.
-    let _ = security_framework::passwords::delete_generic_password(service(), slot);
-}
-
 pub fn read_key(slot: &str) -> Result<String, String> {
     let valid_slot = account(slot)?;
     let path = default_credentials_path()?;
-
-    {
-        let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用")?;
-        if let Some(found) = vault_get_in(&path, valid_slot)? {
-            return Ok(found);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        if legacy_keychain_exists(valid_slot) == Some(false) {
-            return Err("尚未保存 API Key，请到设置中保存".to_string());
-        }
-        let bytes = security_framework::passwords::get_generic_password(service(), valid_slot)
-            .map_err(|error| match error.code() {
-                -25300 => "尚未保存 API Key，请到设置中保存".to_string(),
-                -128 | -25293 | -25308 => "旧版钥匙串读取已取消；请在「设置 → 语音」中点击更换并重新保存一次 API Key，后续升级将不再弹窗".to_string(),
-                _ => "无法读取旧版钥匙串，请在「设置 → 语音」中重新保存一次 API Key".to_string(),
-            })?;
-        let migrated = String::from_utf8(bytes).map_err(|_| "API Key 格式无效".to_string())?;
-        if !migrated.trim().is_empty() {
-            if let Ok(_guard) = CREDENTIALS_LOCK.lock() {
-                if vault_set_in(&path, valid_slot, &migrated).is_ok() {
-                    cleanup_legacy_keychain(valid_slot);
-                }
-            }
-        }
-        return Ok(migrated);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    Err("尚未保存 API Key，请到设置中保存".into())
+    let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用")?;
+    vault_get_in(&path, valid_slot)?
+        .ok_or_else(|| "尚未保存 API Key，请到设置中保存".to_string())
 }
 
 #[tauri::command]
@@ -244,10 +183,7 @@ pub async fn save_key(slot: String, key: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = default_credentials_path()?;
         let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用".to_string())?;
-        vault_set_in(&path, &slot, key.trim())?;
-        #[cfg(target_os = "macos")]
-        cleanup_legacy_keychain(&slot);
-        Ok(())
+        vault_set_in(&path, &slot, key.trim())
     })
     .await
     .map_err(|_| "保存凭据任务失败".to_string())?
@@ -259,30 +195,17 @@ pub async fn delete_key(slot: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = default_credentials_path()?;
         let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用".to_string())?;
-        vault_delete_in(&path, &slot)?;
-        #[cfg(target_os = "macos")]
-        cleanup_legacy_keychain(&slot);
-        Ok(())
+        vault_delete_in(&path, &slot)
     })
     .await
     .map_err(|_| "删除凭据任务失败".to_string())?
 }
 
-fn slot_has_key(map: &Map<String, Value>, slot: &str) -> Option<bool> {
-    if map
-        .get(slot)
+fn slot_has_key(map: &Map<String, Value>, slot: &str) -> bool {
+    map.get(slot)
         .and_then(Value::as_str)
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
-    {
-        return Some(true);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return legacy_keychain_exists(slot);
-    }
-    #[cfg(not(target_os = "macos"))]
-    Some(false)
 }
 
 #[tauri::command]

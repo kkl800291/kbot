@@ -1,4 +1,4 @@
-//! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with macOS Keychain storage and automatic
+//! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with local `0600` credential vault storage and automatic
 //! fallback to macOS `/usr/bin/say`. User text is never concatenated into a shell
 //! command: MiMo audio plays from a private temp WAV via `afplay`, and `say`
 //! receives text over stdin.
