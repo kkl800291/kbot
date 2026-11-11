@@ -113,7 +113,7 @@
       wrap.replaceChildren();
       if (hasKey() && !editing) {
         wrap.append(
-          h('span', { class: 'sx-status ok' }, '已保存在钥匙串'),
+          h('span', { class: 'sx-status ok' }, '已安全保存在本机'),
           X.btn('更换', () => draw(true), 'ghost'),
           X.btn('删除', async () => {
             try {
@@ -142,7 +142,7 @@
           i.value = '';
           if (after) after(true);
           draw(false);
-          A.toast('Key 已保存到本机钥匙串');
+          A.toast('Key 已安全保存到本机凭据库（升级不再弹窗）');
         } catch (e) { A.toast(String(e), 5000); }
       };
       i.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });

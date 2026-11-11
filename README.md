@@ -16,7 +16,7 @@
 3. **macOS 桌面感知上报**
    - 采集本机空闲时长、前台应用类别（识别会议应用自动进入勿扰）、勿扰状态、手动框选截图与 Open-Meteo 实时天气，通过本地桥接注入 DSH 会话上下文。
 4. **小米 MiMo 情感语音与系统回退**
-   - 支持小米 `mimo-v2.5-tts`（API Key 仅保存在 macOS 钥匙串 `tts` 槽位，支持结合当前性格与表情动态注入 `<style>` 情绪指令），未配置或离线时自动回退至 macOS 原生 `say` 语音。
+   - 支持小米 `mimo-v2.5-tts`（API Key 独立保存在本机 `0600` 受保护凭据库，版本更新无需重复授权钥匙串，支持结合当前性格与表情动态注入 `<style>` 情绪指令），未配置或离线时自动回退至 macOS 原生 `say` 语音。
 5. **双模 DSH 连接与默认养成工作区**
    - **双模自动（Auto）**：优先复用已挂载桥接的外部 DSH 实例；未检测到时自动在后台拉起并托管 `dsh --profile web`。
    - **默认养成目录 `~/KBOT`**：首次启动非破坏性初始化 `AGENTS.md`（角色设定）、`MEMORY.md`（长期记忆）与 `diary/`（相处日记），支持在设置中自定义目录。
@@ -60,4 +60,4 @@ npm run release -- patch "本次更新说明"
 
 - **桌面壳状态**：`~/Library/Application Support/com.cybercompanion.desktop/state.json`（权限 `0600`，临时文件原子替换写入）。
 - **养成记忆目录**：默认 `~/KBOT/`（重置桌面壳设置不会删除 `~/KBOT` 中的记忆与日记）。
-- **语音凭据**：macOS 钥匙串服务 `com.cybercompanion.desktop`（`tts` 槽位），模型凭据由本机 DeepSeek Harness 统一管理。
+- **语音凭据**：`~/Library/Application Support/com.cybercompanion.desktop/credentials.json`（独立于普通设置文件，权限 `0600` 仅当前用户可读，兼容旧版钥匙串自动迁移并清理），模型凭据由本机 DeepSeek Harness 统一管理。
