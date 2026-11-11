@@ -1,14 +1,11 @@
 mod desktop;
-mod files;
+mod dsh;
 mod interaction_diagnostics;
-mod knowledge;
-mod mcp;
-mod model_protocol;
-mod network;
-mod page;
 mod settings_window;
 mod storage;
+mod updater;
 mod voice;
+mod weather;
 
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -20,7 +17,8 @@ fn desktop_ready(window: tauri::WebviewWindow) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())
 }
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
+fn quit_app(app: tauri::AppHandle, dsh: tauri::State<'_, dsh::DshManager>) {
+    dsh.shutdown_blocking();
     app.exit(0);
 }
 
@@ -91,9 +89,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(desktop)
         .manage(storage::StorageLock::default())
-        .manage(network::Requests::default())
+        .manage(dsh::DshManager::default())
         .manage(settings_window::SettingsWindowGate::default())
-        .manage(mcp::McpHub::default())
         .manage(voice::Speech::default())
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -104,7 +101,7 @@ pub fn run() {
             w.set_ignore_cursor_events(true)?;
             let show = MenuItem::with_id(app, "visibility", "显示／隐藏伙伴", true, None::<&str>)?;
             let chat = MenuItem::with_id(app, "chat", "打开聊天", true, None::<&str>)?;
-            let reminders = MenuItem::with_id(app, "reminders", "提醒列表…", true, None::<&str>)?;
+            let workspace = MenuItem::with_id(app, "workspace", "打开养成目录", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置…", true, Some("CmdOrCtrl+,"))?;
             let move_screen =
                 MenuItem::with_id(app, "move", "移到鼠标所在屏幕", true, None::<&str>)?;
@@ -120,7 +117,7 @@ pub fn run() {
                     &move_screen,
                     &sep,
                     &dnd,
-                    &reminders,
+                    &workspace,
                     &settings,
                     &sep2,
                     &quit,
@@ -158,13 +155,17 @@ pub fn run() {
             storage::save_key,
             storage::delete_key,
             storage::key_status,
-            network::chat_stream,
-            network::cancel_chat,
-            network::test_model,
-            network::list_models,
-            network::search_web,
-            network::weather_get,
-            network::city_search,
+            weather::weather_get,
+            weather::city_search,
+            dsh::dsh_status,
+            dsh::dsh_ensure,
+            dsh::dsh_open_console,
+            dsh::dsh_restart,
+            dsh::dsh_stop,
+            dsh::dsh_request,
+            dsh::dsh_init_workspace,
+            dsh::dsh_open_workspace,
+            dsh::dsh_install_desktop_patch,
             desktop::set_regions,
             desktop::configure_sensors,
             desktop::focus_companion,
@@ -176,24 +177,12 @@ pub fn run() {
             desktop::capture_screen,
             settings_window::open_settings_window,
             settings_window::settings_window_action,
-            page::read_page,
-            files::list_folder,
-            files::read_file,
-            files::write_file,
-            files::move_file,
-            mcp::mcp_start,
-            mcp::mcp_list_tools,
-            mcp::mcp_call_tool,
-            mcp::mcp_stop,
-            mcp::mcp_save_secret,
-            mcp::mcp_delete_secrets,
-            knowledge::knowledge_update,
-            knowledge::knowledge_search,
-            knowledge::knowledge_remove,
             voice::voice_speak,
             voice::voice_stop,
             voice::voice_list,
-            voice::voice_permission_status
+            voice::voice_permission_status,
+            updater::check_app_update,
+            updater::install_app_update
         ])
         .on_window_event(|window, event| {
             if window.label() == "settings" && matches!(event, tauri::WindowEvent::Focused(false)) {
@@ -213,6 +202,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("could not build cyber companion")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<dsh::DshManager>().shutdown_blocking();
+                app.state::<voice::Speech>().stop_active();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app.get_webview_window("main") {

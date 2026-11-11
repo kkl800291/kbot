@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. v0.1.9). Defaults to package.json version when omitted.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    name: Build & Publish KBOT (macOS Apple Silicon)
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Resolve release version & sync manifests
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${INPUT_TAG}" ]]; then
+            RAW_TAG="${INPUT_TAG}"
+          elif [[ "${REF_TYPE}" == "tag" ]]; then
+            RAW_TAG="${REF_NAME}"
+          else
+            PKG_VER=$(node -p "require('./package.json').version")
+            RAW_TAG="v${PKG_VER}"
+          fi
+          VERSION="${RAW_TAG#v}"
+          VERSION="${VERSION#V}"
+          TAG_NAME="v${VERSION}"
+
+          VERSION="${VERSION}" node - <<'NODE'
+          const fs = require('node:fs');
+          const ver = process.env.VERSION;
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = ver;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+
+          const tauriConfPath = 'src-tauri/tauri.conf.json';
+          const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
+          tauriConf.version = ver;
+          fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n');
+
+          const cargoPath = 'src-tauri/Cargo.toml';
+          const cargoRaw = fs.readFileSync(cargoPath, 'utf8');
+          const cargoNext = cargoRaw.replace(/^version\s*=\s*"[^"]+"/m, `version = "${ver}"`);
+          fs.writeFileSync(cargoPath, cargoNext);
+          NODE
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build macOS .app and .dmg bundles
+        run: npm run desktop:build
+
+      - name: Package .app.zip & generate latest.json manifest
+        id: artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG_NAME: ${{ steps.meta.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-dist
+
+          APP_DIR="src-tauri/target/release/bundle/macos/KBOT.app"
+          ZIP_NAME="KBOT_${VERSION}_aarch64.app.zip"
+          ZIP_PATH="release-dist/${ZIP_NAME}"
+          ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "${ZIP_PATH}"
+
+          DMG_SRC=$(ls -1 src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)
+          DMG_NAME="KBOT_${VERSION}_aarch64.dmg"
+          cp "${DMG_SRC}" "release-dist/${DMG_NAME}"
+
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG_NAME}"
+          node scripts/generate-update-manifest.mjs "${ZIP_PATH}" \
+            --base-url "${BASE_URL}" \
+            --out "release-dist/latest.json"
+
+          (cd release-dist && shasum -a 256 "${ZIP_NAME}" "${DMG_NAME}" > SHA256SUMS.txt)
+          ls -lh release-dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: KBOT ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-dist/KBOT_${{ steps.meta.outputs.version }}_aarch64.dmg
+            release-dist/KBOT_${{ steps.meta.outputs.version }}_aarch64.app.zip
+            release-dist/latest.json
+            release-dist/SHA256SUMS.txt

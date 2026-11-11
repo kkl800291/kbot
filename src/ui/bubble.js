@@ -83,7 +83,9 @@
     if (kind === 'speech') {
       el.addEventListener('click', e => {
         if (e.target.closest('a, button')) return;
-        const text = ev.text; dismiss(b, true, 'open'); A.panel.open({ seed: text });
+        const convId = ev.convId, text = ev.text;
+        dismiss(b, true, 'open');
+        A.panel.open(convId ? { convId } : { seed: text });
       });
     }
     document.body.append(el);
@@ -103,7 +105,7 @@
       clearInterval(tm); b.typedDone = true;
       typed.textContent = text; rest.textContent = '';
       if (kind === 'speech') { robot.clearFlash(); if (ev.expr) robot.flash(ev.expr, 2200); }
-      if (!ev.sticky) startFade(b, kind === 'speech' ? 8000 : 120000);
+      if (!ev.sticky) startFade(b, ev.dur || (kind === 'speech' ? 8000 : 120000));
     };
     b.timers.push(tm);
     return b;

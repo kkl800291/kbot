@@ -1,77 +1,81 @@
-/* KBOT · 设置页（三）：感知、AI */
+import { MIMO_VOICES, listVoices } from '../services/voice';
+
+/* KBOT · 设置页（三）：语音（小米 MiMo TTS 语音合成与 macOS 系统朗读回退） */
 (function () {
   'use strict';
-  const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
+  const A = window.App, { h } = A, X = A.sx, pages = A.settingsPages;
 
-  // ---------- 感知 ----------
-  function cityCtl() {
-    const wrap = h('div', { style: 'width:100%' });
-    const input = h('input', { class: 'sx-in', type: 'text', placeholder: '输入城市名', style: 'width:160px', 'aria-label': '城市名' });
-    const res = h('div', { class: 'sx-chips', style: 'margin-top:8px' });
-    const msg = h('div', { class: 'sx-err' });
-    const search = async () => {
-      const name = input.value.trim(); if (!name) return;
-      res.replaceChildren(); msg.textContent = '正在查找…';
+  const PROVIDERS = [
+    ['mimo', '小米 MiMo TTS（mimo-v2.5-tts · 推荐）'],
+    ['say', 'macOS 系统语音（离线可用）'],
+  ];
+
+  pages.voice = el => {
+    const saySelect = h('select', { class: 'sx-in', style: 'width:210px', 'aria-label': '系统发音人' }, [
+      h('option', { value: '' }, '系统默认中文语音'),
+    ]);
+    saySelect.value = A.S.voice?.sayVoice || '';
+    saySelect.addEventListener('change', () => { A.sput('voice.sayVoice', saySelect.value); });
+
+    if (A.native) {
+      listVoices(A.nativeCommand).then(voices => {
+        const cur = A.S.voice?.sayVoice || '';
+        saySelect.replaceChildren(h('option', { value: '' }, '系统默认中文语音'));
+        (voices || []).forEach(v => {
+          saySelect.append(h('option', { value: v.name }, `${v.name}（${v.locale}）`));
+        });
+        saySelect.value = cur;
+      }).catch(() => {});
+    }
+
+    const testStatus = h('span', { class: 'sx-d', style: 'margin-right:8px' }, '');
+    const testBtn = X.btn('试听语音', async () => {
+      testBtn.disabled = true;
+      testStatus.className = 'sx-d';
+      testStatus.textContent = '正在合成并播放…';
       try {
-        const data = await A.nativeCommand('city_search', { name });
-        msg.textContent = data.results?.length ? '' : '没有找到城市，换个写法试试';
-        for (const c of data.results || []) res.append(X.btn([c.name, c.admin1, c.country].filter(Boolean).join(' · '), () => {
-          A.sput('city', c.name); A.sput('cityInfo', [c.name, c.admin1, c.country].filter(Boolean).join(' · '));
-          A.sput('cityCoords', { latitude: c.latitude, longitude: c.longitude });
-          A.emit('sense:city'); A.toast('城市已更新'); res.replaceChildren();
-        }));
-      } catch(e) { msg.textContent = String(e); }
-    };
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
-    wrap.append(h('div', { style: 'display:flex;gap:8px;justify-content:flex-end' }, [input, X.btn('查找', search)]), res, msg);
-    return wrap;
-  }
-
-  const CATS = [['dev', '开发'], ['office', '办公'], ['meeting', '会议'], ['video', '视频'], ['game', '游戏'], ['chat', '聊天'], ['browser', '浏览器']];
-  function appRow([key, name], redraw) {
-    const apps = A.S.apps, chips = h('div', { class: 'sx-chips' });
-    const add = h('input', { class: 'sx-chip-add', type: 'text', placeholder: '＋ 添加应用', maxlength: '24', 'aria-label': `向「${name}」添加应用` });
-    apps[key].forEach(a => chips.append(h('span', { class: 'sx-chip' }, [a, h('button', {
-      type: 'button', title: '移除', 'aria-label': `移除${a}`, html: A.icon('x', 10),
-      onclick: () => { apps[key] = apps[key].filter(x => x !== a); A.save(); redraw(); },
-    })])));
-    add.addEventListener('keydown', e => {
-      if (e.key !== 'Enter') return;
-      const v = add.value.trim(); if (!v) return;
-      const from = CATS.find(([k]) => apps[k].some(x => x.toLowerCase() === v.toLowerCase()));
-      if (from && from[0] === key) { A.toast(`「${v}」已经在「${name}」里了`); add.value = ''; return; }
-      if (from) apps[from[0]] = apps[from[0]].filter(x => x.toLowerCase() !== v.toLowerCase());
-      apps[key].push(v); A.save();
-      A.toast(from ? `已把「${v}」从「${from[1]}」移到「${name}」` : `已把「${v}」归入「${name}」`);
-      redraw();
-    });
-    chips.append(add);
-    return h('div', { class: 'sx-row', style: 'align-items:flex-start' }, [h('div', { class: 'sx-l', style: 'flex:none;width:56px;padding-top:3px' }, h('div', { class: 'sx-t' }, name)), h('div', { class: 'sx-l' }, chips)]);
-  }
-
-  pages.sense = el => {
-    const cal = X.row('系统日历', '日历会议读取将在后续版本接入；当前可以识别前台会议应用并手动勿扰', h('span', { class: 'sx-status' }, '暂不可用'));
-    const appsCard = h('div', { class: 'sx-card' });
-    const drawApps = () => { appsCard.replaceChildren(...CATS.map(c => appRow(c, drawApps))); };
-    drawApps();
-    const city = X.row('城市', null, null);
-    const cityInfo = h('div', { class: 'sx-d' }, A.S.cityInfo);
-    $$('.sx-l', city)[0].append(cityInfo);
-    city.append(h('div', { class: 'sx-c', style: 'flex:0 1 330px' }, cityCtl()));
-    A.on('sense:city', () => { cityInfo.textContent = A.S.cityInfo; });
+        const useMimo = A.S.voice?.provider === 'mimo';
+        const out = await A.voice?.speakText?.('你好呀，我是 KBOT！很高兴在你的桌面上陪着你。', {
+          force: true,
+          strict: useMimo,
+          emotion: 'happy',
+        });
+        testStatus.className = 'sx-d ok';
+        testStatus.textContent = out?.provider === 'mimo' ? '播放成功（小米 MiMo 语音）' : '播放成功（macOS 系统语音）';
+      } catch (err) {
+        testStatus.className = 'sx-d bad';
+        testStatus.textContent = String(err?.message || err);
+      } finally {
+        testBtn.disabled = false;
+      }
+    }, 'primary');
+    const stopBtn = X.btn('停止', () => {
+      A.voice?.stop?.();
+      testStatus.textContent = '';
+    }, 'ghost');
 
     el.append(
-      X.group('感知能力（每一项都可以单独关闭）',
-        X.row('离开电脑检测', '连续 5 分钟没有键鼠操作时角色休眠，短暂停顿仍会陪伴。只读取空闲时长；关闭后不再自动休眠或清零休息计时', X.toggle('senseIdle')),
-        X.row('前台应用类别', '只读取你正在用的应用名称，并归到「开发、会议、视频…」这样的类别，用来判断要不要勿扰、说什么。不读窗口标题，也不读屏幕内容', X.toggle('senseApp')),
-        cal,
-        X.row('截图提问', '只在你主动框选时截取；需要 macOS 屏幕录制权限', X.btn('检查／申请权限', async () => { try { const allowed = await A.nativeCommand('screen_permission', { request: true }); A.set('screenPerm', allowed); A.toast(allowed ? '已允许截图提问' : '请在系统设置 → 隐私与安全性 → 屏幕录制中允许，之后重启应用'); } catch(e) { A.toast(String(e)); } })),
-        X.row('天气', '用你填的城市查询，不使用定位权限。用于早安播报、下雨带伞、高温降温的提醒', X.toggle('senseWeather')),
-        city,
+      X.group('语音播报开关',
+        X.row('启用语音功能', '开启后支持自动播报提醒与回复；输入框底部工具栏也可一键开关回复朗读', X.toggle('voice.enabled')),
+        X.row('自动朗读对话回复', '每次 DSH 回复完成后自动用当前音色朗读文本内容（自动过滤代码块与表情标记）', X.toggle('voice.autoReply')),
+        X.row('自动朗读主动提醒与气泡', '定时提醒、回来问候等气泡出现时同步语音播报（勿扰或隐藏时自动静音）', X.toggle('voice.autoProactive')),
       ),
-      X.note('天气数据来自 Open-Meteo（CC BY 4.0，免费、无需 Key）。每小时最多请求一次并缓存；获取失败时用最近一次的缓存，超过 6 小时就不再提天气，也不会报错打扰你。'),
-      X.group('应用归类', appsCard),
-      X.note('一个应用只属于一个类别；在别的类别里添加同名应用，会把它移过来。「会议」类应用在前台时，角色会自动进入勿扰。'),
+      X.group('语音合成引擎',
+        X.row('首选发音引擎', '选择小米 MiMo 时，若未配置 Key 或网络异常会自动无缝回退到 macOS 系统语音', X.select('voice.provider', PROVIDERS, null, 250)),
+        X.row('效果试听', '点击试听当前所选语音引擎与音色（选择 MiMo 时将严格校验接口连通性）', h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [testStatus, testBtn, stopBtn])),
+      ),
+      X.group('小米 MiMo TTS 配置',
+        X.row('API 地址', '默认使用小米 MiMo 官方 OpenAI 兼容接口地址', X.text('voice.base', { ph: 'https://api.xiaomimimo.com/v1', w: 250, max: 200 })),
+        X.row('语音模型', '默认 mimo-v2.5-tts，支持通过自然语言指令控制情绪与语气', X.text('voice.model', { ph: 'mimo-v2.5-tts', w: 190, max: 80 })),
+        X.row('预设音色', '中文陪伴推荐「冰糖」或「茉莉」', X.select('voice.mimoVoice', MIMO_VOICES, null, 210)),
+        X.row('自定义语气风格（可选）', '留空则根据角色性格与每次回复的实时表情（开心、思考、提醒等）自动生成风格指令', X.text('voice.style', { ph: '留空自动跟随角色性格与表情', w: 250, max: 140, allowEmpty: true })),
+        X.row('MiMo API Key', '仅加密保存在 macOS 钥匙串（tts 槽位），绝不写入普通配置文件', X.keyCtl('voice', 'tts')),
+      ),
+      X.group('macOS 系统语音（离线与自动回退）',
+        X.row('系统发音人', '在离线环境或切换至系统语音时使用', saySelect),
+        X.row('系统语速', '默认 190 词/分钟', X.num('voice.rate', { min: 100, max: 320, unit: '词/分钟', w: 72 })),
+      ),
+      X.note('提示：你还可以在对话窗每条回复下方的操作栏点击小喇叭图标，单独朗读任意一条历史回复。'),
     );
   };
 })();

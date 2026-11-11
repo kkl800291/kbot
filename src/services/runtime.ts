@@ -42,7 +42,7 @@ export function installPersistence(A: any) {
     clearTimeout(timer);
     try {
       await tail.catch(() => {});
-      if (native) for (const slot of ['chat', 'vision', 'search']) await command('delete_key', { slot });
+      if (native) for (const slot of ['chat', 'vision', 'search', 'tts']) await command('delete_key', { slot });
       A.save = () => {};
       await writeState({});
       location.reload();

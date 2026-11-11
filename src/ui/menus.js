@@ -15,15 +15,36 @@
   };
 
   function statusHeads() {
-    const w = A.workInfo(), R = A.rest, heads = [];
+    const heads = [];
+    const st = A.dshState;
+    if (st && st.connected) {
+      const mode = st.activeMode === 'external' ? '外部实例' : '内置托管';
+      const mLabel = st.modelLabel || st.model;
+      heads.push({ head: `DSH 已连接 · ${mode}${mLabel ? ' · ' + mLabel : ''}` });
+    } else if (st && st.status === 'connecting') {
+      heads.push({ head: '正在连接 DeepSeek Harness…' });
+    } else {
+      heads.push({ head: 'DeepSeek Harness 未连接' });
+    }
     if (A.isDnd()) heads.push({ head: A.dndLabel() });
-    else if (R.phase === 'resting') heads.push({ head: `休息中 · 剩余 ${A.mmss(R.left)}` });
-    else heads.push({ head: `工作中 · 已连续 ${w.minutes} 分钟` });
-    if (R.phase !== 'resting') heads.push({ head: w.nextIn ? `下次休息提醒 · ${w.nextIn} 分钟后` : '该休息啦' });
     return heads;
   }
 
   const openChat = () => { if (A.hidden) A.setHidden(false); A.panel.open(); };
+
+  const updateMenuItem = () => {
+    const u = A.updateState;
+    if (u && u.hasUpdate && u.latestVersion) {
+      return {
+        label: `更新至 v${u.latestVersion}…`,
+        fn: () => (u.downloadUrl ? A.updater?.install?.() : A.openSettings?.('general')),
+      };
+    }
+    return {
+      label: '检查版本更新…',
+      fn: () => A.updater?.check?.(true),
+    };
+  };
 
   A.openTrayMenu = () => {
     const r = tray.getBoundingClientRect();
@@ -36,7 +57,10 @@
       { sep: true },
       ...dndItems(),
       { sep: true },
-      { label: '提醒列表…', fn: () => A.openSettings && A.openSettings('remind') },
+      { label: '打开 DSH 模型控制台…', fn: () => A.agent && A.agent.openConsole() },
+      { label: '打开养成目录', fn: () => A.agent && A.agent.openWorkspace() },
+      { label: '智能核心设置…', fn: () => A.openSettings && A.openSettings('agent') },
+      updateMenuItem(),
       { label: '设置…', kbd: '⌘ ,', fn: () => A.openSettings && A.openSettings() },
       { sep: true },
       { label: '退出 KBOT', kbd: '⌘ Q', fn: () => A.quit() },
@@ -46,12 +70,17 @@
 
   A.openContextMenu = (x, y) => {
     A.menu.open([
+      ...statusHeads(),
+      { sep: true },
       { label: A.panel.isOpen() ? '收起对话' : '打开对话', kbd: A.S.hotkey.label, fn: () => A.panel.toggle() },
       { label: '新对话', fn: () => { A.panel.open(); A.chat.newConv(true); } },
       { sep: true },
       ...dndItems(),
       { sep: true },
-      { label: '提醒列表…', fn: () => A.openSettings && A.openSettings('remind') },
+      { label: '打开 DSH 模型控制台…', fn: () => A.agent && A.agent.openConsole() },
+      { label: '打开养成目录', fn: () => A.agent && A.agent.openWorkspace() },
+      { label: '智能核心设置…', fn: () => A.openSettings && A.openSettings('agent') },
+      updateMenuItem(),
       { label: '设置…', kbd: '⌘ ,', fn: () => A.openSettings && A.openSettings() },
       { label: '隐藏角色', fn: () => A.setHidden(true) },
     ], x, y);

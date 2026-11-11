@@ -52,13 +52,42 @@
     festival: true, term: true,
     city: '上海', senseIdle: true, senseApp: true, senseWeather: true, senseCal: 'ask',
     apps: {
-      dev: ['VS Code', 'Xcode', 'Terminal'], office: ['Word', 'Excel', 'Keynote'], meeting: ['腾讯会议', '飞书会议', 'Zoom'],
-      video: ['Bilibili', 'QuickTime'], game: ['Steam'], chat: ['微信', 'Slack'], browser: ['Chrome', 'Safari'],
+      dev: ['VS Code', 'Xcode', 'Terminal', 'Cursor'],
+      office: ['Word', 'Excel', 'Keynote', 'Notion'],
+      meeting: ['腾讯会议', '飞书会议', 'Zoom'],
+      video: ['Bilibili', 'QuickTime', 'IINA'],
+      game: ['Steam'],
+      chat: ['微信', 'Slack', '飞书'],
+      browser: ['Chrome', 'Safari', 'Arc'],
     },
     hotkey: { alt: true, meta: false, ctrl: false, shift: false, code: 'Space', label: '⌥ Space' },
     retention: 0,
     send: { appName: false, calTitle: false, memory: true },
     aiCompanion: false,
+    dsh: {
+      mode: 'auto',
+      workspace: '~/KBOT',
+      binary: '',
+      desktopPatch: false,
+    },
+    updater: {
+      autoCheck: true,
+      endpoint: 'kkl800291/kbot',
+      skippedVersion: '',
+    },
+    voice: {
+      enabled: false,
+      autoReply: false,
+      autoProactive: true,
+      provider: 'mimo',
+      base: 'https://api.xiaomimimo.com/v1',
+      model: 'mimo-v2.5-tts',
+      mimoVoice: '冰糖',
+      style: '',
+      hasKey: false,
+      sayVoice: '',
+      rate: 190,
+    },
     ai: {
       chat: { provider: 'deepseek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: false },
       vision: { on: false, provider: 'qwen', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-max', hasKey: false },
@@ -146,7 +175,7 @@
     },
   };
   document.addEventListener('pointerdown', e => {
-    if (menuOpen && !menuEl.contains(e.target) && !e.target.closest('#tray')) A.menu.close();
+    if (menuOpen && !menuEl.contains(e.target) && !e.target.closest('#tray, #modelTag')) A.menu.close();
   }, true);
   menuEl.addEventListener('keydown', e => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;

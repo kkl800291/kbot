@@ -66,7 +66,7 @@ fn service() -> &'static str {
 }
 fn account(slot: &str) -> Result<&str, String> {
     match slot {
-        "chat" | "vision" | "search" => Ok(slot),
+        "tts" | "chat" | "vision" | "search" => Ok(slot),
         _ => Err("未知的凭据类型".into()),
     }
 }
@@ -148,6 +148,11 @@ fn key_exists(_slot: &str) -> Option<bool> {
 #[tauri::command]
 pub async fn key_status() -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        serde_json::json!({"chat": key_exists("chat"), "vision": key_exists("vision"), "search": key_exists("search")})
+        serde_json::json!({
+            "tts": key_exists("tts"),
+            "chat": key_exists("chat"),
+            "vision": key_exists("vision"),
+            "search": key_exists("search"),
+        })
     }).await.map_err(|_| "无法检查钥匙串状态".to_string())
 }

@@ -1,224 +1,169 @@
-import { HABIT_LABELS, emptyDrift, emptyHabits, settingsView } from '../services/habits';
-
-/* KBOT · 设置页（二）：提醒、记忆、对话 */
+/* KBOT · 设置页（二）：智能核心（DeepSeek Harness 双模桥接、~/KBOT 养成目录、角色语气） */
 (function () {
   'use strict';
-  const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages, B = A.brain;
-  const WEEK = '日一二三四五六';
-  const dayLabel = d => ['今天', '明天', '后天'][Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5)] || `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
-  const fmtAt = at => { const d = new Date(at); return `${dayLabel(d)} ${A.hm(at)}`; };
-  const btn = (icon, title, fn) => h('button', { class: 'ib', type: 'button', title, 'aria-label': title, html: A.icon(icon, 15), onclick: fn });
+  const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
 
-  // ---------- 提醒 ----------
-  const REPEATS = [['once', '仅一次'], ['daily', '每天'], ['workday', '每个工作日'], ['weekly', '每周'], ['monthly', '每月']];
-
-  function remindForm(rem, done) {
-    const m = rem && /(\d{1,2}):(\d{2})/.exec(rem.when);
-    const wk = rem && /^每周([日一二三四五六])$/.exec(rem.repeat), dm = rem && /^每月(\d+)号$/.exec(rem.repeat);
-    const kind = !rem || rem.repeat === '仅一次' ? 'once' : rem.repeat === '每天' ? 'daily' : rem.repeat === '每个工作日' ? 'workday' : wk ? 'weekly' : dm ? 'monthly' : 'once';
-    const content = h('input', { class: 'sx-in', type: 'text', maxlength: '40', placeholder: '例如：给老王回电话', style: 'width:100%' });
-    content.value = rem ? rem.content : '';
-    const rep = h('select', { class: 'sx-in' }, REPEATS.map(([v, l]) => h('option', { value: v }, l)));
-    rep.value = kind;
-    const days = h('select', { class: 'sx-in' }, Array.from({ length: 30 }, (_, i) => { const d = new Date(Date.now() + i * 864e5); return h('option', { value: String(d.setHours(0, 0, 0, 0)) }, `${dayLabel(d)}（${d.getMonth() + 1}月${d.getDate()}日 周${WEEK[d.getDay()]}）`); }));
-    const wsel = h('select', { class: 'sx-in' }, [1, 2, 3, 4, 5, 6, 0].map(i => h('option', { value: WEEK[i] }, '周' + WEEK[i])));
-    const msel = h('select', { class: 'sx-in' }, Array.from({ length: 31 }, (_, i) => h('option', { value: String(i + 1) }, `${i + 1} 号`)));
-    wsel.value = wk ? wk[1] : WEEK[new Date().getDay()]; msel.value = dm ? dm[1] : String(new Date().getDate());
-    if (rem && kind === 'once' && rem.at) { const base = new Date(rem.at).setHours(0, 0, 0, 0); if ([...days.options].some(o => o.value === String(base))) days.value = String(base); }
-    let hhmm = m ? `${A.pad(+m[1])}:${A.pad(+m[2])}` : (() => { const d = new Date(Date.now() + 3600e3); return `${A.pad(d.getHours())}:00`; })();
-    const time = X.timeOf(hhmm, v => { hhmm = v; });
-    const err = h('span', { class: 'sx-err' });
-    const hint = h('div', { class: 'sx-note', style: 'grid-column:1/-1;margin:-4px 0 0' });
-    const when = h('div', { class: 'inl' });
-    const sync = () => {
-      const k = rep.value;
-      when.replaceChildren(...[k === 'once' ? days : k === 'weekly' ? wsel : k === 'monthly' ? msel : null, time].filter(Boolean));
-      hint.textContent = k === 'monthly' ? '31 号这类日期，在没有这一天的月份里会改在当月最后一天提醒。' : k === 'workday' ? '按「作息」里设置的工作日，并跟随法定节假日与调休。' : '';
-      hint.hidden = !hint.textContent;
-    };
-    rep.addEventListener('change', () => { err.textContent = ''; sync(); });
-    sync();
-    const save = () => {
-      const text = content.value.trim(), k = rep.value;
-      if (!text) { err.textContent = '请填写要提醒的内容'; content.focus(); return; }
-      let r;
-      if (k === 'once') {
-        const d = new Date(+days.value); const [hh, mm] = hhmm.split(':').map(Number); d.setHours(hh, mm, 0, 0);
-        if (d.getTime() <= Date.now()) { err.textContent = '这个时间已经过了，请选一个之后的时间'; return; }
-        r = { repeat: '仅一次', when: `${d.getFullYear()}-${A.pad(d.getMonth()+1)}-${A.pad(d.getDate())} ${hhmm}`, at: d.getTime(), content: text };
-      } else {
-        const rp = k === 'daily' ? '每天' : k === 'workday' ? '每个工作日' : k === 'weekly' ? `每周${wsel.value}` : `每月${msel.value}号`;
-        r = { repeat: rp, when: `${k === 'workday' ? '工作日' : rp} ${hhmm}`, content: text, at: null };
-      }
-      try { if (rem) { B.updateReminder(rem.id, r); A.toast('提醒已更新'); } else { B.addReminder(r); A.toast('提醒已添加'); } } catch(e) { err.textContent = e.message; return; }
-      done();
-    };
-    content.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
-    const form = h('div', { class: 'sx-form' }, [
-      h('label', {}, '内容'), content,
-      h('label', {}, '重复'), rep,
-      h('label', {}, '时间'), when, hint,
-      h('div', { class: 'full' }, [err, X.btn('取消', done, 'ghost'), X.btn(rem ? '保存' : '添加', save, 'primary')]),
-    ]);
-    setTimeout(() => content.focus(), 0);
-    return form;
-  }
-
-  pages.remind = el => {
-    const list = h('div', {});
-    const draw = () => {
-      list.replaceChildren();
-      const items = A.reminders.slice().sort((a, b) => (a.fired - b.fired) || ((a.at || 9e15) - (b.at || 9e15)));
-      if (!items.length) list.append(X.empty('还没有自定义提醒。点下面的按钮添加，也可以直接在聊天里说：「20 分钟后提醒我给老王回电话」。'));
-      items.forEach(r => {
-        const rp = r.repeat && r.repeat !== '仅一次';
-        const sub = r.fired ? `${r.when} · 已提醒` : rp ? `${r.when}${r.at ? ` · 下次 ${fmtAt(r.at)}` : ''}` : `${r.when}${r.at ? '' : ' · 未排期'}`;
-        const row = h('div', { class: 'sx-item' + (r.fired ? ' fin' : '') }, [
-          h('span', { class: 'ic', html: A.icon('bell', 16) }),
-          h('div', { class: 'tx' }, [h('div', { class: 'tt' }, r.content), h('div', { class: 'ss' }, sub)]),
-          h('div', { class: 'ops' }, [
-            btn('pencil', '修改', () => { row.replaceWith(remindForm(r, draw)); }),
-            btn('trash', '删除', () => { B.removeReminder(r.id); A.toast('提醒已删除'); }),
-          ]),
-        ]);
-        list.append(row);
-      });
-      const add = h('div', { class: 'sx-add' });
-      add.append(X.btn('＋ 添加提醒', () => { add.replaceWith(remindForm(null, draw)); }));
-      list.append(add);
-    };
-    draw();
-    el.append(
-      X.group('我设的提醒', list),
-      X.note('支持一次性、每天、每个工作日、每周几、每月几号。聊天里说的提醒，确认保存后也会出现在这里。'),
-      X.group('到点之后', X.row('怎么提醒你', '你设的提醒优先级最高：勿扰时也会出现，但是以静默气泡，不响提示音', null)),
-    );
-  };
-
-  // ---------- 记忆 ----------
-  pages.memory = el => {
-    const list = h('div', {});
-    const draw = () => {
-      list.replaceChildren();
-      if (!A.memories.length) list.append(X.empty('我还没有记住什么。聊天里你告诉我的偏好、称呼、生日，我会先问你「要记住吗」，你同意了才会保存。'));
-      A.memories.forEach(mm => {
-        const tt = h('div', { class: 'tt' }, mm.text);
-        let editing = false;
-        const stop = ok => {
-          if (!editing) return; editing = false;
-          tt.contentEditable = 'false'; tt.removeEventListener('keydown', onKey); tt.removeEventListener('blur', onBlur);
-          const v = tt.textContent.trim();
-          if (ok && v && v !== mm.text) { B.updateMemory(mm.id, v); A.toast('记忆已更新'); } else tt.textContent = mm.text;
-        };
-        const onKey = e => { if (e.key === 'Enter') { e.preventDefault(); stop(true); } else if (e.key === 'Escape') { e.stopPropagation(); stop(false); } };
-        const onBlur = () => stop(true);
-        const edit = () => {
-          if (editing) return; editing = true;
-          tt.contentEditable = 'true'; tt.addEventListener('keydown', onKey); tt.addEventListener('blur', onBlur); tt.focus();
-          getSelection().selectAllChildren(tt);
-        };
-        list.append(h('div', { class: 'sx-item' }, [
-          h('span', { class: 'ic', html: A.icon('bookmark', 16) }),
-          h('div', { class: 'tx' }, [tt, h('div', { class: 'ss' }, `${dayLabel(new Date(mm.t))} 记下的`)]),
-          h('div', { class: 'ops' }, [btn('pencil', '修改', edit), btn('trash', '删除', () => { B.removeMemory(mm.id); A.toast('已忘掉这条'); })]),
-        ]));
-      });
-      const input = h('input', { class: 'sx-in', type: 'text', maxlength: '60', placeholder: '手动添加一条，例如：不喝冰咖啡', style: 'flex:1' });
-      const add = () => { const v = input.value.trim(); if (!v) return; B.addMemory(v); A.toast('记住啦'); };
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
-      list.append(h('div', { class: 'sx-add', style: 'display:flex;gap:8px' }, [input, X.btn('添加', add)]));
-    };
-    draw();
-    const habitView = Array.isArray(A.habits)
-      ? { habits: A.habits, habitProgress: A.habitProgress || [] }
-      : settingsView(A.habits || emptyHabits(), A.drift || emptyDrift(), A.journal || [], A.S.params.nightAt, Date.now());
-    const formed = habitView.habits || [];
-    const formedIds = new Set(formed.map(item => item.id));
-    const habits = h('div', {});
-    if (!formed.length) habits.append(X.empty('还在观察相处节奏。今天的记录要到明天才会算进去。'));
-    formed.forEach(item => {
-      const date = item.updatedAt ? new Date(item.updatedAt) : null;
-      const when = date ? `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日` : '';
-      habits.append(h('div', { class: 'sx-item' }, [
-        h('span', { class: 'ic', html: A.icon('bookmark', 16) }),
-        h('div', { class: 'tx' }, [h('div', { class: 'tt' }, item.text), h('div', { class: 'ss' }, `样本 ${item.samples} 次${when ? ' · ' + when : ''}`)]),
-        h('div', { class: 'ops' }, [btn('trash', '删除', () => { B.removeHabit(item.id); A.toast('这条习惯已删除，之后要重新攒够'); })]),
-      ]));
-    });
-    (habitView.habitProgress || []).filter(item => !formedIds.has(item.id)).forEach(item => {
-      const left = Math.max(0, item.need - item.samples - item.pending);
-      const text = left ? `还差 ${left} 次（已累计 ${item.samples} 次，今天还有 ${item.pending} 次明天才算）` : '次数够了，还要再观察才会定下来';
-      habits.append(h('div', { class: 'sx-item' }, [
-        h('span', { class: 'ic', html: A.icon('clock', 16) }),
-        h('div', { class: 'tx' }, [h('div', { class: 'tt' }, HABIT_LABELS[item.id] || item.id), h('div', { class: 'ss' }, text)]),
-      ]));
-    });
-    el.append(
-      X.group('我记得的', list),
-      X.note('记忆只保存在这台电脑上。聊天时，我只会把和当前话题相关的几条发给模型；不想发的话，可以在「AI → 发送内容范围」里关掉。'),
-      X.group('相处里养成的习惯', habits),
-      X.note('这些习惯由相处记录按天养成，不会改提醒时间和休息规则。今天的记录要到明天才会算进去。清空记忆不会删掉它们。'),
-      X.group('管理', X.row('清空全部记忆', '只清空你确认过的偏好，不删除相处习惯', X.danger('清空…', '再点一次确认清空', () => { B.clearMemories(); A.toast('记忆已全部清空'); }))),
-    );
-  };
-
-  // ---------- 对话 ----------
-  const KEYS = { Space: 'Space', Enter: '↩', Tab: '⇥', Backspace: '⌫', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
-  const CONFLICTS = [
-    [{ meta: true, alt: false, ctrl: false, shift: false, code: 'Space' }, 'Spotlight 搜索'],
-    [{ meta: true, alt: true, ctrl: false, shift: false, code: 'Space' }, 'Finder 搜索'],
-    [{ meta: false, alt: false, ctrl: true, shift: false, code: 'Space' }, '切换输入法'],
-    [{ meta: true, alt: false, ctrl: false, shift: false, code: 'Tab' }, '应用切换'],
+  const PERSONAS = [
+    ['cute', '可爱灵动', '默认', '嗨～今天也一起高效搞定手头的事吧！'],
+    ['gentle', '温柔体贴', '', '累了就歇一会儿，我一直在桌角陪着你。'],
+    ['lively', '元气明快', '', '能量满格！有什么任务尽管交给我～'],
+    ['quiet', '安静克制', '', '在线待命，有事随时叫我。'],
   ];
-  const keyName = e => KEYS[e.code] || (/^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : /^F\d{1,2}$/.test(e.code) ? e.code : null);
-  const labelOf = k => `${k.ctrl ? '⌃ ' : ''}${k.alt ? '⌥ ' : ''}${k.shift ? '⇧ ' : ''}${k.meta ? '⌘ ' : ''}${KEYS[k.code] || k.code.replace(/^Key|^Digit/, '')}`;
 
-  function hotkeyCtl() {
-    const box = h('span', { class: 'sx-time' });
-    const msg = h('span', { class: 'sx-err' });
-    const chip = h('button', { class: 'sx-kbd', type: 'button', title: '点击后按下新的组合键' }, A.S.hotkey.label);
-    let rec = null;
-    const stop = () => { if (!rec) return; removeEventListener('keydown', rec, true); rec = null; chip.classList.remove('rec'); chip.textContent = A.S.hotkey.label; };
-    chip.addEventListener('click', () => {
-      if (rec) { stop(); return; }
-      msg.textContent = ''; chip.classList.add('rec'); chip.textContent = '请按下新的组合键…';
-      rec = e => {
-        if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
-        e.preventDefault(); e.stopPropagation();
-        if (e.key === 'Escape') { stop(); return; }
-        const code = keyName(e);
-        const k = { alt: e.altKey, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, code: code ? e.code : '' };
-        if (!code || !(k.alt || k.meta || k.ctrl)) { msg.textContent = '请加上 ⌘ ⌥ ⌃ 之一，避免和打字冲突'; return; }
-        const hit = CONFLICTS.find(([c]) => ['alt', 'meta', 'ctrl', 'shift'].every(m => c[m] === k[m]) && c.code === k.code);
-        if (hit) { msg.textContent = `与「${hit[1]}」的系统快捷键冲突，换一个吧`; return; }
-        k.label = labelOf(k); A.sput('hotkey', k); stop();
-        A.toast(`快捷键已改为 ${k.label}`);
-      };
-      addEventListener('keydown', rec, true);
-    });
-    const reset = X.btn('恢复默认', () => { stop(); msg.textContent = ''; A.sput('hotkey', A.defaults().hotkey); chip.textContent = A.S.hotkey.label; }, 'ghost');
-    box.append(chip, reset);
-    const wrap = h('div', {}, [box]);
-    wrap.append(msg);
-    return wrap;
-  }
+  const MODES = [
+    ['auto', '双模自动（优先连外部实例，否则自动托管启动）'],
+    ['external', '仅连接外部已运行的 DeepSeek Harness'],
+    ['managed', '始终由 KBOT 独立后台托管进程'],
+  ];
 
-  const KEEP = [[0, '不清理'], [7, '7 天'], [30, '30 天'], [90, '90 天']];
-  pages.chat = el => {
-    const stat = h('div', { class: 'sx-d' });
-    const count = () => { const n = A.chat.convs.filter(c => c.messages.length).length; stat.textContent = `现在保存了 ${n} 个对话（含图片），只存在这台电脑上`; };
-    count();
-    const keepRow = X.row('对话记录保留期限', null, X.select('retention', KEEP, v => { if (v) A.chat.prune(); count(); }, 100));
-    $$('.sx-l', keepRow)[0].append(stat);
-    el.append(
-      X.group('唤出与收起',
-        X.row('唤出 / 收起对话的快捷键', '在任何应用里都能按；点一下右边的按键框，再按新的组合', hotkeyCtl()),
-        X.row('点击面板外面时收起', '关闭后，只能用 Esc、再点角色或收起按钮来收起', X.toggle('outsideClose')),
-      ),
-      X.group('对话记录', keepRow,
-        X.row('清空所有对话记录', '包括图片；无法恢复', X.danger('清空…', '再点一次确认清空', () => { A.chat.clearAll(); count(); A.toast('对话记录已清空'); }))),
-      X.note('超过保留期限的对话会在启动时和每天凌晨自动删除。'),
+  pages.agent = el => {
+    const statusSlot = h('div', {});
+    const patchSlot = h('div', {});
+
+    const drawStatus = () => {
+      statusSlot.replaceChildren();
+      patchSlot.replaceChildren();
+      const st = A.dshState || {};
+      const connected = !!st.connected;
+      const connecting = st.status === 'connecting';
+      const badgeText = connected
+        ? (st.activeMode === 'external' ? '已连接 · 外部实例' : '已连接 · 内置托管')
+        : connecting
+          ? '正在连接…'
+          : '未连接';
+      const badgeCls = 'sx-status' + (connected ? ' ok' : connecting ? '' : ' bad');
+      const detailParts = [];
+      if (st.modelLabel || st.model) {
+        const mText = st.modelLabel && st.model && st.modelLabel !== st.model
+          ? `${st.modelLabel} (${st.model})`
+          : (st.modelLabel || st.model);
+        detailParts.push(`当前模型：${mText}`);
+      }
+      if (st.port) detailParts.push(`桥接端口：127.0.0.1:${st.port}`);
+      if (st.pid) detailParts.push(`托管 PID：${st.pid}`);
+      if (!connected && st.error) detailParts.push(st.error);
+      const detail = detailParts.join(' · ') || '智能推理、工具调用、长期记忆与定时提醒均由本机 DeepSeek Harness 驱动';
+
+      const reconnectBtn = X.btn(connecting ? '连接中…' : '重新检测连接', async () => {
+        reconnectBtn.disabled = true;
+        try { await A.agent?.reconnect?.(); }
+        finally { reconnectBtn.disabled = false; drawStatus(); }
+      }, connected ? 'ghost' : 'primary');
+      reconnectBtn.disabled = connecting;
+
+      const restartBtn = X.btn('重启托管核心', async () => {
+        restartBtn.disabled = true;
+        try {
+          await A.agent?.restart?.();
+          A.toast('已重新启动 DeepSeek Harness 桥接核心');
+        } catch (err) {
+          A.toast(String(err), 5000);
+        } finally {
+          restartBtn.disabled = false;
+          drawStatus();
+        }
+      }, 'ghost');
+
+      const patchInstalled = !!(st.desktopPatchInstalled ?? A.S.dsh?.desktopPatch);
+      const patchSwitch = X.switch(patchInstalled, async enabled => {
+        try {
+          await A.agent?.setDesktopPatch?.(enabled);
+          A.toast(enabled
+            ? '已写入 ~/.dsh/profiles/desktop/cordis.patch.yml，重启 DeepSeek Harness.app 后即可双端共享直连'
+            : '已从桌面端配置移除 KBOT 桥接插件');
+        } catch (err) {
+          A.toast(String(err), 5000);
+          drawStatus();
+        }
+      });
+
+      statusSlot.append(
+        X.row('当前状态', detail, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
+          h('span', { class: badgeCls }, badgeText),
+          reconnectBtn,
+          restartBtn,
+        ])),
+      );
+      patchSlot.append(patchSwitch);
+    };
+    drawStatus();
+
+    const openConsoleBtn = X.btn('打开 DSH 模型与扩展控制台', async () => {
+      openConsoleBtn.disabled = true;
+      try {
+        await A.agent?.openConsole?.();
+      } finally {
+        openConsoleBtn.disabled = false;
+      }
+    }, 'primary');
+
+    const statusGroup = X.group('DeepSeek Harness 连接状态',
+      statusSlot,
+      X.row('模型与扩展配置', '一键打开当前 DeepSeek Harness 控制台，填写模型 API Key、切换默认模型或管理 MCP 插件；不开启 DeepSeek Harness.app 也能独立运行', openConsoleBtn),
+      X.row('接入模式', '双模自动模式下，已打开带桥接的 DeepSeek Harness 时直接复用，未打开时由 KBOT 自动后台拉起', X.select('dsh.mode', MODES, () => {
+        A.agent?.reconnect?.();
+      }, 290)),
+      X.row('注入桥接到 DeepSeek Harness.app', '在 ~/.dsh/profiles/desktop/cordis.patch.yml 登记桥接插件（保留你现有的桌面端配置），实现桌面端 App 与 KBOT 实时互通', patchSlot),
+      X.row('自定义 dsh 可执行路径', '留空则自动查找 PATH、~/.dsh/bin/dsh 与 DeepSeek Harness.app', X.text('dsh.binary', {
+        ph: '自动检测（可留空）',
+        w: 240,
+        max: 240,
+        allowEmpty: true,
+        after: () => A.agent?.reconnect?.(),
+      })),
     );
+
+    const wsInput = X.text('dsh.workspace', {
+      ph: '~/KBOT',
+      w: 210,
+      max: 240,
+      after: () => {
+        A.toast('养成目录已更新，正在重新挂载会话…');
+        A.agent?.reconnect?.();
+      },
+    });
+    const openWsBtn = X.btn('在访达中打开', () => A.agent?.openWorkspace?.());
+    const initWsBtn = X.btn('补齐模板文件', async () => {
+      try {
+        await A.agent?.initWorkspace?.(false);
+        A.toast('已检查并补齐 AGENTS.md、MEMORY.md 与 diary/ 目录');
+      } catch (err) {
+        A.toast(String(err), 4500);
+      }
+    }, 'ghost');
+
+    const cards = h('div', { class: 'sx-persona' }, PERSONAS.map(([k, name, tag, line]) => h('button', { type: 'button', class: 'sx-pcard', 'data-k': k }, [
+      h('b', {}, [name, tag ? h('em', {}, tag) : null]), h('span', {}, `「${line}」`),
+    ])));
+    const syncPersona = () => $$('.sx-pcard', cards).forEach(b => b.classList.toggle('on', b.dataset.k === A.S.persona));
+    cards.addEventListener('click', e => {
+      const b = e.target.closest('.sx-pcard'); if (!b) return;
+      A.sput('persona', b.dataset.k); syncPersona();
+      const line = PERSONAS.find(p => p[0] === b.dataset.k)[3];
+      if (!A.hidden && !A.panel?.isOpen?.()) A.bubble?.show?.({ kind: 'speech', pri: 'low', text: line, expr: 'wink' });
+    });
+    syncPersona();
+
+    const nick = X.text('nickname', { ph: '你', w: 140, max: 12 });
+    const callsToday = A.S.ai?.calls?.day === new Date().toDateString() ? A.S.ai.calls.n : 0;
+
+    el.append(
+      statusGroup,
+      X.group('专属养成目录（记忆、日记与定时任务）',
+        X.row('养成目录路径', 'KBOT 的人格提示词（AGENTS.md）、长期记忆（MEMORY.md）与相处日记（diary/）均以纯 Markdown 保存在此目录中', wsInput),
+        X.row('目录管理', '你可以直接用任意编辑器查看或修改记忆文件，也可以在 DeepSeek Harness 中打开同一目录协同使用', h('div', { style: 'display:flex;gap:8px' }, [openWsBtn, initWsBtn])),
+      ),
+      X.note('提示：在对话里说「20 分钟后提醒我喝水」或「每天早上 9:30 提醒我站会」，DSH 会使用内置定时调度器创建提醒，到点自动通过 KBOT 气泡与语音通知你。'),
+      X.group('角色性格与称呼（实时同步至 DSH 上下文与语音风格）',
+        cards,
+        X.row('你希望我怎么叫你', '默认称呼「你」，修改后立即同步到桌面感知上下文', nick),
+      ),
+      X.group('今日互动统计',
+        X.row('今日对话回复次数', '仅在本机统计', h('span', { class: 'sx-status' }, `${callsToday} 次`)),
+      ),
+    );
+
+    el._redraw = drawStatus;
   };
 })();
 

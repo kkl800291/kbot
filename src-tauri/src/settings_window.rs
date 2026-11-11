@@ -8,8 +8,7 @@ pub struct SettingsWindowGate(tokio::sync::Mutex<()>);
 
 fn page_name(page: &str) -> &str {
     match page {
-        "general" | "persona" | "routine" | "dates" | "remind" | "sense" | "ai" | "chat"
-        | "memory" => page,
+        "general" | "agent" | "voice" | "sense" | "chat" => page,
         _ => "general",
     }
 }
@@ -131,7 +130,8 @@ mod tests {
 
     #[test]
     fn only_known_settings_categories_are_used_in_window_urls() {
-        assert_eq!(page_name("persona"), "persona");
+        assert_eq!(page_name("agent"), "agent");
+        assert_eq!(page_name("voice"), "voice");
         assert_eq!(page_name("../../index.html?view=other"), "general");
     }
 }

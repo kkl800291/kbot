@@ -1,8 +1,3 @@
-declare module 'lunar-javascript' {
-  export const Solar: any;
-  export const Lunar: any;
-  export const HolidayUtil: any;
-}
 interface Window {
   App: any;
   Robot: any;

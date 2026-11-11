@@ -156,7 +156,8 @@ export function installDesktop(A: any) {
       else if (action === 'hide') A.setHidden(true);
       else if (action === 'show') A.setHidden(false);
       else if (action === 'chat') { if (A.hidden) A.setHidden(false); A.panel.open(); }
-      else if (action === 'settings' || action === 'reminders') { if (A.hidden) A.setHidden(false); A.openSettings(action === 'reminders' ? 'remind' : undefined); }
+      else if (action === 'workspace') { await A.agent?.openWorkspace?.(); }
+      else if (action === 'settings' || action === 'agent') { if (A.hidden) A.setHidden(false); A.openSettings(action === 'agent' ? 'agent' : undefined); }
       else if (action === 'dnd') A.setDnd(A.isDnd() ? 0 : 30);
       else if (action === 'quit') await A.quit();
       else if (action === 'reposition') { if (A.hidden) A.setHidden(false); A.S.pos = null; A.placePet(); A.save(); }

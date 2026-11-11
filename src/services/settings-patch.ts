@@ -36,6 +36,7 @@ const userSettings = new Set([
   'autostart', 'onTop', 'workFrom', 'workTo', 'holidays', 'params', 'festival',
   'term', 'city', 'senseIdle', 'senseApp', 'senseWeather', 'senseCal', 'apps',
   'hotkey', 'retention', 'send', 'ai', 'aiCompanion', 'cityInfo', 'cityCoords',
+  'dsh', 'voice', 'updater',
 ]);
 const object = (value: any): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (value: any, key: string) => value != null && Object.prototype.hasOwnProperty.call(value, key);
@@ -80,6 +81,7 @@ function allowed(path: string[]) {
     // Never permit replacing an ancestor of ai.calls with a stale object.
     return path.length >= 4 && ['chat', 'vision', 'search'].includes(path[2]);
   }
+  if (path[1] === 'dsh' || path[1] === 'voice' || path[1] === 'updater') return path.length >= 3;
   return true;
 }
 

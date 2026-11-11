@@ -1,10 +1,10 @@
 import './desktop.css';
 import { command, loadState, native, installPersistence } from './services/runtime';
 import { installDesktop } from './services/desktop';
-import { installBrain } from './services/brain';
-import { installAI } from './services/ai';
 import { installWeather } from './services/weather';
-import { isWorkday } from './services/calendar';
+import { installVoice } from './services/voice';
+import { installAgent } from './services/agent';
+import { installUpdater } from './services/updater';
 import { onboarding } from './onboarding';
 import { installSettingsOwner } from './services/settings-owner';
 import { getVersion } from '@tauri-apps/api/app';
@@ -35,9 +35,7 @@ async function boot() {
   installPersistence(A);
   if (native) {
     const keys = await command('key_status');
-    for (const slot of ['chat', 'vision', 'search']) {
-      if (typeof keys[slot] === 'boolean') A.S.ai[slot].hasKey = keys[slot];
-    }
+    if (typeof keys.tts === 'boolean') A.S.voice.hasKey = keys.tts;
   }
   await import('./ui/pet.js');
   await import('./ui/bubble.js');
@@ -45,9 +43,9 @@ async function boot() {
   await import('./ui/chat.js');
   await import('./ui/composer.js');
   await import('./ui/reply.js');
-  A.calendarWorkday = (date: Date) => isWorkday(date, A.S.holidays);
-  installBrain(A);
-  installAI(A);
+  installVoice(A);
+  installAgent(A);
+  installUpdater(A);
   await import('./ui/settings.js');
   await import('./ui/settings-a.js');
   await import('./ui/settings-b.js');
@@ -81,6 +79,7 @@ async function boot() {
   // The menu entry is explicit; closing settings or chat never exits the process.
   A.quit = async () => {
     A.chat.stop?.();
+    A.voice?.stop?.();
     try { await A.flush(); if (native) await command('quit_app'); }
     catch { A.toast('保存失败，尚未退出。请检查磁盘空间后重试。'); }
   };

@@ -57,19 +57,24 @@
 
   function openPanel(opts = {}) {
     if (A.hidden || !A.chat?.cur) return;
-    if (open) { if (opts.seed) A.chat.onOpen({ seed: opts.seed }); focusInput(); return; }
+    if (open) {
+      if (opts.convId || opts.seed) A.chat.onOpen({ convId: opts.convId, seed: opts.seed });
+      focusInput();
+      return;
+    }
     A.focusWindow?.();
     open = true; panel.inert = false; clearTimeout(closeTimer);
     prevFocus = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
-    let pro = null, seed = opts.seed;
-    if (seed) A.bubble.hide(true);
+    let pro = null, seed = opts.seed, convId = opts.convId;
+    if (seed || convId) A.bubble.hide(true);
     else {
       const ev = A.bubble.takeover();
-      if (ev?.kind === 'speech') seed = ev.text;
+      if (ev?.convId) convId = ev.convId;
+      else if (ev?.kind === 'speech') seed = ev.text;
       else if (ev) pro = ev;
     }
     panel.hidden = false;
-    A.chat.onOpen({ seed, pro });
+    A.chat.onOpen({ convId, seed, pro });
     place();
     void panel.offsetWidth;
     panel.classList.add('open');

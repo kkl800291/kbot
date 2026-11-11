@@ -7,6 +7,9 @@ const snapshot = (): SettingsSnapshot => ({
     model: 'text', webAvailable: false, onboarding: true, pos: { x: 10, y: 20 }, panelW: 360, panelH: 480, expanded: false,
     params: { waterEvery: 45, eyeEvery: 20 }, apps: { dev: ['Xcode'], meeting: ['Zoom'] },
     ai: { chat: { model: 'deepseek-chat', visionSupported: false }, calls: { day: '2026-11-10', n: 3 } },
+    dsh: { mode: 'auto', workspace: '~/KBOT', binary: '', desktopPatch: false },
+    updater: { autoCheck: true, endpoint: '', skippedVersion: '' },
+    voice: { enabled: false, autoReply: false, autoProactive: true, provider: 'mimo', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-tts', mimoVoice: '冰糖', style: '', hasKey: false, sayVoice: '', rate: 190 },
   },
   builtin: { water: true, rest: true },
   birthdays: [{ id: 'a', name: '妈妈', m: 2, d: 3 }],
@@ -29,6 +32,24 @@ describe('settings window state patches', () => {
     expect(current.S.nickname).toBe('你');
   });
 
+  it('syncs DSH and MiMo voice settings at field granularity', () => {
+    const before = snapshot(), after = snapshot(), current = snapshot();
+    after.S.dsh.mode = 'managed';
+    after.S.dsh.workspace = '~/MyKBOT';
+    after.S.voice.enabled = true;
+    after.S.voice.mimoVoice = '小团子';
+    after.S.updater.endpoint = 'mingqukj/kbot';
+    current.S.voice.hasKey = true; // updated concurrently in main window
+    current.S.updater.skippedVersion = '0.1.7';
+    const changes = diffSettings(before, after);
+    const result = applySettingsChanges(current, changes);
+    expect(result.S.dsh).toEqual({ mode: 'managed', workspace: '~/MyKBOT', binary: '', desktopPatch: false });
+    expect(result.S.voice.enabled).toBe(true);
+    expect(result.S.voice.mimoVoice).toBe('小团子');
+    expect(result.S.voice.hasKey).toBe(true);
+    expect(result.S.updater).toEqual({ autoCheck: true, endpoint: 'mingqukj/kbot', skippedVersion: '0.1.7' });
+  });
+
   it('syncs the companion rewrite switch without treating it as derived state', () => {
     const before = snapshot(), after = snapshot();
     before.S.aiCompanion = false;
@@ -45,6 +66,8 @@ describe('settings window state patches', () => {
     expect(diffSettings(before, after)).toEqual([]);
     const malicious: SettingsChange = { kind: 'field', path: ['S', 'ai'], before: { exists: true, value: before.S.ai }, after: { exists: true, value: after.S.ai } };
     expect(() => applySettingsChanges(before, [malicious])).toThrow(/不可修改/);
+    const replaceDsh: SettingsChange = { kind: 'field', path: ['S', 'dsh'], before: { exists: true, value: before.S.dsh }, after: { exists: true, value: 'bad' } };
+    expect(() => applySettingsChanges(before, [replaceDsh])).toThrow(/不可修改/);
   });
 
   it('transports optional-property deletion through JSON and supports idempotent retries', () => {
