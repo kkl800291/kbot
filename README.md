@@ -37,6 +37,8 @@ npm test               # 运行前端单元测试 (Vitest)
 cargo test --manifest-path src-tauri/Cargo.toml --lib  # 运行 Rust 单元测试
 ```
 
+`desktop:build` 和 `release` 只构建或发布，不会自动替换本机安装。日常请从 `/Applications/KBOT.app` 启动；`src-tauri/target/` 中的 `.app` 是打包产物。从构建目录、DMG 或系统隔离路径运行时，应用内更新会安装到 `/Applications/KBOT.app`。
+
 单独构建并更新本机 `/Applications/KBOT.app`：
 
 ```sh

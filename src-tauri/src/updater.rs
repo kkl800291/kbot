@@ -469,20 +469,32 @@ fn find_app_bundle_in_dir(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-fn resolve_target_app_bundle() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        // Look for `< Something.app >/Contents/MacOS/<bin>`
-        for ancestor in exe.ancestors() {
-            if ancestor.extension().and_then(|e| e.to_str()) == Some("app") {
-                // Avoid replacing a Cargo `target/debug` or read-only volume `.app`
-                let s = ancestor.to_string_lossy();
-                if !s.contains("/target/debug/") && !s.contains("/Volumes/") {
-                    return ancestor.to_path_buf();
-                }
+fn target_app_bundle_from_executable(exe: &Path) -> PathBuf {
+    // Preserve real installations, including user Applications and custom names.
+    for ancestor in exe.ancestors() {
+        if ancestor.extension().and_then(|e| e.to_str()) == Some("app") {
+            let parts: Vec<_> = ancestor.iter().filter_map(|part| part.to_str()).collect();
+            let cargo_build = parts.windows(2).any(|p| {
+                p[0] == "target" && matches!(p[1], "debug" | "release")
+            }) || parts.windows(3).any(|p| {
+                p[0] == "target" && matches!(p[2], "debug" | "release")
+            });
+            // Build outputs and read-only launches must update the installed app.
+            if !cargo_build
+                && !ancestor.starts_with("/Volumes")
+                && !parts.contains(&"AppTranslocation")
+            {
+                return ancestor.to_path_buf();
             }
         }
     }
     PathBuf::from("/Applications/KBOT.app")
+}
+
+fn resolve_target_app_bundle() -> PathBuf {
+    std::env::current_exe()
+        .map(|exe| target_app_bundle_from_executable(&exe))
+        .unwrap_or_else(|_| PathBuf::from("/Applications/KBOT.app"))
 }
 
 fn extract_app_to_staging(artifact: &Path, work_dir: &Path) -> Result<PathBuf, String> {
@@ -760,6 +772,36 @@ pub async fn install_app_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn updates_preserve_the_running_installed_app_path() {
+        for app in [
+            "/Applications/KBOT.app",
+            "/Users/example/Applications/KBOT.app",
+            "/Users/example/Tools/My KBOT.app",
+        ] {
+            let executable = Path::new(app).join("Contents/MacOS/cyber-companion");
+            assert_eq!(target_app_bundle_from_executable(&executable), Path::new(app));
+        }
+    }
+
+    #[test]
+    fn build_and_read_only_launches_update_the_installed_app() {
+        for executable in [
+            "/Users/example/kbot/src-tauri/target/debug/bundle/macos/KBOT.app/Contents/MacOS/cyber-companion",
+            "/Users/example/kbot/src-tauri/target/release/bundle/macos/KBOT.app/Contents/MacOS/cyber-companion",
+            "/Users/example/kbot/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/KBOT.app/Contents/MacOS/cyber-companion",
+            "/Volumes/KBOT/KBOT.app/Contents/MacOS/cyber-companion",
+            "/private/var/folders/example/AppTranslocation/random/d/KBOT.app/Contents/MacOS/cyber-companion",
+            "/Users/example/kbot/src-tauri/target/debug/cyber-companion",
+        ] {
+            assert_eq!(
+                target_app_bundle_from_executable(Path::new(executable)),
+                Path::new("/Applications/KBOT.app"),
+                "launching from {executable} must not update a build or mounted copy"
+            );
+        }
+    }
 
     #[test]
     fn compares_semver_and_prereleases_accurately() {
