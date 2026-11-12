@@ -59,7 +59,7 @@ export const MIMO_VOICE_DESIGNS: Array<[string, string, string]> = [
   [
     'jarvis-inspired',
     '英式 AI 管家（JARVIS 气质）',
-    'A calm, articulate middle-aged British male AI butler. Deep, warm, resonant baritone with exceptionally clear diction, measured pacing, precise pauses, restrained emotion, quiet confidence, and a subtle polished futuristic character. Sound like an original cinematic spacecraft assistant with discreet dry wit, never like a specific actor or an existing film character.',
+    'A calm, articulate middle-aged British male AI butler. Deep, warm, resonant baritone with exceptionally clear diction, measured pacing, precise pauses, restrained emotion, quiet confidence, and a subtle polished futuristic character. Sound like an original cinematic spacecraft assistant with discreet dry wit. Pronounce the assistant name Kbot as one natural name, "kay-bot", never spell out K-B-O-T. Never imitate a specific actor or an existing film character.',
   ],
 ];
 
@@ -81,6 +81,7 @@ export function cleanSpeechText(raw: string): string {
     .replace(/!\[[^\]]*]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
     .replace(/[#>*_~|]/g, '')
+    .replace(/K[\s.-]*B[\s.-]*O[\s.-]*T/gi, 'Kbot')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 1200);

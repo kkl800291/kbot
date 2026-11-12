@@ -58,6 +58,7 @@ describe('voice service (Xiaomi MiMo TTS + macOS say fallback)', () => {
     expect(cleaned).not.toContain('console.log');
     expect(cleaned).toContain('你好呀！');
     expect(cleaned).toContain('搞定啦！');
+    expect(cleanSpeechText('KBOT 已上线，K-B-O-T 等待指令。')).toBe('Kbot 已上线，Kbot 等待指令。');
   });
 
   it('reports dictation permission without sending audio', async () => {
