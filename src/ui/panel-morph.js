@@ -6,17 +6,38 @@ export class PanelMorph {
     this.animations = [];
     this.master = null;
     this.duration = 0;
+    this.surfaceFrame = 0;
     this.media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     this.media?.addEventListener('change', () => { if (this.media.matches) this.finish(); });
   }
 
   isActive() { return this.master !== null; }
 
+  cancelSurfaceWatch() {
+    if (this.surfaceFrame) cancelAnimationFrame(this.surfaceFrame);
+    this.surfaceFrame = 0;
+  }
+
+  watchClosingSurface(master, panel) {
+    this.cancelSurfaceWatch();
+    const tick = () => {
+      if (this.master !== master || this.target) { this.surfaceFrame = 0; return; }
+      if (Number(master.currentTime) <= this.duration * 0.62) {
+        // 面板已经缩到光球附近时，透明窗口不能再保留面板底色和阴影。
+        panel.classList.add('morph-surface-hidden');
+        this.surfaceFrame = 0;
+        return;
+      }
+      this.surfaceFrame = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
   set(show) {
     this.target = show;
     const { panel, pet } = this;
     // 清掉上一次收起留下的强制隐藏层，避免新一轮展开先闪过透明状态。
-    panel.classList.remove('morph-hidden');
+    panel.classList.remove('morph-hidden', 'morph-surface-hidden');
     panel.hidden = false;
     panel.classList.toggle('open', show);
     pet.classList.add('panel-docked');
@@ -43,6 +64,8 @@ export class PanelMorph {
         animation.play();
         animation.startTime = start - time / animation.playbackRate;
       }
+      if (show) this.cancelSurfaceWatch();
+      else this.watchClosingSurface(this.master, panel);
       return;
     }
 
@@ -98,16 +121,19 @@ export class PanelMorph {
       if (this.target ? master.currentTime < this.duration : master.currentTime > 0) return;
       this.finish();
     };
+    if (!minimal) this.watchClosingSurface(master, panel);
     this.onChange(true);
   }
 
   finish() {
     const { panel, pet, target } = this;
     const wasActive = this.isActive();
+    this.cancelSurfaceWatch();
     this.master = null;
     this.duration = 0;
     // 先用独立的隐藏层退出合成，再撤销变换，避免回到原尺寸时闪出矩形背景。
     panel.classList.toggle('morph-hidden', !target);
+    panel.classList.remove('morph-surface-hidden');
     panel.hidden = !target;
     panel.classList.toggle('open', target);
     panel.classList.remove('morphing');

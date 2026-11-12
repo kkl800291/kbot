@@ -51,6 +51,8 @@ function setup({ reduced = false } = {}) {
   let hidden = false;
   vi.stubGlobal('document', { body: layerRoot, createElement: () => new Element(), timeline: { currentTime: 100 } });
   vi.stubGlobal('window', { devicePixelRatio: 2, matchMedia: () => ({ matches: false, addEventListener: vi.fn() }) });
+  vi.stubGlobal('requestAnimationFrame', () => 1);
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
   vi.stubGlobal('getComputedStyle', () => ({ borderRadius: '18px', backgroundColor: 'rgba(252,252,253,.97)', boxShadow: 'none' }));
   const onChange = vi.fn();
   const robot = { canvas, render: vi.fn(), docked: false };
@@ -95,8 +97,11 @@ describe('robot / panel morph lifecycle', () => {
     expect(master().playbackRate).toBe(-1);
     expect(master().currentTime).toBe(360);
     expect(robot.docked).toBe(true);
+    master().currentTime = 200;
+    motion.set(false);
+    expect(panel.classList.contains('morph-surface-hidden')).toBe(true);
     const tracks = motion.animations as unknown as AnimationTrack[];
-    expect(new Set(tracks.map(track => track.startTime))).toEqual(new Set([460]));
+    expect(new Set(tracks.map(track => track.startTime))).toEqual(new Set([300]));
     // WebKit 清理动画层时，原尺寸的面板必须已经退出绘制树。
     for (const track of tracks) track.cancel.mockImplementation(() => { expect(panel.hidden).toBe(true); });
     master().end();
