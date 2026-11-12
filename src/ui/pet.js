@@ -75,9 +75,15 @@
   A.refreshHover = () => setOver(overPet);
   A.updatePetHover = (x, y) => {
     if (drag) return;
+    // 面板动画时无需逐次做命中测试，避免原生鼠标采样强制同步动画布局。
+    if (A.hidden || panelOpen() || A.panel?.isTransitioning?.()) {
+      petEl.classList.remove('interactive');
+      if (overPet) setOver(false);
+      return;
+    }
     const target = document.elementFromPoint(x, y);
     const blocked = target?.closest('#panel, .bubble, #menu, #console, #sheet.open .sh-win, #onboarding, #lightbox.open');
-    const p = !A.hidden && !panelOpen() && !A.panel?.isTransitioning?.() && !blocked && robot.hitTest(x, y);
+    const p = !blocked && robot.hitTest(x, y);
     petEl.classList.toggle('interactive', p);
     if (p !== overPet) setOver(p);
   };

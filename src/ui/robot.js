@@ -44,7 +44,7 @@
       this.palette = 'blue'; this.shell = 'light'; this.theme = 'light'; this.reduced = false;
       this.face = 'smooth'; this.body = 'orb'; this.mouth = false;
       this.base = 'idle'; this.temp = null; this.tempUntil = 0;
-      this.held = false; this.hover = false; this.paused = false; this.pressed = false;
+      this.held = false; this.hover = false; this.paused = false; this.docked = false; this.pressed = false;
       this.manual = !!opts.manual;
       this.clock = 0; this.age = 0; this.settle = 1; this.aura = 0;
       this.p = clonePose(STATES.idle.pose);
@@ -260,7 +260,7 @@
 
     loop(now) {
       requestAnimationFrame(this.loop);
-      if (this.paused) { this.last = now; return; }
+      if (this.paused || this.docked || document.hidden) { this.last = now; return; }
       if (!this.busy && now - this.lastDraw < 31) return;
       const dt = Math.min(0.05, (now - this.last) / 1000);
       this.last = now; this.lastDraw = now;

@@ -25,7 +25,7 @@ function setup({ native = false, timers = false } = {}) {
   }
   const pet = new Element(), canvas = new Element(), tray = new Element();
   const document: any = new EventTarget();
-  document.elementFromPoint = () => null;
+  document.elementFromPoint = vi.fn(() => null);
   let opened = false, now = 0;
   const panel = { toggle: vi.fn(() => { opened = !opened; }), isOpen: () => opened, close: vi.fn(() => { opened = false; }) };
   const A: any = {
@@ -111,11 +111,15 @@ describe('robot panel activation', () => {
 
 describe('hover and right-click context menu (no hover pills)', () => {
   it('does not keep a hover hit target at the robot position while chat replaces it', () => {
-    const { A, click, pet } = setup();
+    const { A, click, pet, panel, document } = setup();
     click();
     A.updatePetHover(90, 90);
     expect(A.robot.hover).toBe(false);
     expect(pet.classList.contains('interactive')).toBe(false);
+    panel.close();
+    A.panel.isTransitioning = () => true;
+    A.updatePetHover(90, 90);
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
   });
 
   it('updates robot hover on OS cursor samples without toggling chat', () => {

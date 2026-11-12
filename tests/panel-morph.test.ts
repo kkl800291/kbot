@@ -26,6 +26,7 @@ class Element {
   tokens = new Set<string>();
   children: Element[] = [];
   parent: Element | null = null;
+  get parentElement() { return this.parent; }
   tracks: AnimationTrack[] = [];
   classList = {
     add: (token: string) => this.tokens.add(token),
@@ -44,30 +45,36 @@ class Element {
 }
 
 function setup({ reduced = false } = {}) {
-  const panel = new Element(), pet = new Element(), canvas = new Element(), layerRoot = new Element();
+  const panel = new Element(), pet = new Element(), canvas = new Element(), layerRoot = new Element(), stage = new Element();
+  stage.append(pet); pet.append(canvas);
   panel.children = [new Element(), new Element(), new Element()];
   let hidden = false;
   vi.stubGlobal('document', { body: layerRoot, createElement: () => new Element(), timeline: { currentTime: 100 } });
   vi.stubGlobal('window', { devicePixelRatio: 2, matchMedia: () => ({ matches: false, addEventListener: vi.fn() }) });
   vi.stubGlobal('getComputedStyle', () => ({ borderRadius: '18px', backgroundColor: 'rgba(252,252,253,.97)', boxShadow: 'none' }));
   const onChange = vi.fn();
+  const robot = { canvas, render: vi.fn(), docked: false };
   const motion = new PanelMorph({
-    panel, pet, robot: { canvas, render: vi.fn() },
+    panel, pet, robot,
     body: () => ({ left: 1040, right: 1140, top: 643, bottom: 743 }),
     reduced: () => reduced, hidden: () => hidden, onChange,
   });
   const master = () => motion.master as unknown as AnimationTrack;
-  return { motion, panel, pet, layerRoot, master, onChange, hide: () => { hidden = true; } };
+  return { motion, panel, pet, robot, stage, layerRoot, master, onChange, hide: () => { hidden = true; } };
 }
 
 describe('robot / panel morph lifecycle', () => {
   it('hands off to the original panel styles and keeps the robot out of focus while open', () => {
-    const { motion, panel, pet, layerRoot, master, onChange } = setup();
+    const { motion, panel, pet, robot, stage, layerRoot, master, onChange } = setup();
     motion.set(true);
     expect(motion.isActive()).toBe(true);
     expect(panel.hidden).toBe(false);
     expect(pet.inert).toBe(true);
-    expect(layerRoot.children).toHaveLength(1);
+    expect(layerRoot.children).toHaveLength(0);
+    expect(robot.canvas.parent).toBe(pet);
+    expect(robot.docked).toBe(true);
+    expect(robot.render).not.toHaveBeenCalled();
+    expect(stage.classList.contains('panel-morphing')).toBe(true);
     master().end();
     expect(motion.isActive()).toBe(false);
     expect(panel.classList.contains('open')).toBe(true);
@@ -75,21 +82,31 @@ describe('robot / panel morph lifecycle', () => {
     expect(panel.children).toHaveLength(3);
     expect(layerRoot.children).toHaveLength(0);
     expect(pet.classList.contains('panel-docked')).toBe(true);
+    expect(stage.classList.contains('panel-morphing')).toBe(false);
+    expect(robot.docked).toBe(true);
     expect(onChange.mock.calls).toEqual([[true], [false]]);
   });
 
   it('keeps the closing surface visible until it reaches the robot, then restores accessibility', () => {
-    const { motion, panel, pet, master } = setup();
+    const { motion, panel, pet, robot, master } = setup();
     motion.set(true); master().end();
     motion.set(false);
     expect(panel.hidden).toBe(false);
     expect(master().playbackRate).toBe(-1);
-    expect(master().currentTime).toBe(480);
+    expect(master().currentTime).toBe(360);
+    expect(robot.docked).toBe(true);
+    const tracks = motion.animations as unknown as AnimationTrack[];
+    expect(new Set(tracks.map(track => track.startTime))).toEqual(new Set([460]));
+    // WebKit 清理动画层时，原尺寸的面板必须已经退出绘制树。
+    for (const track of tracks) track.cancel.mockImplementation(() => { expect(panel.hidden).toBe(true); });
     master().end();
     expect(panel.hidden).toBe(true);
+    expect(panel.classList.contains('morph-hidden')).toBe(true);
     expect(pet.inert).toBe(false);
     expect(pet.attributes.get('aria-hidden')).toBe('false');
     expect(pet.classList.contains('panel-docked')).toBe(false);
+    expect(robot.docked).toBe(false);
+    for (const track of tracks) expect(track.cancel).toHaveBeenCalledOnce();
     expect(panel.children).toHaveLength(3);
   });
 
@@ -102,6 +119,7 @@ describe('robot / panel morph lifecycle', () => {
     expect(master()).toBe(opening);
     expect(master().currentTime).toBe(171);
     expect(master().playbackRate).toBe(-1);
+    expect(motion.animations.every(track => track.currentTime === 171 && track.startTime === 271)).toBe(true);
     staleCompletion();
     expect(motion.isActive()).toBe(true);
     motion.set(true);
@@ -115,6 +133,7 @@ describe('robot / panel morph lifecycle', () => {
     expect(panel.hidden).toBe(false);
     master().end();
     expect(panel.hidden).toBe(true);
+    expect(panel.classList.contains('morph-hidden')).toBe(true);
   });
 
   it('uses only short opacity fades for reduced motion', () => {
@@ -126,6 +145,17 @@ describe('robot / panel morph lifecycle', () => {
     master().end();
   });
 
+  it('moves the original canvas and uses only transform/opacity without repainting panel shadows or radii', () => {
+    const { motion, robot } = setup();
+    motion.set(true);
+    expect(robot.canvas.tracks).toHaveLength(1);
+    for (const animation of motion.animations as unknown as AnimationTrack[]) {
+      for (const frame of animation.frames) {
+        expect(Object.keys(frame).every(key => ['transform', 'opacity', 'offset'].includes(key))).toBe(true);
+      }
+    }
+  });
+
   it('finishes an immediate open/close pair without rewinding playback to the open endpoint', () => {
     const { motion, panel, master } = setup();
     motion.set(true);
@@ -133,6 +163,7 @@ describe('robot / panel morph lifecycle', () => {
     motion.set(false);
     expect(motion.isActive()).toBe(false);
     expect(panel.hidden).toBe(true);
+    expect(panel.classList.contains('morph-hidden')).toBe(true);
   });
 
   it('immediately cancels transient layers when the whole companion is hidden', () => {
