@@ -4,6 +4,7 @@ import { installDesktop } from './services/desktop';
 import { installWeather } from './services/weather';
 import { installVoice } from './services/voice';
 import { installAgent } from './services/agent';
+import { installProactive } from './services/proactive';
 import { installUpdater } from './services/updater';
 import { onboarding } from './onboarding';
 import { installSettingsOwner } from './services/settings-owner';
@@ -46,6 +47,7 @@ async function boot() {
   await import('./ui/reply.js');
   installVoice(A);
   installAgent(A);
+  installProactive(A);
   installUpdater(A);
   await import('./ui/settings.js');
   await import('./ui/settings-a.js');

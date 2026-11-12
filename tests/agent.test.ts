@@ -11,9 +11,41 @@ import {
   parseRecommendedOptionLabel,
   summarizeReplyForBubble,
 } from '../src/services/agent';
+import { buildDueProactiveEvents, dayKey, parseClock } from '../src/services/proactive';
 import { summarizeUpdateNotes } from '../src/services/updater';
 
 describe('DSH expression parser and desktop sensor helpers', () => {
+  it('builds quiet, deduplicated proactive companion prompts from existing settings', () => {
+    expect(parseClock('09:30')).toBe(570);
+    expect(parseClock('bad')).toBeNull();
+    const now = new Date(2026, 10, 12, 11, 15).getTime();
+    expect(dayKey(now)).toBe('2026-11-12');
+    const events = buildDueProactiveEvents({
+      now,
+      activeMinutes: 45,
+      settings: {
+        aiCompanion: true,
+        workFrom: '09:00',
+        workTo: '18:00',
+        params: { waterEvery: 45, eyeEvery: 20, lunchAt: '11:15', offworkLead: 10, nightAt: '23:30' },
+      },
+      fired: {},
+    });
+    expect(events.map(event => event.key)).toEqual(['lunch']);
+    expect(buildDueProactiveEvents({
+      now,
+      activeMinutes: 45,
+      settings: { aiCompanion: false },
+      fired: {},
+    })).toEqual([]);
+    expect(buildDueProactiveEvents({
+      now,
+      activeMinutes: 45,
+      settings: { aiCompanion: true, params: { waterEvery: 45 } },
+      fired: { water: true },
+      active: true,
+    }).some(event => event.key === 'water')).toBe(false);
+  });
   it('strips inline expression tags while keeping non-expression brackets and code blocks intact', () => {
     const raw = '[happy] 早安呀！参考链接 [1] 和数组 `arr[0]`：\n```ts\nconst tag = "[wink]";\n```\n最后祝你顺利 [wink]';
     const parsed = extractExpressions(raw);

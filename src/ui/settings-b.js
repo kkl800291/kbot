@@ -157,6 +157,7 @@
       X.note('在对话里说“20 分钟后提醒我喝水”，到点后 KBOT 会用气泡和语音提醒你。'),
       X.group('性格与称呼',
         cards,
+        X.row('主动陪伴', '根据工作时长、时间和回来状态主动轻声提醒，可随时关闭', X.toggle('aiCompanion')),
         X.row('怎么称呼你', null, nick),
       ),
       X.group('今天',

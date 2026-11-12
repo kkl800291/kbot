@@ -63,7 +63,7 @@
     hotkey: { alt: true, meta: false, ctrl: false, shift: false, code: 'Space', label: '⌥ Space' },
     retention: 0,
     send: { appName: false, calTitle: false, memory: true },
-    aiCompanion: false,
+    aiCompanion: true,
     dsh: {
       mode: 'auto',
       workspace: '~/KBOT',
