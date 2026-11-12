@@ -1,10 +1,23 @@
 /* KBOT · 对话面板：弹出/收起、随角色定位、缩放、拖入图片、快捷键 */
+import { PanelMorph } from './panel-morph.js';
+
 (function () {
   'use strict';
   const A = window.App, { $, clamp } = A, robot = A.robot;
   const panel = $('#panel'), input = $('#input'), resizeEl = $('#resize');
   const TOP = 34, M = 8, G = 10;
-  let open = false, closeTimer = 0, focusTimer = 0, mode = 'above', anchor = { x: 'right', y: 'bottom' }, prevFocus = null, rs = null;
+  let open = false, focusTimer = 0, mode = 'above', anchor = { x: 'right', y: 'bottom' }, prevFocus = null, rs = null;
+  const morph = new PanelMorph({
+    panel, pet: $('#pet'), robot, body: () => A.petBody(),
+    reduced: () => !!A.S.reduced, hidden: () => A.hidden,
+    onChange: active => { if (!active && !open) restoreFocus(); A.emit('panelmotion', active); },
+  });
+
+  function restoreFocus() {
+    if (!A.hidden && prevFocus && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true });
+    else input.blur();
+    prevFocus = null;
+  }
 
   const dims = () => ({
     w: clamp(A.S.panelW, 300, Math.max(300, innerWidth - 2 * M)),
@@ -47,7 +60,6 @@
     top = clamp(top, TOP, Math.max(TOP, innerHeight - h - M));
     Object.assign(panel.style, {
       left: left + 'px', top: top + 'px', width: w + 'px', height: h + 'px',
-      transformOrigin: `${b.cx - left}px ${b.cy - top}px`,
     });
     resizeEl.className = 'resize ' + (anchor.y === 'bottom' ? 't' : 'b') + (anchor.x === 'right' ? 'l' : 'r');
     mode = m;
@@ -63,8 +75,8 @@
       return;
     }
     A.focusWindow?.();
-    open = true; panel.inert = false; clearTimeout(closeTimer);
-    prevFocus = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    open = true; panel.inert = false;
+    if (!morph.isActive()) prevFocus = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
     let pro = null, seed = opts.seed, convId = opts.convId;
     if (seed || convId) A.bubble.hide(true);
     else {
@@ -75,9 +87,8 @@
     }
     panel.hidden = false;
     A.chat.onOpen({ convId, seed, pro });
-    place();
-    void panel.offsetWidth;
-    panel.classList.add('open');
+    if (!morph.isActive()) place();
+    morph.set(true);
     A.refreshHover();
     robot.flash('happy', 700);
     clearTimeout(focusTimer);
@@ -87,16 +98,14 @@
   }
 
   function closePanel() {
-    if (!open) return;
+    if (!open) { if (A.hidden) morph.finish(); return; }
     open = false; panel.inert = true;
     clearTimeout(focusTimer);
-    panel.classList.remove('open');
     A.chat.closeHistory();
-    clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => { if (!open) panel.hidden = true; }, 240);
-    // 焦点还给原来的应用输入框
-    if (prevFocus && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true }); else input.blur();
-    prevFocus = null;
+    input.blur();
+    morph.set(false);
+    // 等角色恢复可交互后再还焦点，键盘打开/收起也能回到原来的控件。
+    if (!morph.isActive()) restoreFocus();
     A.refreshHover();
     $('#pet').setAttribute('aria-expanded', 'false');
     A.emit('panel', false);
@@ -106,7 +115,9 @@
     open: openPanel, close: closePanel, place,
     toggle: () => (open ? closePanel() : openPanel()),
     isOpen: () => open,
+    isTransitioning: () => morph.isActive(),
   };
+  $('.p-avatar', panel).addEventListener('click', closePanel);
 
   // ---- 放大 / 还原 ----
   function syncExpand() {
@@ -115,6 +126,7 @@
     b.title = A.S.expanded ? '还原大小' : '放大';
   }
   function toggleExpand() {
+    morph.finish();
     const ex = !A.S.expanded;
     A.S.expanded = ex; A.S.panelW = ex ? 520 : 360; A.S.panelH = ex ? 720 : 480; A.save();
     panel.classList.add('anim'); setTimeout(() => panel.classList.remove('anim'), 280);
@@ -127,6 +139,7 @@
 
   // ---- 拖动自由角调整大小 ----
   resizeEl.addEventListener('pointerdown', e => {
+    if (morph.isActive()) return;
     e.preventDefault(); e.stopPropagation();
     try { resizeEl.setPointerCapture(e.pointerId); } catch (_) { /* 指针已结束时忽略 */ }
     const d = dims();
@@ -173,7 +186,7 @@
   // ---- 拖入图片：拖到面板或角色身上都可以 ----
   const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
   const overPanel = e => open && e.target.closest && e.target.closest('#panel');
-  const overPet = e => !A.hidden && robot.hitTest(e.clientX, e.clientY);
+  const overPet = e => !A.hidden && !open && !morph.isActive() && robot.hitTest(e.clientX, e.clientY);
   let petHot = false;
   addEventListener('dragover', e => {
     if (!hasFiles(e)) return;
@@ -194,8 +207,9 @@
     setTimeout(() => A.chat.addFiles(files), 40);
   });
 
-  A.on('petmove', () => { if (open) place(rs ? { mode: rs.mode } : { keep: true }); });
-  addEventListener('resize', () => { if (open) place(); });
+  A.on('petmove', () => { morph.finish(); if (open) place(rs ? { mode: rs.mode } : { keep: true }); });
+  A.on('set:reduced', () => { if (A.S.reduced) morph.finish(); });
+  addEventListener('resize', () => { morph.finish(); if (open) place(); });
   A.init(syncExpand);
 })();
 

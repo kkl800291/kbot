@@ -26,7 +26,7 @@ export function installDesktop(A: any) {
     clearTimeout(releaseTimer);
     const version = ++focusVersion;
     if (native) releaseTimer = setTimeout(() => {
-      if (!A.panel.isOpen() && !A.petPointerActive && !document.querySelector('#menu.open, #sheet.open, #onboarding')) changeFocus(false, version);
+      if (!A.panel.isOpen() && !A.panel.isTransitioning?.() && !A.petPointerActive && !document.querySelector('#menu.open, #sheet.open, #onboarding')) changeFocus(false, version);
     }, 80);
   };
   A.captureScreen = async () => {
@@ -101,16 +101,18 @@ export function installDesktop(A: any) {
       const pet = document.querySelector('#pet')!.getBoundingClientRect();
       const s = pet.width / 180;
       // Follow the current body shape (head, accessories, floating ring), leaving transparent corners open.
-      for (const [x, y, w, h, radius] of A.robot.shape.regions as number[][]) {
-        regions.push({ x: pet.x + x * s, y: pet.y + y * s, w: w * s, h: h * s, radius: radius * s });
+      if (!A.panel.isOpen() && !A.panel.isTransitioning?.()) {
+        for (const [x, y, w, h, radius] of A.robot.shape.regions as number[][]) {
+          regions.push({ x: pet.x + x * s, y: pet.y + y * s, w: w * s, h: h * s, radius: radius * s });
+        }
       }
-      for (const element of document.querySelectorAll('#panel.open, #menu.open, .bubble.show, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
+      for (const element of document.querySelectorAll('#panel.open, #panel.morphing, #menu.open, .bubble.show, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
         const r = element.getBoundingClientRect();
         if (r.width && r.height) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height, radius: 10 });
       }
     }
     const dragging = !!A.petPointerActive || !!document.querySelector('#pet.dragging, #panel.resizing');
-    const interactive = A.panel.isOpen() || !!document.querySelector('#menu.open, #sheet.open, #onboarding');
+    const interactive = A.panel.isOpen() || !!A.panel.isTransitioning?.() || !!document.querySelector('#menu.open, #sheet.open, #onboarding');
     const key = JSON.stringify([regions, dragging, interactive]);
     if (key === regionKey) return;
     regionPending = true;
@@ -122,6 +124,8 @@ export function installDesktop(A: any) {
   A.on('petpointer', updateRegions);
   A.on('pethover', updateRegions);
   A.on('menu', updateRegions);
+  A.on('panel', updateRegions);
+  A.on('panelmotion', (active: boolean) => { updateRegions(); if (!active && !A.panel.isOpen()) A.releaseWindow(); });
 
   A.sysNotify = async (ev: any) => {
     if (!native) { A.toast(`${ev.title || '提醒'}：${ev.text}`, 8000); return; }

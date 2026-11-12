@@ -13,7 +13,8 @@ async function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(10_000);
   const pet = { classList: { toggle: vi.fn() }, getBoundingClientRect: () => ({ x: 0, y: 0, width: 180 }) };
-  vi.stubGlobal('document', { querySelector: (selector: string) => selector === '#pet' ? pet : null, querySelectorAll: () => [] });
+  const overlays: any[] = [];
+  vi.stubGlobal('document', { querySelector: (selector: string) => selector === '#pet' ? pet : null, querySelectorAll: () => overlays });
   const callbacks = new Map<string, (event: any) => void>();
   vi.mocked(listen).mockImplementation(async (name, callback) => { callbacks.set(name, callback); return () => {}; });
   let init!: () => Promise<void>;
@@ -26,10 +27,30 @@ async function setup() {
   };
   installDesktop(A); await init();
   const cursor = (sampledAt: number, buttonsDown = false) => callbacks.get('desktop-cursor')!({ payload: { x: 90, y: 90, sampledAt, buttonsDown } });
-  return { A, cursor };
+  return { A, cursor, overlays };
 }
 
 describe('native cursor gesture recovery', () => {
+  it('passes through the vacated robot position while the panel is open or morphing', async () => {
+    const { A, overlays } = await setup();
+    A.petPointerActive = false;
+    A.robot.shape.regions = [[40, 40, 100, 100, 50]];
+    A.panel.isOpen = () => true;
+    A.panel.isTransitioning = () => false;
+    overlays.push({ getBoundingClientRect: () => ({ x: 200, y: 100, width: 360, height: 480 }) });
+    await vi.advanceTimersByTimeAsync(100);
+    const regions = () => vi.mocked(command).mock.calls.filter(([name]) => name === 'set_regions').at(-1)?.[1];
+    expect(regions()).toMatchObject({ regions: [{ x: 200, y: 100, w: 360, h: 480, radius: 10 }] });
+    A.panel.isOpen = () => false;
+    A.panel.isTransitioning = () => true;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(regions()).toMatchObject({ regions: [{ x: 200, y: 100, w: 360, h: 480, radius: 10 }], interactive: true });
+    A.panel.isTransitioning = () => false;
+    overlays.length = 0;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(regions()).toMatchObject({ regions: [{ x: 40, y: 40, w: 100, h: 100, radius: 50 }], interactive: false });
+  });
+
   it('does not cancel a new press with a delayed pre-press release sample', async () => {
     const { A, cursor } = await setup();
     vi.setSystemTime(15_000);

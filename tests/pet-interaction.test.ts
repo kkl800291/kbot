@@ -37,7 +37,7 @@ function setup({ native = false, timers = false } = {}) {
   class Robot {
     static W = 180; static H = 192;
     box = { l: 26, r: 154, t: 14, b: 167, cy: 90 };
-    canvas = canvas; pressed = false; held = false;
+    canvas = canvas; pressed = false; held = false; hover = false;
     press() { this.pressed = true; }
     release() { this.pressed = false; }
     setHeld(value: boolean) { this.held = value; }
@@ -110,6 +110,14 @@ describe('robot panel activation', () => {
 });
 
 describe('hover and right-click context menu (no hover pills)', () => {
+  it('does not keep a hover hit target at the robot position while chat replaces it', () => {
+    const { A, click, pet } = setup();
+    click();
+    A.updatePetHover(90, 90);
+    expect(A.robot.hover).toBe(false);
+    expect(pet.classList.contains('interactive')).toBe(false);
+  });
+
   it('updates robot hover on OS cursor samples without toggling chat', () => {
     const { A, window, document, pet, panel } = setup({ native: true });
     window.dispatchEvent(new Event('blur'));

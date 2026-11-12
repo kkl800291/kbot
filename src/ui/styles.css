@@ -183,6 +183,7 @@ button:focus:not(:focus-visible) { outline: none; }
 #pet.pressed, #pet.dragging { pointer-events: auto; }
 #pet.dragging { cursor: grabbing; }
 #pet.hidden { opacity: 0; pointer-events: none !important; }
+#pet.panel-docked { opacity: 0; pointer-events: none !important; transition: none; }
 #pet canvas { display: block; }
 
 /* ---------- 气泡 ---------- */
@@ -248,18 +249,19 @@ html.theme-dark .btn:hover { filter: brightness(1.15); }
   border-radius: var(--r-panel); background: var(--surface); color: var(--text);
   box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
-  opacity: 0; transform: scale(0.3); pointer-events: none;
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.8, 0.4), opacity 0.16s ease-in;
+  opacity: 0; pointer-events: none;
 }
 #panel.open {
   opacity: 1; transform: none; pointer-events: auto;
-  transition: transform 0.26s var(--spring), opacity 0.16s ease-out;
 }
+#panel.morphing { opacity: 1; transform-origin: 0 0; transition: none; will-change: transform, border-radius; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#panel.morphing > .resize { opacity: 0; pointer-events: none; }
+.panel-morph-image { position: fixed; z-index: 21; transform-origin: 0 0; pointer-events: none; }
 #panel[hidden] { display: none; }
 #panel.resizing { transition: none; }
 #panel.open.anim {
   transition: width 0.26s var(--ease), height 0.26s var(--ease), left 0.26s var(--ease), top 0.26s var(--ease),
-    transform 0.26s var(--spring), opacity 0.16s ease-out;
+    opacity 0.16s ease-out;
 }
 html.reduced #panel, html.reduced #panel.open { transform: none; transition: opacity 0.15s ease; }
 html.reduced .bubble { transition: opacity 0.15s ease; transform: none; }
@@ -269,6 +271,7 @@ html.reduced .bubble { transition: opacity 0.15s ease; transform: none; }
   border-bottom: 0.5px solid var(--line);
 }
 .p-avatar { width: 26px; height: 26px; gap: 4px; --mark-drop: 0 1px 3px rgba(0, 0, 0, 0.16); }
+button.p-avatar { padding: 0; border: 0; background: transparent; cursor: pointer; }
 .p-avatar i { width: 3px; height: 7px; }
 .p-title { flex: 1; min-width: 0; }
 .p-name { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }

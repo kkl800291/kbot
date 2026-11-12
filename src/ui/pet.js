@@ -77,7 +77,7 @@
     if (drag) return;
     const target = document.elementFromPoint(x, y);
     const blocked = target?.closest('#panel, .bubble, #menu, #console, #sheet.open .sh-win, #onboarding, #lightbox.open');
-    const p = !A.hidden && !blocked && robot.hitTest(x, y);
+    const p = !A.hidden && !panelOpen() && !A.panel?.isTransitioning?.() && !blocked && robot.hitTest(x, y);
     petEl.classList.toggle('interactive', p);
     if (p !== overPet) setOver(p);
   };
