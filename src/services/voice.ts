@@ -54,6 +54,15 @@ export const MIMO_VOICES: Array<[string, string]> = [
   ['Dean', 'Dean（English · Calm）'],
 ];
 
+export const MIMO_VOICEDESIGN_MODEL = 'mimo-v2.5-tts-voicedesign';
+export const MIMO_VOICE_DESIGNS: Array<[string, string, string]> = [
+  [
+    'jarvis-inspired',
+    '英式 AI 管家（JARVIS 气质）',
+    'A calm, articulate middle-aged British male AI butler. Deep, warm, resonant baritone with exceptionally clear diction, measured pacing, precise pauses, restrained emotion, quiet confidence, and a subtle polished futuristic character. Sound like an original cinematic spacecraft assistant with discreet dry wit, never like a specific actor or an existing film character.',
+  ],
+];
+
 export const DICTATION_NOTE = '听写还没有接入。当前只查询麦克风和语音识别权限，不会弹出系统授权框，也不会把声音发给模型。文字输入不受影响。';
 
 const PERSONA_STYLES: Record<string, string> = {

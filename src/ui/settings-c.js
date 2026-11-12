@@ -1,4 +1,4 @@
-import { MIMO_VOICES, listVoices } from '../services/voice';
+import { MIMO_VOICES, MIMO_VOICE_DESIGNS, MIMO_VOICEDESIGN_MODEL, listVoices } from '../services/voice';
 
 /* KBOT · 设置页（三）：语音（小米 MiMo TTS 语音合成与 macOS 系统朗读回退） */
 (function () {
@@ -54,6 +54,13 @@ import { MIMO_VOICES, listVoices } from '../services/voice';
       testStatus.textContent = '';
     }, 'ghost');
 
+    const designBtn = X.btn('套用英式 AI 管家', () => {
+      const [, , prompt] = MIMO_VOICE_DESIGNS[0];
+      A.sput('voice.model', MIMO_VOICEDESIGN_MODEL);
+      A.sput('voice.style', prompt);
+      A.toast('已套用英式 AI 管家音色，点击“试听”确认效果');
+    }, 'ghost');
+
     el.append(
       X.group('播报',
         X.row('语音', null, X.toggle('voice.enabled')),
@@ -69,7 +76,8 @@ import { MIMO_VOICES, listVoices } from '../services/voice';
         X.row('API 地址', null, X.text('voice.base', { ph: 'https://api.xiaomimimo.com/v1', w: 250, max: 200 })),
         X.row('模型', null, X.text('voice.model', { ph: 'mimo-v2.5-tts', w: 190, max: 80 })),
         X.row('音色', '推荐“冰糖”或“茉莉”', X.select('voice.mimoVoice', MIMO_VOICES, null, 210)),
-        X.row('语气风格', '留空时跟随性格与表情', X.text('voice.style', { ph: '自动', w: 250, max: 140, allowEmpty: true })),
+        X.row('语气风格', '留空时跟随性格与表情', X.text('voice.style', { ph: '自动', w: 250, max: 420, allowEmpty: true })),
+        X.row('音色方案', '用文字生成原创音色，不需要上传样本', designBtn),
         X.row('API Key', '只保存在这台 Mac 上', X.keyCtl('voice', 'tts')),
       ),
       X.group('系统语音',

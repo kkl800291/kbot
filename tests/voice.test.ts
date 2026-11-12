@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   cleanSpeechText,
   DICTATION_NOTE,
+  MIMO_VOICEDESIGN_MODEL,
+  MIMO_VOICE_DESIGNS,
   dictationStatus,
   speechRequest,
   speak,
@@ -10,6 +12,12 @@ import {
 } from '../src/services/voice';
 
 describe('voice service (Xiaomi MiMo TTS + macOS say fallback)', () => {
+  it('provides an original British AI butler voice-design preset', () => {
+    expect(MIMO_VOICEDESIGN_MODEL).toBe('mimo-v2.5-tts-voicedesign');
+    expect(MIMO_VOICE_DESIGNS[0][1]).toContain('AI 管家');
+    expect(MIMO_VOICE_DESIGNS[0][2]).toContain('British male AI butler');
+    expect(MIMO_VOICE_DESIGNS[0][2]).not.toContain('Paul Bettany');
+  });
   it('passes bubble text and MiMo config as structured IPC args without shell strings', async () => {
     const bubble = '他说"$HOME" && rm\n第二行';
     const mimo = {
