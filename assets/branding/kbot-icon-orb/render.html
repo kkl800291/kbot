@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>KBOT 光之球图标母版</title>
+<style>
+  body { margin: 32px; background: #eceef3; color: #252938; font: 14px -apple-system, sans-serif; }
+  canvas { display: block; width: 512px; height: 512px; max-width: 100%; background: repeating-conic-gradient(#e3e5ec 0% 25%, #f7f8fb 0% 50%) 0 / 24px 24px; }
+  a { display: inline-block; margin-top: 20px; color: #146cdb; }
+</style>
+<canvas id="icon" width="1024" height="1024"></canvas>
+<a id="download" download="kbot-icon-master.png">下载 1024px 透明母版</a>
+<script type="module">
+  for (const name of ['math', 'states', 'shape', 'face', 'parts', 'clips', 'life', 'orb']) {
+    await import('/src/ui/robot-' + name + '.js');
+  }
+  await import('/src/ui/robot.js');
+  if (!await RB.orbReady) throw new Error('球体贴图加载失败');
+  const source = document.createElement('canvas');
+  const robot = new Robot(source, { manual: true, seed: 3 });
+  if (!robot.orb) throw new Error('导出图标需要 WebGL');
+  await RB.orbReady;
+  source.width = 1536; source.height = 1638; robot.scale = source.width / Robot.W;
+  robot.life.nextGaze = robot.life.blinkAt = robot.life.fidgetAt = 1e9;
+  robot.advance(1.4);
+  Object.assign(robot.M, { cx: RB.CX, cy: RB.CY, gx: 0, gy: 0, yaw: 0, pitch: 0, roll: 0, sx: 1, sy: 1, es: 1 });
+  robot.M.eL.close = robot.M.eR.close = 0;
+  robot.render();
+  // 母版只保留球体与柔光；桌面角色的地面阴影不属于应用图标。
+  const { gl, U } = robot.orb;
+  gl.uniform1f(U.uGround, -1000);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  const target = document.querySelector('#icon');
+  const extent = 122, s = robot.scale;
+  target.getContext('2d').drawImage(source, (RB.CX - extent / 2) * s, (RB.CY - extent / 2) * s, extent * s, extent * s, 0, 0, 1024, 1024);
+  document.querySelector('#download').href = target.toDataURL('image/png');
+  window.iconReady = true;
+</script>
+</html>

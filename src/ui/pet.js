@@ -56,7 +56,9 @@
     root.classList.toggle('reduced', !!S.reduced);
     root.classList.toggle('no-top', S.onTop === false);
     root.style.setProperty('--glow-rgb', (Robot.PALETTES[S.palette] || Robot.PALETTES.blue).join(', '));
-    robot.palette = S.palette; robot.shell = S.shell; robot.reduced = !!S.reduced;
+    const orb = Robot.orbStyle(S.palette);
+    root.style.setProperty('--orb-hue', orb.hue); root.style.setProperty('--orb-tint', orb.tint);
+    robot.palette = S.palette; robot.shell = S.shell; robot.theme = S.theme; robot.reduced = !!S.reduced;
     if (robot.size !== S.size) A.resizePet(S.size);
   };
   A.setBase = name => { robot.setBase(name); A.emit('base', name); };

@@ -56,18 +56,10 @@ fn tray_image() -> tauri::image::Image<'static> {
         let dy = ((py - cy).abs() - (hh - r)).max(0.0);
         dx * dx + dy * dy <= r * r
     };
-    let tail = |px: f64, py: f64| {
-        let side = |(x1, y1): (f64, f64), (x2, y2): (f64, f64)| {
-            (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
-        };
-        let (a, b, c) = ((8.0, 21.0), (17.0, 24.0), (6.5, 31.0));
-        let d = [side(a, b), side(b, c), side(c, a)];
-        d.iter().all(|v| *v >= 0.0) || d.iter().all(|v| *v <= 0.0)
-    };
     let inside = |px: f64, py: f64| {
-        let body = rounded(px, py, 18.0, 15.0, 15.0, 10.5, 8.0) || tail(px, py);
-        let eye = rounded(px, py, 14.0, 15.0, 1.6, 3.4, 1.6)
-            || rounded(px, py, 22.0, 15.0, 1.6, 3.4, 1.6);
+        let body = (px - 18.0).powi(2) + (py - 18.0).powi(2) <= 15.0_f64.powi(2);
+        let eye = rounded(px, py, 14.0, 18.0, 1.6, 3.8, 1.6)
+            || rounded(px, py, 22.0, 18.0, 1.6, 3.8, 1.6);
         body && !eye
     };
     let mut data = vec![0u8; S * S * 4];
@@ -85,6 +77,35 @@ fn tray_image() -> tauri::image::Image<'static> {
         }
     }
     tauri::image::Image::new_owned(data, S as u32, S as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tray_image;
+
+    #[test]
+    fn tray_icon_is_a_round_template_with_transparent_eyes() {
+        let image = tray_image();
+        assert_eq!((image.width(), image.height()), (36, 36));
+        let rgba = image.rgba();
+        assert_eq!(rgba.len(), 36 * 36 * 4);
+        let alpha = |x: usize, y: usize| rgba[(y * 36 + x) * 4 + 3];
+
+        assert_eq!(alpha(18, 18), 255, "solid bridge between the eyes");
+        assert_eq!(alpha(14, 18), 0, "left eye is transparent");
+        assert_eq!(alpha(22, 18), 0, "right eye is transparent");
+        for (x, y) in [(0, 18), (35, 18), (18, 0), (18, 35), (7, 29)] {
+            assert_eq!(alpha(x, y), 0, "outside the round silhouette");
+        }
+        assert!(rgba.chunks_exact(4).all(|px| px[..3] == [0, 0, 0]));
+        assert!(rgba.chunks_exact(4).any(|px| px[3] > 0 && px[3] < 255));
+        for y in 0..36 {
+            for x in 0..36 {
+                assert_eq!(alpha(x, y), alpha(35 - x, y));
+                assert_eq!(alpha(x, y), alpha(x, 35 - y));
+            }
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

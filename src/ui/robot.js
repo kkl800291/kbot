@@ -1,5 +1,6 @@
 /* KBOT · 角色：把表情参数、弹簧、生命感和绘制串起来，对外接口保持不变。
-   依赖 robot-math / states / shape / face / parts / clips / life（见 index.html 的加载顺序） */
+   依赖 robot-math / states / shape / face / parts / clips / life / orb（见 main.ts 的加载顺序）。
+   默认画成 WebGL 光之球；没有 WebGL 时退回 2D 玻璃气泡 */
 (function () {
   'use strict';
   const RB = window.RB, { clamp, Spring } = RB;
@@ -40,9 +41,8 @@
   class Robot {
     constructor(canvas, opts = {}) {
       this.canvas = canvas;
-      this.ctx = canvas.getContext('2d');
-      this.palette = 'blue'; this.shell = 'light'; this.reduced = false;
-      this.face = 'smooth'; this.body = 'bubble'; this.mouth = false;
+      this.palette = 'blue'; this.shell = 'light'; this.theme = 'light'; this.reduced = false;
+      this.face = 'smooth'; this.body = 'orb'; this.mouth = false;
       this.base = 'idle'; this.temp = null; this.tempUntil = 0;
       this.held = false; this.hover = false; this.paused = false; this.pressed = false;
       this.manual = !!opts.manual;
@@ -62,8 +62,24 @@
       this._name = null;
       this.last = performance.now(); this.lastDraw = 0; this.busy = true;
       this.setSize(120);
+      this.orb = RB.Orb ? RB.Orb.create(canvas, () => this.useBubble()) : null;
+      if (!this.orb) this.useBubble();
       this.loop = this.loop.bind(this);
       if (!this.manual) requestAnimationFrame(this.loop);
+    }
+
+    // 退回 2D 玻璃气泡。画布已被 WebGL 占用时拿不到 2D 上下文，就换一块同尺寸的新画布
+    useBubble() {
+      this.orb = null; this.body = 'bubble'; this._c = null;
+      let ctx = this.canvas.getContext('2d');
+      if (!ctx) {
+        const old = this.canvas, c = document.createElement('canvas');
+        c.setAttribute('aria-hidden', 'true'); c.style.cssText = old.style.cssText;
+        c.width = old.width; c.height = old.height;
+        old.replaceWith(c);
+        this.canvas = c; ctx = c.getContext('2d');
+      }
+      this.ctx = ctx;
     }
 
     now() { return this.manual ? this.clock * 1000 : performance.now(); }
@@ -113,7 +129,8 @@
     hitTest(x, y) {
       const r = this.canvas.getBoundingClientRect();
       if (!r.width) return false;
-      const ux = ((x - r.left) / r.width) * W, uy = ((y - r.top) / r.height) * H, B = this.box;
+      const ux = ((x - r.left) / r.width) * W, uy = ((y - r.top) / r.height) * H, B = this.box, C = this.shape.circle;
+      if (C) return Math.hypot(ux - C[0], uy - C[1]) <= C[2];
       return ux >= B.l && ux <= B.r && uy >= B.t && uy <= B.b;
     }
 
@@ -145,7 +162,7 @@
       if (first) this.p = clonePose(this.poseOf(st));
     }
 
-    poseOf(st) { return this.body === 'bubble' && st.gpose ? st.gpose : st.pose; }
+    poseOf(st) { return (this.body === 'bubble' || this.body === 'orb') && st.gpose ? st.gpose : st.pose; }
 
     fillEye(dst, src, close, es) {
       for (const k in src) dst[k] = src[k];
@@ -199,7 +216,7 @@
 
       const fl = p.m.fl * mot, bob = Math.sin(t * p.m.fs) * fl + RB.noise(t * 0.7, 2) * fl * 0.35;
       const breath = Math.sin(t * 1.55) * 0.012 * mot, q = clamp(sp.sq.x, -0.32, 0.32);
-      M.t = t; M.age = this.age; M.scale = this.scale; M.st = st;
+      M.t = t; M.age = this.age; M.scale = this.scale; M.st = st; M.name = name;
       M.rgb[0] = Math.round(this.color[0]); M.rgb[1] = Math.round(this.color[1]); M.rgb[2] = Math.round(this.color[2]);
       M.shell = RB.SHELLS[this.shell] || RB.SHELLS.light;
       M.face = this.face; M.body = this.body; M.mouth = this.mouth;
@@ -215,7 +232,7 @@
       this.fillEye(M.eR, p.eR, Math.max(L.closeR, squint), es);
       for (const k in p.mo) M.mo[k] = p.mo[k];
       M.mo.mk += L.smile;
-      M.open = L.open;
+      M.open = L.open; M.speech = L.speech; M.es = es;
       M.blush = clamp(p.m.blush + L.blush, 0, 1.2);
       // 多个动作叠加时弹簧会冲得很远，限一下幅度，免得耳朵翻过头顶、天线折断
       M.earL = clamp(sp.earL.x, -45, 60); M.earR = clamp(sp.earR.x, -45, 60);
@@ -227,6 +244,7 @@
     }
 
     render() {
+      if (this.orb) { this.orb.render(this.M, this); return; }
       const ctx = this.ctx;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -253,8 +271,16 @@
 
   // 每种机身在逻辑画布里的范围，cy 是头部中心（各机身相同，换外观时位置不变）。
   // box：含天线、底座或光环，不含地面阴影，点击命中、气泡与面板定位、拖动边界都以它为准。
-  // regions：桌面版窗口的可点击区域，[x, y, 宽, 高, 圆角]，贴着机身轮廓，四角留给下层窗口
+  // regions：桌面版窗口的可点击区域，[x, y, 宽, 高, 圆角]，贴着机身轮廓，四角留给下层窗口；
+  // circle：[cx, cy, r]，有它时点击按圆形命中
+  const OR = RB.ORB ? RB.ORB.R : 50, OP = OR + 2;
   Robot.SHAPES = {
+    // 光之球：悬浮的玻璃球，命中范围比球大一圈，留出上下浮动的余量
+    orb: {
+      box: { l: RB.CX - OR, r: RB.CX + OR, t: RB.CY - OR, b: RB.CY + OR, cy: RB.CY },
+      regions: [[RB.CX - OP, RB.CY - OP, OP * 2, OP * 2, OP]],
+      circle: [RB.CX, RB.CY, OP],
+    },
     classic: {
       box: { l: 26, r: 154, t: 14, b: 167, cy: RB.CY },
       regions: [[33, 43, 114, 98, 32], [24, 74, 132, 35, 12], [70, 138, 40, 28, 14], [84, 24, 12, 22, 6]],
@@ -273,6 +299,7 @@
   Robot.W = W; Robot.H = H;
   Robot.STATES = STATES;
   Robot.PALETTES = PALETTES;
+  Robot.orbStyle = RB.orbStyle || (() => ({ hue: '0deg', tint: 'transparent' }));
   window.Robot = Robot;
 })();
 

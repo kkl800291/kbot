@@ -108,7 +108,8 @@
       C.render();
       A.save();
     } else if (!box.children.length) C.render();
-    else requestAnimationFrame(toBottom);
+    else if (C.cur.messages.length) requestAnimationFrame(toBottom);
+    else box.scrollTo({ top: 0, behavior: 'auto' });
     if (pro) C.pushPro(pro);
   };
 

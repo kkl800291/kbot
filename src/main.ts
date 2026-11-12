@@ -24,6 +24,7 @@ async function boot() {
   await import('./ui/robot-parts.js');
   await import('./ui/robot-clips.js');
   await import('./ui/robot-life.js');
+  await import('./ui/robot-orb.js');
   await import('./ui/robot.js');
   await import('./ui/markdown.js');
   await import('./ui/icons.js');

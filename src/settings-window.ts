@@ -49,6 +49,9 @@ export async function bootSettingsWindow() {
     document.documentElement.classList.toggle('reduced', !!A.S.reduced);
     document.documentElement.classList.toggle('shell-graphite', A.S.shell === 'graphite');
     document.documentElement.style.setProperty('--glow-rgb', (window.Robot.PALETTES[A.S.palette] || window.Robot.PALETTES.blue).join(', '));
+    const orb = window.Robot.orbStyle(A.S.palette);
+    document.documentElement.style.setProperty('--orb-hue', orb.hue);
+    document.documentElement.style.setProperty('--orb-tint', orb.tint);
   };
   const merge = (target: any, source: any) => {
     for (const k of Object.keys(target)) if (!(k in source)) delete target[k];
@@ -133,8 +136,10 @@ export async function bootSettingsWindow() {
     install: () => action('updater-install'),
   };
 
-  // 设置窗口不加载角色绘制代码，这里保持与 ui/robot.js 的 PALETTES 一致
-  window.Robot = { PALETTES: { blue: [10, 132, 255], indigo: [94, 92, 230], orange: [255, 149, 0], green: [48, 199, 89] } };
+  // 设置窗口不加载角色绘制代码，这里保持与 ui/robot.js 的 PALETTES 一致；光之球的色调换算直接复用 robot-orb
+  await import('./ui/robot-math.js');
+  await import('./ui/robot-orb.js');
+  window.Robot = { PALETTES: { blue: [10, 132, 255], indigo: [94, 92, 230], orange: [255, 149, 0], green: [48, 199, 89] }, orbStyle: (window as any).RB.orbStyle };
   await import('./ui/settings.js');
   await import('./ui/settings-a.js');
   await import('./ui/settings-b.js');
