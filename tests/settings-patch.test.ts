@@ -9,7 +9,7 @@ const snapshot = (): SettingsSnapshot => ({
     ai: { chat: { model: 'deepseek-chat', visionSupported: false }, calls: { day: '2026-11-10', n: 3 } },
     dsh: { mode: 'auto', workspace: '~/KBOT', binary: '', desktopPatch: false },
     updater: { autoCheck: true, endpoint: '', skippedVersion: '' },
-    voice: { enabled: false, autoReply: false, autoProactive: true, provider: 'mimo', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-tts', mimoVoice: '冰糖', style: '', hasKey: false, sayVoice: '', rate: 190 },
+    voice: { enabled: false, autoReply: false, autoProactive: true, base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-tts', mimoVoice: '冰糖', style: '', hasKey: false },
   },
   builtin: { water: true, rest: true },
   birthdays: [{ id: 'a', name: '妈妈', m: 2, d: 3 }],

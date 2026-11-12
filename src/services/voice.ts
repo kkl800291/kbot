@@ -11,28 +11,21 @@ export interface MimoVoiceConfig {
 }
 
 export interface SpeechOptions {
-  voice?: string;
-  rate?: number;
   mimo?: MimoVoiceConfig | null;
   emotion?: string | null;
-  strict?: boolean;
 }
 
 export interface SpeechRequest {
   command: 'voice_speak';
   args: {
     text: string;
-    voice: string | null;
-    rate: number | null;
     mimo: MimoVoiceConfig | null;
     emotion: string | null;
-    strict: boolean;
   };
 }
 
 export interface SpeakOutcome {
-  provider: 'mimo' | 'say';
-  fallbackReason?: string | null;
+  provider: 'mimo';
 }
 
 export interface DictationPermission {
@@ -96,11 +89,8 @@ export function speechRequest(text: string, options?: SpeechOptions): SpeechRequ
     command: 'voice_speak',
     args: {
       text: cleaned,
-      voice: options?.voice ?? null,
-      rate: options?.rate ?? null,
       mimo: options?.mimo ?? null,
       emotion: options?.emotion ?? null,
-      strict: !!options?.strict,
     },
   };
 }
@@ -111,7 +101,7 @@ export async function speak(
   run: CommandFn = runtimeCommand,
 ): Promise<{ request: SpeechRequest; outcome: SpeakOutcome }> {
   const request = speechRequest(text, options);
-  const outcome = (await run<SpeakOutcome>(request.command, request.args)) || { provider: 'say' };
+  const outcome = (await run<SpeakOutcome>(request.command, request.args)) || { provider: 'mimo' };
   return { request, outcome };
 }
 
@@ -119,19 +109,14 @@ export async function stopSpeech(run: CommandFn = runtimeCommand): Promise<void>
   await run('voice_stop');
 }
 
-export async function listVoices(run: CommandFn = runtimeCommand): Promise<Array<{ name: string; locale: string; sample: string }>> {
-  return run('voice_list');
-}
-
 export async function dictationStatus(run: CommandFn = runtimeCommand): Promise<DictationPermission> {
   return run('voice_permission_status');
 }
 
 export function installVoice(A: any) {
-  let fallbackNotified = false;
   const buildMimoConfig = (): MimoVoiceConfig | null => {
     const v = A.S.voice || {};
-    if (v.provider !== 'mimo' || !v.hasKey) return null;
+    if (!v.hasKey) return null;
     const customStyle = (v.style || '').trim();
     return {
       enabled: true,
@@ -145,36 +130,23 @@ export function installVoice(A: any) {
   A.voice = {
     clean: cleanSpeechText,
     stop: () => (native ? stopSpeech() : Promise.resolve()),
-    async speakText(rawText: string, opts: { emotion?: string; strict?: boolean; force?: boolean } = {}) {
+    async speakText(rawText: string, opts: { emotion?: string; force?: boolean } = {}) {
       if (!native) return null;
       const v = A.S.voice || {};
       if (!opts.force && !v.enabled) return null;
       if (!opts.force && A.isDnd?.()) return null;
       const cleaned = cleanSpeechText(rawText);
       if (!cleaned) return null;
-      const mimo = opts.strict && v.provider === 'mimo'
-        ? {
-            enabled: true,
-            base: v.base || 'https://api.xiaomimimo.com/v1',
-            model: v.model || 'mimo-v2.5-tts',
-            voice: v.mimoVoice || '冰糖',
-            style: (v.style || '').trim() || PERSONA_STYLES[A.S.persona] || PERSONA_STYLES.cute,
-          }
-        : buildMimoConfig();
+      const mimo = buildMimoConfig();
+      if (!mimo) {
+        if (opts.force) throw new Error('尚未配置 MiMo API Key，请到设置中保存');
+        return null;
+      }
       const { outcome } = await speak(cleaned, {
-        voice: v.sayVoice || undefined,
-        rate: v.rate || 190,
         mimo,
         emotion: opts.emotion || null,
-        strict: !!opts.strict,
       });
-      if (outcome.fallbackReason && !fallbackNotified && !opts.strict) {
-        fallbackNotified = true;
-        A.toast(`MiMo 语音暂不可用，已自动回退系统朗读（${outcome.fallbackReason}）`, 4200);
-      }
       return outcome;
     },
   };
-
-  A.on('set:voice', () => { fallbackNotified = false; });
 }

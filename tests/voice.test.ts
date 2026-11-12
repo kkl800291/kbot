@@ -11,7 +11,7 @@ import {
   type CommandFn,
 } from '../src/services/voice';
 
-describe('voice service (Xiaomi MiMo TTS + macOS say fallback)', () => {
+describe('voice service (Xiaomi MiMo TTS)', () => {
   it('provides an original British AI butler voice-design preset', () => {
     expect(MIMO_VOICEDESIGN_MODEL).toBe('mimo-v2.5-tts-voicedesign');
     expect(MIMO_VOICE_DESIGNS[0][1]).toContain('AI 管家');
@@ -27,7 +27,7 @@ describe('voice service (Xiaomi MiMo TTS + macOS say fallback)', () => {
       voice: '冰糖',
       style: '元气灵动',
     };
-    const request = speechRequest(bubble, { voice: 'Tingting', rate: 180, mimo, emotion: 'happy' });
+    const request = speechRequest(bubble, { mimo, emotion: 'happy' });
     expect(request.args.text).toBe(bubble);
     expect(request.args.mimo?.voice).toBe('冰糖');
     expect(request.args.emotion).toBe('happy');
@@ -37,15 +37,15 @@ describe('voice service (Xiaomi MiMo TTS + macOS say fallback)', () => {
     const calls: Array<{ name: string; args?: Record<string, unknown> }> = [];
     const run: CommandFn = async (name, args) => {
       calls.push({ name, args });
-      return { provider: 'mimo', fallbackReason: null } as any;
+      return { provider: 'mimo' } as any;
     };
-    const spoken = await speak(bubble, { voice: 'Tingting', rate: 180, mimo, emotion: 'happy' }, run);
+    const spoken = await speak(bubble, { mimo, emotion: 'happy' }, run);
     expect(spoken.request.args.text).toBe(bubble);
     expect(spoken.outcome.provider).toBe('mimo');
     await stopSpeech(run);
     expect(calls[0]).toEqual({
       name: 'voice_speak',
-      args: { text: bubble, voice: 'Tingting', rate: 180, mimo, emotion: 'happy', strict: false },
+      args: { text: bubble, mimo, emotion: 'happy' },
     });
     expect(calls[1].name).toBe('voice_stop');
   });

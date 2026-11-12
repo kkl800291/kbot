@@ -219,7 +219,6 @@ pub fn run() {
             settings_window::settings_window_action,
             voice::voice_speak,
             voice::voice_stop,
-            voice::voice_list,
             voice::voice_permission_status,
             updater::check_app_update,
             updater::install_app_update

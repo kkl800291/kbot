@@ -79,14 +79,11 @@
       enabled: false,
       autoReply: false,
       autoProactive: true,
-      provider: 'mimo',
       base: 'https://api.xiaomimimo.com/v1',
       model: 'mimo-v2.5-tts',
       mimoVoice: '冰糖',
       style: '',
       hasKey: false,
-      sayVoice: '',
-      rate: 190,
     },
     ai: {
       chat: { provider: 'deepseek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: false },
@@ -104,6 +101,12 @@
   };
   A.defaults = () => clone(DEFAULTS);
   A.S = merge(clone(DEFAULTS), stored.S);
+  // 清理旧版 macOS 系统朗读设置，语音引擎固定为 MiMo。
+  if (A.S.voice && typeof A.S.voice === 'object') {
+    delete A.S.voice.provider;
+    delete A.S.voice.sayVoice;
+    delete A.S.voice.rate;
+  }
   // 旧版发光色（青/紫/琥珀/薄荷）对应到新的系统强调色
   const OLD_PALETTE = { cyan: 'blue', violet: 'indigo', amber: 'orange', mint: 'green' };
   if (OLD_PALETTE[A.S.palette]) A.S.palette = OLD_PALETTE[A.S.palette];

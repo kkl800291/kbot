@@ -433,7 +433,7 @@ export function installAgent(A: any) {
     return changed;
   }
 
-  // Enhance A.speak so proactive reminders/speech bubbles also trigger MiMo/system TTS when enabled.
+  // Enhance A.speak so proactive reminders/speech bubbles also trigger MiMo TTS when enabled.
   const baseSpeak = A.speak?.bind(A);
   if (baseSpeak) {
     A.speak = (ev: any) => {

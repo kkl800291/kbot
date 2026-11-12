@@ -50,7 +50,7 @@
     const voiceOn = !!(S.voice && S.voice.enabled && S.voice.autoReply);
     if (voiceBtn) {
       voiceBtn.classList.toggle('on', voiceOn);
-      voiceBtn.title = voiceOn ? '已开启回复自动朗读（点击关闭）' : '点击开启回复自动朗读（小米 MiMo / 系统语音）';
+      voiceBtn.title = voiceOn ? '已开启回复自动朗读（点击关闭）' : '点击开启回复自动朗读（小米 MiMo 语音）';
       voiceBtn.setAttribute('aria-pressed', String(voiceOn));
       voiceBtn.disabled = false;
     }
@@ -148,9 +148,9 @@
         A.voice?.stop?.();
       }
       A.save(); A.emit('set:voice', A.S.voice); C.refreshComposer();
-      const mimoReady = A.S.voice.provider === 'mimo' && A.S.voice.hasKey;
+      const mimoReady = A.S.voice.hasKey;
       A.toast(next
-        ? (mimoReady ? '已开启回复自动朗读（小米 MiMo 语音）' : '已开启回复自动朗读（未填 MiMo Key 时使用系统语音）')
+        ? (mimoReady ? '已开启回复自动朗读（小米 MiMo 语音）' : '已开启回复自动朗读（请先在语音设置填写 MiMo Key）')
         : '已关闭回复自动朗读');
     });
   }

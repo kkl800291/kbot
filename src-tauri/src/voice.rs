@@ -1,7 +1,6 @@
-//! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with local `0600` credential vault storage and automatic
-//! fallback to macOS `/usr/bin/say`. User text is never concatenated into a shell
-//! command: MiMo audio plays from a private temp WAV via `afplay`, and `say`
-//! receives text over stdin.
+//! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with local `0600` credential vault storage.
+//! User text is sent as structured request data. MiMo audio plays from a private
+//! temp WAV via `afplay`.
 
 use crate::storage::read_key;
 use base64::Engine;
@@ -80,21 +79,6 @@ pub struct MimoTtsConfig {
 #[serde(rename_all = "camelCase")]
 pub struct SpeakOutcome {
     pub provider: String,
-    pub fallback_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SpeechPlan {
-    pub args: Vec<String>,
-    pub text: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct VoiceInfo {
-    pub name: String,
-    pub locale: String,
-    pub sample: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -110,49 +94,20 @@ pub struct DictationStatus {
 pub async fn voice_speak(
     speech: tauri::State<'_, Speech>,
     text: String,
-    voice: Option<String>,
-    rate: Option<f64>,
     mimo: Option<MimoTtsConfig>,
     emotion: Option<String>,
-    strict: Option<bool>,
 ) -> Result<SpeakOutcome, String> {
-    let plan = speech_plan(&text, voice.as_deref(), rate)?;
+    validate_speech_text(&text)?;
+    let cfg = mimo
+        .filter(|cfg| cfg.enabled)
+        .ok_or_else(|| "尚未配置 MiMo 语音，请到设置中保存 API Key".to_string())?;
     let speech_state = speech.inner().clone();
-    let strict = strict.unwrap_or(false);
-
-    if let Some(cfg) = mimo.filter(|cfg| cfg.enabled) {
-        match synthesize_mimo_wav(&plan.text, &cfg, emotion.as_deref()).await {
-            Ok(wav_bytes) => {
-                let state = speech_state.clone();
-                tauri::async_runtime::spawn_blocking(move || play_wav_bytes(&state, &wav_bytes))
-                    .await
-                    .map_err(|_| "音频播放任务失败".to_string())??;
-                return Ok(SpeakOutcome {
-                    provider: "mimo".into(),
-                    fallback_reason: None,
-                });
-            }
-            Err(reason) => {
-                if strict {
-                    return Err(reason);
-                }
-                tauri::async_runtime::spawn_blocking(move || speak_plan(&speech_state, &plan))
-                    .await
-                    .map_err(|_| "朗读任务失败".to_string())??;
-                return Ok(SpeakOutcome {
-                    provider: "say".into(),
-                    fallback_reason: Some(reason),
-                });
-            }
-        }
-    }
-
-    tauri::async_runtime::spawn_blocking(move || speak_plan(&speech_state, &plan))
+    let wav_bytes = synthesize_mimo_wav(&text, &cfg, emotion.as_deref()).await?;
+    tauri::async_runtime::spawn_blocking(move || play_wav_bytes(&speech_state, &wav_bytes))
         .await
-        .map_err(|_| "朗读任务失败".to_string())??;
+        .map_err(|_| "音频播放任务失败".to_string())??;
     Ok(SpeakOutcome {
-        provider: "say".into(),
-        fallback_reason: None,
+        provider: "mimo".into(),
     })
 }
 
@@ -162,13 +117,6 @@ pub async fn voice_stop(speech: tauri::State<'_, Speech>) -> Result<(), String> 
     tauri::async_runtime::spawn_blocking(move || stop_speech(&speech))
         .await
         .map_err(|_| "停止朗读失败".to_string())?
-}
-
-#[tauri::command]
-pub async fn voice_list() -> Result<Vec<VoiceInfo>, String> {
-    tauri::async_runtime::spawn_blocking(list_voices)
-        .await
-        .map_err(|_| "无法读取系统声音".to_string())?
 }
 
 #[tauri::command]
@@ -283,7 +231,7 @@ async fn synthesize_mimo_wav(
             401 | 403 => "MiMo API Key 无效或无语音合成权限".into(),
             402 => "MiMo 账户余额或 Token Plan 额度不足".into(),
             421 => "MiMo 服务地域或接入点不匹配，请检查 API 地址".into(),
-            429 => "MiMo 语音请求过于频繁，已回退系统语音".into(),
+            429 => "MiMo 语音请求过于频繁，请稍后重试".into(),
             code => format!("MiMo 语音服务暂不可用（HTTP {code}）"),
         });
     }
@@ -332,11 +280,7 @@ fn play_wav_bytes(speech: &Speech, wav_bytes: &[u8]) -> Result<(), String> {
     )
 }
 
-pub(crate) fn speech_plan(
-    text: &str,
-    voice: Option<&str>,
-    rate: Option<f64>,
-) -> Result<SpeechPlan, String> {
+fn validate_speech_text(text: &str) -> Result<(), String> {
     if text.is_empty() || text.chars().all(char::is_whitespace) {
         return Err("没有可以朗读的文本".into());
     }
@@ -346,44 +290,7 @@ pub(crate) fn speech_plan(
     if text.contains('\0') {
         return Err("朗读文本无效".into());
     }
-    let mut args = Vec::new();
-    if let Some(voice) = voice.map(str::trim).filter(|voice| !voice.is_empty()) {
-        validate_voice(voice)?;
-        args.push("-v".into());
-        args.push(voice.to_string());
-    }
-    if let Some(rate) = rate {
-        args.push("-r".into());
-        args.push(validate_rate(rate)?.to_string());
-    }
-    Ok(SpeechPlan {
-        args,
-        text: text.to_string(),
-    })
-}
-
-fn validate_voice(voice: &str) -> Result<(), String> {
-    if voice.chars().count() > 80 || voice.starts_with('-') {
-        return Err("声音名称无效".into());
-    }
-    if voice
-        .chars()
-        .any(|ch| ch.is_control() || "#|&;$`'\"\\".contains(ch))
-    {
-        return Err("声音名称无效".into());
-    }
     Ok(())
-}
-
-fn validate_rate(rate: f64) -> Result<u32, String> {
-    if !rate.is_finite() {
-        return Err("语速无效".into());
-    }
-    let rate = rate.round();
-    if !(80.0..=450.0).contains(&rate) {
-        return Err("语速需要在 80 到 450 之间".into());
-    }
-    Ok(rate as u32)
 }
 
 fn install_active(speech: &Speech, next: ActivePlayback) -> Result<(), String> {
@@ -394,29 +301,6 @@ fn install_active(speech: &Speech, next: ActivePlayback) -> Result<(), String> {
     }
     *guard = Some(next);
     Ok(())
-}
-
-fn speak_plan(speech: &Speech, plan: &SpeechPlan) -> Result<(), String> {
-    let mut child = Command::new("/usr/bin/say")
-        .args(&plan.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "无法启动系统朗读")?;
-    {
-        let mut stdin = child.stdin.take().ok_or("无法把文本交给系统朗读")?;
-        stdin
-            .write_all(plan.text.as_bytes())
-            .map_err(|_| "无法把文本交给系统朗读")?;
-    }
-    install_active(
-        speech,
-        ActivePlayback {
-            child,
-            temp_file: None,
-        },
-    )
 }
 
 fn stop_speech(speech: &Speech) -> Result<(), String> {
@@ -440,46 +324,6 @@ fn reap(slot: &mut Option<ActivePlayback>) {
             finished.cleanup_file();
         }
     }
-}
-
-pub(crate) fn list_voices() -> Result<Vec<VoiceInfo>, String> {
-    let output = Command::new("/usr/bin/say")
-        .arg("-v")
-        .arg("?")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|_| "无法读取系统声音")?;
-    if !output.status.success() {
-        return Err("无法读取系统声音".into());
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let voices = parse_voice_list(&text);
-    if voices.is_empty() {
-        return Err("系统没有可用的朗读声音".into());
-    }
-    Ok(voices)
-}
-
-pub(crate) fn parse_voice_list(output: &str) -> Vec<VoiceInfo> {
-    output.lines().filter_map(parse_voice_line).collect()
-}
-
-fn parse_voice_line(line: &str) -> Option<VoiceInfo> {
-    let (left, sample) = line.split_once('#')?;
-    let left = left.trim();
-    let mut parts = left.rsplitn(2, char::is_whitespace);
-    let locale = parts.next()?.trim();
-    let name = parts.next()?.trim();
-    if name.is_empty() || locale.is_empty() || name.starts_with('-') {
-        return None;
-    }
-    Some(VoiceInfo {
-        name: name.to_string(),
-        locale: locale.to_string(),
-        sample: sample.trim().to_string(),
-    })
 }
 
 pub(crate) fn permission_status() -> DictationStatus {
@@ -588,28 +432,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn speech_text_is_not_placed_on_the_command_line() {
+    fn speech_text_is_validated_without_shell_arguments() {
         let bubble = "他说\"$HOME\" && rm\n第二行，原文保持";
-        let plan = speech_plan(bubble, Some("Tingting"), Some(180.0)).unwrap();
-        assert_eq!(plan.text, bubble);
-        assert_eq!(
-            plan.args,
-            vec![
-                "-v".to_string(),
-                "Tingting".into(),
-                "-r".into(),
-                "180".into()
-            ]
-        );
-        assert!(plan
-            .args
-            .iter()
-            .all(|arg| !arg.contains(bubble) && !arg.contains("$HOME")));
-        assert!(speech_plan(bubble, Some("-v"), None).is_err());
-        assert!(speech_plan(bubble, Some("Bad;rm"), None).is_err());
-        assert!(speech_plan("  ", None, None).is_err());
-        assert!(speech_plan(bubble, None, Some(10.0)).is_err());
-        assert!(speech_plan(bubble, None, Some(f64::NAN)).is_err());
+        assert!(validate_speech_text(bubble).is_ok());
+        assert!(validate_speech_text("  ").is_err());
+        assert!(validate_speech_text("hello\0world").is_err());
+        assert!(validate_speech_text(&"x".repeat(MAX_CHARS + 1)).is_err());
     }
 
     #[test]
@@ -654,11 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn voice_lines_parse_and_permission_labels_do_not_prompt() {
-        let voices = parse_voice_list("Albert              en_US    # Hello! My name is Albert.\nAmélie              fr_CA    # Bonjour!\n");
-        assert_eq!(voices[0].name, "Albert");
-        assert_eq!(voices[0].locale, "en_US");
-        assert_eq!(voices[1].name, "Amélie");
+    fn permission_labels_do_not_prompt() {
         assert_eq!(av_label(2), "denied");
         assert_eq!(speech_label(1), "denied");
         assert_eq!(speech_label(3), "authorized");
@@ -675,49 +499,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn say_file_receives_the_exact_stdin_text() {
-        let plan = speech_plan("hello-exact", None, Some(180.0)).unwrap();
-        let dir = std::env::temp_dir().join(format!("kbot-say-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let out = dir.join("out.aiff");
-        let mut child = Command::new("/usr/bin/say")
-            .args(&plan.args)
-            .arg("-o")
-            .arg(&out)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("say");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(plan.text.as_bytes())
-            .unwrap();
-        let status = wait_say(&mut child);
-        assert!(status, "say 没有接受标准输入里的原文");
-        assert!(out.metadata().unwrap().len() > 32);
-        assert!(!plan.args.iter().any(|arg| arg.contains("hello-exact")));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-#[cfg(test)]
-fn wait_say(child: &mut Child) -> bool {
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if start.elapsed() > Duration::from_secs(8) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(30)),
-            Err(_) => return false,
-        }
-    }
 }
