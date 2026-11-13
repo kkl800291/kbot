@@ -12,7 +12,7 @@ import { MIMO_VOICES, MIMO_VOICE_DESIGNS, MIMO_VOICEDESIGN_MODEL } from '../serv
       testStatus.className = 'sx-d';
       testStatus.textContent = '正在合成并播放…';
       try {
-        const out = await A.voice?.speakText?.('你好呀，我是 Kbot！很高兴在你的桌面上陪着你。', {
+        const out = await A.voice?.speakText?.('您好，我是 Kbot，随时为您效劳。', {
           force: true,
           emotion: 'happy',
         });

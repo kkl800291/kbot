@@ -7,4 +7,6 @@ src-tauri/target/
 !\.env.example
 test-results/
 /KBOT_*.dmg
-.superpowers/
+/src-tauri/resources/dsh-runtime/
+/src-tauri/resources/dsh-runtime.staging/
+/.cache/dsh-runtime/

@@ -1,6 +1,7 @@
 //! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with local `0600` credential vault storage.
-//! User text is sent as structured request data. MiMo audio plays from a private
-//! temp WAV via `afplay`.
+//! User text is sent as structured request data, one short sentence segment per
+//! request; the next segment is synthesized while the current one plays from a
+//! private temp WAV via `afplay`.
 
 use crate::storage::read_key;
 use base64::Engine;
@@ -22,6 +23,13 @@ use std::{
 use objc::{class, msg_send, sel, sel_impl};
 
 const MAX_CHARS: usize = 4_000;
+/// 预置音色：切成约 60 字的小段边合成边播，几秒就能开口；音色固定，段间只有轻微的语气差别。
+const SEGMENT_CHARS: usize = 60;
+/// “音色设计”模型每次请求都按描述重新生成一个声音，切段就等于换一个人说话。
+/// 所以尽量整篇一次合成（自动朗读最多 200 字，正好一段），代价是开口前要等更久。
+const DESIGN_SEGMENT_CHARS: usize = 400;
+// MiMo 不支持低延迟流式：约 60 字的一段实测要合成 7～8 秒，一整段 270 字要 20～32 秒；400 字的一段留足 60 秒。
+const SEGMENT_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_MIMO_BASE: &str = "https://api.xiaomimimo.com/v1";
 const DEFAULT_MIMO_MODEL: &str = "mimo-v2.5-tts";
 const DEFAULT_MIMO_VOICE: &str = "冰糖";
@@ -47,16 +55,62 @@ impl ActivePlayback {
     }
 }
 
+enum Playback {
+    Playing,
+    Finished,
+    Cancelled,
+}
+
+/// `generation` changes whenever speech is stopped or a new utterance starts, so a
+/// pipeline still synthesizing an older utterance knows to give up.
 #[derive(Clone, Default)]
-pub struct Speech(Arc<Mutex<Option<ActivePlayback>>>);
+pub struct Speech {
+    active: Arc<Mutex<Option<ActivePlayback>>>,
+    generation: Arc<AtomicU64>,
+}
 
 impl Speech {
     pub fn stop_active(&self) {
-        if let Ok(mut guard) = self.0.lock() {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.kill_playback();
+    }
+
+    fn begin(&self) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.kill_playback();
+        generation
+    }
+
+    fn is_current(&self, generation: u64) -> bool {
+        self.generation.load(Ordering::SeqCst) == generation
+    }
+
+    fn kill_playback(&self) {
+        if let Ok(mut guard) = self.active.lock() {
             if let Some(mut active) = guard.take() {
                 active.kill_and_clean();
             }
         }
+    }
+
+    fn poll_playback(&self, generation: u64) -> Playback {
+        let Ok(mut guard) = self.active.lock() else {
+            return Playback::Cancelled;
+        };
+        if !self.is_current(generation) {
+            return Playback::Cancelled;
+        }
+        let playing = match guard.as_mut() {
+            Some(active) => matches!(active.child.try_wait(), Ok(None)),
+            None => false,
+        };
+        if playing {
+            return Playback::Playing;
+        }
+        if let Some(mut finished) = guard.take() {
+            finished.cleanup_file();
+        }
+        Playback::Finished
     }
 }
 
@@ -101,11 +155,12 @@ pub async fn voice_speak(
     let cfg = mimo
         .filter(|cfg| cfg.enabled)
         .ok_or_else(|| "尚未配置 MiMo 语音，请到设置中保存 API Key".to_string())?;
-    let speech_state = speech.inner().clone();
-    let wav_bytes = synthesize_mimo_wav(&text, &cfg, emotion.as_deref()).await?;
-    tauri::async_runtime::spawn_blocking(move || play_wav_bytes(&speech_state, &wav_bytes))
-        .await
-        .map_err(|_| "音频播放任务失败".to_string())??;
+    let max = segment_chars(&cfg.model);
+    let synth = MimoSynth::new(cfg, emotion)?;
+    let speech = speech.inner().clone();
+    let generation = speech.begin();
+    speak_segments(&speech, generation, &synth, split_segments(&text, max))
+    .await?;
     Ok(SpeakOutcome {
         provider: "mimo".into(),
     })
@@ -114,9 +169,165 @@ pub async fn voice_speak(
 #[tauri::command]
 pub async fn voice_stop(speech: tauri::State<'_, Speech>) -> Result<(), String> {
     let speech = speech.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || stop_speech(&speech))
+    tauri::async_runtime::spawn_blocking(move || speech.stop_active())
         .await
-        .map_err(|_| "停止朗读失败".to_string())?
+        .map_err(|_| "停止朗读失败".to_string())
+}
+
+/// Resolves once every segment has played, or early with `Ok` when the utterance was
+/// stopped or replaced. Only failures of the still-current utterance are reported.
+async fn speak_segments(
+    speech: &Speech,
+    generation: u64,
+    synth: &MimoSynth,
+    segments: Vec<String>,
+) -> Result<(), String> {
+    let spawn = |text: String| tauri::async_runtime::spawn(synth.clone().wav(text));
+    let mut queue = segments.into_iter();
+    let mut next = queue.next().map(spawn);
+    while let Some(task) = next.take() {
+        let wav = task.await.map_err(|_| "语音合成任务失败".to_string());
+        next = queue.next().map(spawn);
+        let played = match wav {
+            Ok(Ok(wav)) => play_segment(speech, generation, wav).await,
+            Ok(Err(err)) | Err(err) => Err(err),
+        };
+        match played {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(err) => {
+                if let Some(task) = next.take() {
+                    task.abort();
+                }
+                return if speech.is_current(generation) {
+                    Err(err)
+                } else {
+                    Ok(())
+                };
+            }
+        }
+    }
+    if let Some(task) = next {
+        task.abort();
+    }
+    Ok(())
+}
+
+/// `Ok(true)` when the segment played to the end, `Ok(false)` when it was cancelled.
+async fn play_segment(speech: &Speech, generation: u64, wav: Vec<u8>) -> Result<bool, String> {
+    if !speech.is_current(generation) {
+        return Ok(false);
+    }
+    let starter = speech.clone();
+    let started =
+        tauri::async_runtime::spawn_blocking(move || play_wav_bytes(&starter, generation, &wav))
+            .await
+            .map_err(|_| "音频播放任务失败".to_string())??;
+    if !started {
+        return Ok(false);
+    }
+    loop {
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        match speech.poll_playback(generation) {
+            Playback::Playing => {}
+            Playback::Finished => return Ok(true),
+            Playback::Cancelled => return Ok(false),
+        }
+    }
+}
+
+pub(crate) fn segment_chars(model: &str) -> usize {
+    if model.trim() == "mimo-v2.5-tts-voicedesign" {
+        DESIGN_SEGMENT_CHARS
+    } else {
+        SEGMENT_CHARS
+    }
+}
+
+pub(crate) fn split_segments(text: &str, max: usize) -> Vec<String> {
+    let mut pieces = Vec::new();
+    push_pieces(
+        text,
+        max,
+        &[is_sentence_end, is_clause_end, is_space],
+        &mut pieces,
+    );
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    for piece in pieces {
+        if !current.trim().is_empty() && current.chars().count() + piece.chars().count() > max {
+            segments.push(current.trim().to_string());
+            current.clear();
+        }
+        current.push_str(&piece);
+    }
+    if !current.trim().is_empty() {
+        segments.push(current.trim().to_string());
+    }
+    segments
+}
+
+type Boundary = fn(char, Option<char>) -> bool;
+
+fn push_pieces(text: &str, max: usize, levels: &[Boundary], out: &mut Vec<String>) {
+    if text.chars().count() <= max {
+        out.push(text.to_string());
+        return;
+    }
+    match levels.split_first() {
+        Some((is_end, rest)) => {
+            for part in split_after(text, *is_end) {
+                push_pieces(&part, max, rest, out);
+            }
+        }
+        None => {
+            let chars: Vec<char> = text.chars().collect();
+            out.extend(
+                chars
+                    .chunks(max)
+                    .map(|chunk| chunk.iter().collect::<String>()),
+            );
+        }
+    }
+}
+
+/// Cuts after each boundary run, keeping the boundary and following whitespace with
+/// the left part so the pieces concatenate back to the original text.
+fn split_after(text: &str, is_end: Boundary) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        buf.push(c);
+        let next = chars.peek().copied();
+        if is_end(c, next) && !next.is_some_and(|n| is_end(n, None)) {
+            while let Some(&w) = chars.peek() {
+                if !w.is_whitespace() {
+                    break;
+                }
+                buf.push(w);
+                chars.next();
+            }
+            parts.push(std::mem::take(&mut buf));
+        }
+    }
+    if !buf.is_empty() {
+        parts.push(buf);
+    }
+    parts
+}
+
+fn is_sentence_end(c: char, next: Option<char>) -> bool {
+    matches!(c, '。' | '！' | '？' | '!' | '?' | '；' | ';' | '…' | '\n')
+        || (c == '.' && next.map_or(true, char::is_whitespace))
+}
+
+fn is_clause_end(c: char, _: Option<char>) -> bool {
+    matches!(c, '，' | ',' | '、' | '：' | ':')
+}
+
+fn is_space(c: char, _: Option<char>) -> bool {
+    c.is_whitespace()
 }
 
 #[tauri::command]
@@ -144,18 +355,18 @@ pub(crate) fn mimo_endpoint(raw_base: &str) -> Result<String, String> {
 
 pub(crate) fn mimo_style_prompt(style: &str, emotion: Option<&str>) -> String {
     let base = if style.trim().is_empty() {
-        "自然亲切、温和清晰的桌面伙伴语气，吐字干净，节奏舒服。"
+        "沉稳得体的管家语气，吐字清晰，节奏从容。"
     } else {
         style.trim()
     };
     let mood = match emotion.unwrap_or("").trim() {
-        "happy" | "wink" => "带着轻快开心的笑意，尾音微微上扬。",
-        "coy" => "略带一点不好意思的温柔笑意。",
-        "surprised" => "带着一点好奇与小惊喜的语气。",
-        "confused" | "think" => "认真思考后温和解答的语气。",
-        "sad" => "轻声安慰、柔和体贴的语气。",
-        "sleepy" | "sleep" => "轻柔放松、语速略微放慢，像轻声道晚安。",
-        "remind" => "温和提醒、清晰但不生硬的语气。",
+        "happy" | "wink" | "coy" => "语气里带一点愉快的笑意，依然克制。",
+        "surprised" => "略带意外，随即恢复从容。",
+        "confused" | "think" => "边斟酌边作答，语速稍缓。",
+        "sad" => "声音放轻，体贴而克制。",
+        "sleepy" | "sleep" => "声音放轻，语速放慢，像在道晚安。",
+        "remind" => "清晰郑重的提醒，不生硬。",
+        "annoyed" => "语气略微收紧，仍然礼貌。",
         _ => "",
     };
     if mood.is_empty() {
@@ -204,45 +415,75 @@ pub(crate) fn decode_mimo_response(data: &Value) -> Result<Vec<u8>, String> {
         .map_err(|_| "MiMo 音频数据解码失败".to_string())
 }
 
-async fn synthesize_mimo_wav(
-    text: &str,
-    cfg: &MimoTtsConfig,
-    emotion: Option<&str>,
-) -> Result<Vec<u8>, String> {
-    let endpoint = mimo_endpoint(&cfg.base)?;
-    let key = read_key("tts")?;
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(6))
-        .timeout(Duration::from_secs(12))
-        .build()
-        .map_err(|_| "语音网络组件初始化失败".to_string())?;
-    let body = mimo_request_body(text, cfg, emotion);
-    let response = client
-        .post(&endpoint)
-        .header("api-key", key.trim())
-        .bearer_auth(key.trim())
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| "MiMo 语音连接超时或网络不可用".to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 | 403 => "MiMo API Key 无效或无语音合成权限".into(),
-            402 => "MiMo 账户余额或 Token Plan 额度不足".into(),
-            421 => "MiMo 服务地域或接入点不匹配，请检查 API 地址".into(),
-            429 => "MiMo 语音请求过于频繁，请稍后重试".into(),
-            code => format!("MiMo 语音服务暂不可用（HTTP {code}）"),
-        });
-    }
-    let payload: Value = response
-        .json()
-        .await
-        .map_err(|_| "MiMo 语音返回格式无效".to_string())?;
-    decode_mimo_response(&payload)
+#[derive(Clone)]
+struct MimoSynth {
+    endpoint: String,
+    key: String,
+    client: reqwest::Client,
+    cfg: MimoTtsConfig,
+    emotion: Option<String>,
 }
 
-fn play_wav_bytes(speech: &Speech, wav_bytes: &[u8]) -> Result<(), String> {
+impl MimoSynth {
+    fn new(cfg: MimoTtsConfig, emotion: Option<String>) -> Result<Self, String> {
+        let endpoint = mimo_endpoint(&cfg.base)?;
+        let key = read_key("tts")?.trim().to_string();
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(6))
+            .timeout(SEGMENT_TIMEOUT)
+            .build()
+            .map_err(|_| "语音网络组件初始化失败".to_string())?;
+        Ok(Self {
+            endpoint,
+            key,
+            client,
+            cfg,
+            emotion,
+        })
+    }
+
+    async fn wav(self, text: String) -> Result<Vec<u8>, String> {
+        let body = mimo_request_body(&text, &self.cfg, self.emotion.as_deref());
+        let response = self
+            .client
+            .post(&self.endpoint)
+            .header("api-key", &self.key)
+            .bearer_auth(&self.key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(network_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(match status.as_u16() {
+                401 | 403 => "MiMo API Key 无效或无语音合成权限".into(),
+                402 => "MiMo 账户余额或 Token Plan 额度不足".into(),
+                421 => "MiMo 服务地域或接入点不匹配，请检查 API 地址".into(),
+                429 => "MiMo 语音请求过于频繁，请稍后重试".into(),
+                code => format!("MiMo 语音服务暂不可用（HTTP {code}）"),
+            });
+        }
+        let payload: Value = response.json().await.map_err(|err| {
+            if err.is_timeout() {
+                network_error(err)
+            } else {
+                "MiMo 语音返回格式无效".to_string()
+            }
+        })?;
+        decode_mimo_response(&payload)
+    }
+}
+
+fn network_error(err: reqwest::Error) -> String {
+    if err.is_timeout() {
+        format!("MiMo 语音合成超时（{} 秒）", SEGMENT_TIMEOUT.as_secs())
+    } else {
+        "MiMo 语音连接失败，请检查网络".to_string()
+    }
+}
+
+/// `Ok(false)` when the utterance was stopped or replaced before playback could start.
+fn play_wav_bytes(speech: &Speech, generation: u64, wav_bytes: &[u8]) -> Result<bool, String> {
     if wav_bytes.len() < 44 {
         return Err("MiMo 返回的音频文件过短".into());
     }
@@ -273,6 +514,7 @@ fn play_wav_bytes(speech: &Speech, wav_bytes: &[u8]) -> Result<(), String> {
     };
     install_active(
         speech,
+        generation,
         ActivePlayback {
             child,
             temp_file: Some(path),
@@ -293,22 +535,22 @@ fn validate_speech_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn install_active(speech: &Speech, next: ActivePlayback) -> Result<(), String> {
-    let mut guard = speech.0.lock().map_err(|_| "朗读状态不可用")?;
+fn install_active(
+    speech: &Speech,
+    generation: u64,
+    mut next: ActivePlayback,
+) -> Result<bool, String> {
+    let mut guard = speech.active.lock().map_err(|_| "朗读状态不可用")?;
+    if !speech.is_current(generation) {
+        next.kill_and_clean();
+        return Ok(false);
+    }
     reap(&mut guard);
     if let Some(mut previous) = guard.take() {
         previous.kill_and_clean();
     }
     *guard = Some(next);
-    Ok(())
-}
-
-fn stop_speech(speech: &Speech) -> Result<(), String> {
-    let mut guard = speech.0.lock().map_err(|_| "朗读状态不可用")?;
-    if let Some(mut active) = guard.take() {
-        active.kill_and_clean();
-    }
-    Ok(())
+    Ok(true)
 }
 
 fn reap(slot: &mut Option<ActivePlayback>) {
@@ -479,6 +721,51 @@ mod tests {
         .unwrap();
         assert_eq!(decoded, wav);
         assert!(decode_mimo_response(&json!({ "choices": [] })).is_err());
+    }
+
+    #[test]
+    fn long_text_is_split_into_short_sentence_segments() {
+        let text = "好的，先生。我已经检查了你今天的日程安排，上午十点有一个产品评审会议，下午两点需要和设计团队对齐新版本的交互细节。另外，傍晚可能下雨！记得带伞。";
+        let segments = split_segments(text, SEGMENT_CHARS);
+        assert!(segments.len() > 1);
+        assert!(segments.iter().all(|s| s.chars().count() <= SEGMENT_CHARS));
+        assert_eq!(segments.concat(), text);
+
+        // 音色设计模型每段都会换一个声音：自动朗读的长度整篇一次合成，更长的只在句末切开
+        let design = segment_chars("mimo-v2.5-tts-voicedesign");
+        assert_eq!(segment_chars("mimo-v2.5-tts"), SEGMENT_CHARS);
+        assert_eq!(split_segments(text, design), vec![text]);
+        let long = text.repeat(8);
+        let segments = split_segments(&long, design);
+        assert!(segments.len() > 1);
+        assert!(segments.iter().all(|s| s.ends_with('。') || s.ends_with('！')));
+        assert_eq!(segments.concat(), long);
+
+        assert_eq!(
+            split_segments("你好。我在。", SEGMENT_CHARS),
+            vec!["你好。我在。"]
+        );
+        assert_eq!(
+            split_segments("Version 2.5 is ready. All systems online.", 25),
+            vec!["Version 2.5 is ready.", "All systems online."]
+        );
+        let run = "字".repeat(SEGMENT_CHARS * 2 + 5);
+        let segments = split_segments(&run, SEGMENT_CHARS);
+        assert_eq!(segments.len(), 3);
+        assert!(segments.iter().all(|s| s.chars().count() <= SEGMENT_CHARS));
+        assert!(split_segments("  \n ", SEGMENT_CHARS).is_empty());
+    }
+
+    #[test]
+    fn new_speech_or_stop_cancels_the_running_pipeline() {
+        let speech = Speech::default();
+        let first = speech.begin();
+        assert!(speech.is_current(first));
+        let second = speech.begin();
+        assert!(!speech.is_current(first));
+        assert!(speech.is_current(second));
+        speech.stop_active();
+        assert!(!speech.is_current(second));
     }
 
     #[test]

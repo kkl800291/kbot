@@ -4,6 +4,7 @@ import { installDesktop } from './services/desktop';
 import { installWeather } from './services/weather';
 import { installVoice } from './services/voice';
 import { installAgent } from './services/agent';
+import { installAccount } from './services/account';
 import { installProactive } from './services/proactive';
 import { installUpdater } from './services/updater';
 import { onboarding } from './onboarding';
@@ -18,15 +19,6 @@ async function boot() {
     return;
   }
   window.__COMPANION_STATE__ = await loadState();
-  await import('./ui/robot-math.js');
-  await import('./ui/robot-states.js');
-  await import('./ui/robot-shape.js');
-  await import('./ui/robot-face.js');
-  await import('./ui/robot-parts.js');
-  await import('./ui/robot-clips.js');
-  await import('./ui/robot-life.js');
-  await import('./ui/robot-orb.js');
-  await import('./ui/robot.js');
   await import('./ui/markdown.js');
   await import('./ui/icons.js');
   await import('./ui/core.js');
@@ -39,14 +31,13 @@ async function boot() {
     const keys = await command('key_status');
     if (typeof keys.tts === 'boolean') A.S.voice.hasKey = keys.tts;
   }
-  await import('./ui/pet.js');
-  await import('./ui/bubble.js');
-  await import('./ui/panel.js');
+  await import('./ui/top.js');
   await import('./ui/chat.js');
   await import('./ui/composer.js');
   await import('./ui/reply.js');
   installVoice(A);
   installAgent(A);
+  installAccount(A);
   installProactive(A);
   installUpdater(A);
   await import('./ui/settings.js');
@@ -64,6 +55,20 @@ async function boot() {
   window.Icons.mount();
   onboarding(A);
 
+  // Isolated native visual QA can open a mode directly; release builds omit this path.
+  if (import.meta.env.DEV && native) {
+    const preview = new URLSearchParams(location.search).get('visualPreview');
+    if (preview && ['idle', 'listen', 'think', 'talk'].includes(preview)) {
+      document.querySelector('#onboarding')?.remove();
+      A.S.onboarding = true; A.S.outsideClose = false;
+      A.summon.open(); A.energy.setMode(preview);
+      if (new URLSearchParams(location.search).has('visualCycle')) {
+        setTimeout(() => A.summon.close(), 4000);
+        setTimeout(() => A.summon.open(), 6500);
+      }
+    }
+  }
+
   // All links from model output go through the system browser, never inside the webview.
   document.addEventListener('click', event => {
     const a = (event.target as Element).closest?.('a[href]') as HTMLAnchorElement | null;
@@ -76,8 +81,11 @@ async function boot() {
     if (A.menu.isOpen()) { A.menu.close(); return; }
     if (A.closeSettings()) return;
     if (document.querySelector('#history')!.classList.contains('open')) { A.chat.closeHistory(); return; }
+    // 正在朗读时，第一下 Esc 只停朗读，不收起
+    if (A.voice?.speaking) { A.voice.stop(); return; }
+    if (A.summon.isOpen()) { A.summon.close(); return; }
     if (A.panel.isOpen()) { A.panel.close(); return; }
-    if (A.bubble.current()?.kind === 'speech') A.bubble.hide(false);
+    if (A.bubble.current()) A.bubble.close();
   });
   // The menu entry is explicit; closing settings or chat never exits the process.
   A.quit = async () => {

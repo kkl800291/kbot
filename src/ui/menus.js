@@ -1,4 +1,4 @@
-/* KBOT · 菜单：菜单栏图标菜单、角色右键菜单 */
+/* KBOT · 菜单：菜单栏图标菜单、顶部常驻条的右键菜单 */
 (function () {
   'use strict';
   const A = window.App, { $ } = A;
@@ -30,7 +30,8 @@
     return heads;
   }
 
-  const openChat = () => { if (A.hidden) A.setHidden(false); A.panel.open(); };
+  const summon = () => { if (A.hidden) A.setHidden(false); A.summon.open(); };
+  const openWindow = () => { if (A.hidden) A.setHidden(false); A.panel.open(); };
 
   const updateMenuItem = () => {
     const u = A.updateState;
@@ -52,8 +53,9 @@
     A.menu.open([
       ...statusHeads(),
       { sep: true },
-      { label: A.hidden ? '显示角色' : '隐藏角色', fn: () => A.setHidden(!A.hidden) },
-      { label: '打开聊天', kbd: A.S.hotkey.label, fn: openChat },
+      { label: A.hidden ? '显示 KBOT' : '隐藏 KBOT', fn: () => A.setHidden(!A.hidden) },
+      { label: '召唤 KBOT', kbd: A.S.hotkey.label, fn: summon },
+      { label: '打开对话窗口', fn: openWindow },
       { sep: true },
       ...dndItems(),
       { sep: true },
@@ -72,7 +74,8 @@
     A.menu.open([
       ...statusHeads(),
       { sep: true },
-      { label: A.panel.isOpen() ? '收起对话' : '打开对话', kbd: A.S.hotkey.label, fn: () => A.panel.toggle() },
+      { label: A.summon.isOpen() ? '收起' : '召唤 KBOT', kbd: A.S.hotkey.label, fn: () => A.summon.toggle() },
+      { label: '打开对话窗口', fn: openWindow },
       { label: '新对话', fn: () => { A.panel.open(); A.chat.newConv(true); } },
       { sep: true },
       ...dndItems(),
@@ -82,7 +85,7 @@
       { label: '智能核心设置…', fn: () => A.openSettings && A.openSettings('agent') },
       updateMenuItem(),
       { label: '设置…', kbd: '⌘ ,', fn: () => A.openSettings && A.openSettings() },
-      { label: '隐藏角色', fn: () => A.setHidden(true) },
+      { label: '隐藏 KBOT', fn: () => A.setHidden(true) },
     ], x, y);
   };
 })();

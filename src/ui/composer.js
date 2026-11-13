@@ -28,16 +28,18 @@
     sendBtn.title = gen ? '停止生成' : '发送（Enter）';
     sendBtn.disabled = !gen && (A.S.model === 'none' || (!input.value.trim() && !atts.length));
   }
-  C.setGenerating = b => { C.generating = b; updateSend(); };
+  C.setGenerating = b => { C.generating = b; updateSend(); A.emit('generating', b); };
+  // 未连接时的提示；召唤态的输入胶囊用同一句
+  C.offText = () => A.S.model !== 'none' ? ''
+    : A.dshState?.status === 'connecting' ? '正在连接 DeepSeek Harness…' : '连接 DeepSeek Harness 后即可开始对话';
+  /** 把召唤态没发出的文字带进窗口的输入框。 */
+  C.setDraft = text => { input.value = text; autosize(); updateSend(); };
 
   C.refreshComposer = () => {
     const S = A.S, off = S.model === 'none';
     const st = A.dshState;
-    const connecting = st && st.status === 'connecting';
     input.disabled = off;
-    input.placeholder = off
-      ? (connecting ? '正在连接 DeepSeek Harness…' : '连接 DeepSeek Harness 后即可开始对话')
-      : '和我聊聊，或者说「20 分钟后提醒我…」';
+    input.placeholder = C.offText() || '和我聊聊，或者说「20 分钟后提醒我…」';
     const mName = C.modelName();
     tag.innerHTML = '';
     tag.append(h('span', { class: 'mt-name' }, mName));
@@ -98,7 +100,7 @@
     if (A.S.model === 'none') { hint('先连接 DeepSeek Harness 后再发送图片', true); return; }
     const okType = /^image\/(png|jpe?g|webp|gif|heic|heif)$/i, okExt = /\.(png|jpe?g|webp|gif|heic|heif)$/i;
     for (const f of files) {
-      if (atts.length >= 4) { hint('一条消息最多 4 张图片，多的我先略过啦', true); break; }
+      if (atts.length >= 4) { hint('一条消息最多 4 张图片，多出的已略过', true); break; }
       if (!okType.test(f.type) && !okExt.test(f.name)) { hint(`「${f.name}」不是支持的格式，目前支持 PNG、JPG、WebP、HEIC、GIF`, true, 5200); continue; }
       try { atts.push(await processImage(f)); }
       catch (e) { hint(/heic|heif/i.test(f.type + f.name) ? '此 HEIC 图片无法解码，请先导出为 PNG 或 JPG' : `「${f.name}」打不开，文件可能已损坏`, true, 5200); }

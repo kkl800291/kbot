@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { command } from './services/runtime';
 import { diffSettings } from './services/settings-patch';
 import { installVoice } from './services/voice';
+import { uiAccent } from './ui/accent.js';
 
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
 
@@ -47,11 +48,7 @@ export async function bootSettingsWindow() {
     document.documentElement.classList.toggle('theme-dark', A.S.theme === 'dark');
     document.documentElement.classList.toggle('theme-light', A.S.theme === 'light');
     document.documentElement.classList.toggle('reduced', !!A.S.reduced);
-    document.documentElement.classList.toggle('shell-graphite', A.S.shell === 'graphite');
-    document.documentElement.style.setProperty('--glow-rgb', (window.Robot.PALETTES[A.S.palette] || window.Robot.PALETTES.blue).join(', '));
-    const orb = window.Robot.orbStyle(A.S.palette);
-    document.documentElement.style.setProperty('--orb-hue', orb.hue);
-    document.documentElement.style.setProperty('--orb-tint', orb.tint);
+    document.documentElement.style.setProperty('--glow-rgb', uiAccent(A.S.palette, A.S.theme === 'dark').join(', '));
   };
   const merge = (target: any, source: any) => {
     for (const k of Object.keys(target)) if (!(k in source)) delete target[k];
@@ -62,12 +59,14 @@ export async function bootSettingsWindow() {
   };
   function accept(next: any, redraw = false) {
     const dshChanged = JSON.stringify(A.dshState) !== JSON.stringify(next.dshState);
+    const accountChanged = JSON.stringify(A.accountState) !== JSON.stringify(next.accountState);
     const updChanged = JSON.stringify(A.updateState) !== JSON.stringify(next.updateState);
     for (const root of roots) {
       if (root === 'S') merge(A.S, next.S);
       else A[root] = clone(next[root] || (root === 'birthdays' ? [] : {}));
     }
     A.dshState = clone(next.dshState || null);
+    A.accountState = clone(next.accountState || null);
     A.updateState = clone(next.updateState || null);
     A.hidden = next.hidden;
     A.chat.convs = clone(next.conversations || []);
@@ -75,6 +74,7 @@ export async function bootSettingsWindow() {
     if (redraw) A.refreshSettings?.();
     else {
       if (dshChanged) A.emit('dsh:state', A.dshState);
+      if (accountChanged) A.emit('account:state', A.accountState);
       if (updChanged) A.emit('updater:state', A.updateState);
     }
   }
@@ -117,6 +117,7 @@ export async function bootSettingsWindow() {
   A.builtin = clone(state.builtin || {});
   A.birthdays = clone(state.birthdays || []);
   A.dshState = clone(state.dshState || null);
+  A.accountState = clone(state.accountState || null);
   A.updateState = clone(state.updateState || null);
   A.hidden = state.hidden;
 
@@ -130,16 +131,20 @@ export async function bootSettingsWindow() {
     initWorkspace: (overwrite = false) => action('dsh-init-workspace', { overwrite }),
     setDesktopPatch: (enabled: boolean) => action('dsh-desktop-patch', { enabled }),
   };
+  A.account = {
+    signIn: () => action('account-sign-in'),
+    cancelSignIn: () => action('account-cancel'),
+    refresh: () => action('account-refresh'),
+    openTopUp: () => action('account-top-up'),
+    openUsage: () => action('account-usage'),
+    signOut: () => action('account-sign-out'),
+  };
   A.updater = {
     state: () => ({ ...(A.updateState || {}) }),
     check: (manual = true) => action('updater-check', { manual }),
     install: () => action('updater-install'),
   };
 
-  // 设置窗口不加载角色绘制代码，这里保持与 ui/robot.js 的 PALETTES 一致；光之球的色调换算直接复用 robot-orb
-  await import('./ui/robot-math.js');
-  await import('./ui/robot-orb.js');
-  window.Robot = { PALETTES: { blue: [10, 132, 255], indigo: [94, 92, 230], orange: [255, 149, 0], green: [48, 199, 89] }, orbStyle: (window as any).RB.orbStyle };
   await import('./ui/settings.js');
   await import('./ui/settings-a.js');
   await import('./ui/settings-b.js');
@@ -154,7 +159,19 @@ export async function bootSettingsWindow() {
     if (page) openLocal(page);
   };
   await listen<string>('settings-open', ({ payload }) => { show(payload).catch(error => A.toast(String(error))); });
-  await listen<any>('settings-state', ({ payload }) => { if (!queued) accept(payload); });
+  // 正有修改在路上时不整体覆盖（免得把没提交的改动冲掉），但连接状态和更新进度这类只读的进展照收
+  const live = (next: any) => {
+    const dshChanged = JSON.stringify(A.dshState) !== JSON.stringify(next.dshState);
+    const accountChanged = JSON.stringify(A.accountState) !== JSON.stringify(next.accountState);
+    const updChanged = JSON.stringify(A.updateState) !== JSON.stringify(next.updateState);
+    A.dshState = clone(next.dshState || null);
+    A.accountState = clone(next.accountState || null);
+    A.updateState = clone(next.updateState || null);
+    if (dshChanged) A.emit('dsh:state', A.dshState);
+    if (accountChanged) A.emit('account:state', A.accountState);
+    if (updChanged) A.emit('updater:state', A.updateState);
+  };
+  await listen<any>('settings-state', ({ payload }) => { if (!queued) accept(payload); else live(payload); });
 
   const dirtyInputs = new Set<HTMLInputElement | HTMLTextAreaElement>();
   document.addEventListener('input', event => {

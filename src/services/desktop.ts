@@ -20,13 +20,15 @@ export function installDesktop(A: any) {
     });
     focusTail.catch(() => {});
   };
+  // 召唤态和对话窗口都要拿焦点
+  const engaged = () => A.panel.isOpen() || !!A.summon?.isOpen?.();
   A.focusWindow = () => { clearTimeout(releaseTimer); changeFocus(true, ++focusVersion); };
   A.cancelFocusRelease = () => { clearTimeout(releaseTimer); focusVersion++; };
   A.releaseWindow = () => {
     clearTimeout(releaseTimer);
     const version = ++focusVersion;
     if (native) releaseTimer = setTimeout(() => {
-      if (!A.panel.isOpen() && !A.panel.isTransitioning?.() && !A.petPointerActive && !document.querySelector('#menu.open, #sheet.open, #onboarding')) changeFocus(false, version);
+      if (!engaged() && !A.panel.isTransitioning?.() && !document.querySelector('#menu.open, #sheet.open, #onboarding')) changeFocus(false, version);
     }, 80);
   };
   A.captureScreen = async () => {
@@ -60,9 +62,6 @@ export function installDesktop(A: any) {
   };
   ['senseIdle', 'senseApp'].forEach(key => A.on('set:' + key, sensors));
   A.on('onboarded', sensors);
-  A.on('set:onTop', () => {
-    if (native) command('set_on_top', { on: A.S.onTop }).catch(() => A.toast('窗口置顶设置失败'));
-  });
   A.on('set:autostart', async () => {
     if (!native) { A.S.autostart = false; A.toast('开机启动需要在桌面应用中设置'); return; }
     try { if (A.S.autostart) await enable(); else await disable(); }
@@ -78,17 +77,17 @@ export function installDesktop(A: any) {
     const previous = shortcut;
     try {
       await register(next, event => {
-        if (event.state !== 'Pressed') return;
-        if (A.hidden) A.setHidden(false);
-        A.panel.toggle();
+        if (event.state === 'Pressed') A.top.hotkey();
       });
       shortcut = next;
       if (previous) await unregister(previous);
-    } catch { A.toast('快捷键被其他应用占用或不受支持，请在设置 → 对话中更换', 6000); }
+    } catch { A.toast('召唤快捷键被其他应用占用或不受支持，请在设置 → 对话中更换', 6000); }
   };
   A.on('set:hotkey', hotkey);
-  A.on('panel', (open: boolean) => { if (!open && !document.querySelector('#sheet.open')) A.releaseWindow(); });
-  A.on('settings', (open: boolean) => { if (!open && !A.panel.isOpen()) A.releaseWindow(); });
+  const released = (open: boolean) => { if (!open && !document.querySelector('#sheet.open')) A.releaseWindow(); };
+  A.on('panel', released);
+  A.on('summon', released);
+  A.on('settings', (open: boolean) => { if (!open && !engaged()) A.releaseWindow(); });
   A.on('hidden', (hidden: boolean) => { if (native) command('hide_companion', { hidden }).catch(() => {}); });
 
   let regionKey = '', regionPending = false, regionDirty = false, capturing = false;
@@ -98,22 +97,17 @@ export function installDesktop(A: any) {
     regionDirty = false;
     const regions: any[] = [];
     if (!A.hidden && !capturing) {
-      const pet = document.querySelector('#pet')!.getBoundingClientRect();
-      const s = pet.width / 180;
-      // Follow the current body shape (head, accessories, floating ring), leaving transparent corners open.
-      if (!A.panel.isOpen() && !A.panel.isTransitioning?.()) {
-        for (const [x, y, w, h, radius] of A.robot.shape.regions as number[][]) {
-          regions.push({ x: pet.x + x * s, y: pet.y + y * s, w: w * s, h: h * s, radius: radius * s });
-        }
-      }
-      for (const element of document.querySelectorAll('#panel.open, #panel.morphing, #menu.open, .bubble.show, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
+      // 只有顶部的内容区接收点击；羽化的衬底外圈和感应区都穿透给下面的应用
+      const top = A.top?.contentRect?.();
+      if (top && top.width && top.height) regions.push({ x: top.x, y: top.y, w: top.width, h: top.height, radius: 14 });
+      for (const element of document.querySelectorAll('#menu.open, #sheet.open .sh-win, #onboarding .welcome-card, #lightbox.open img')) {
         const r = element.getBoundingClientRect();
         if (r.width && r.height) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height, radius: 10 });
       }
     }
-    const dragging = !!A.petPointerActive || !!document.querySelector('#pet.dragging, #panel.resizing');
-    const interactive = A.panel.isOpen() || !!A.panel.isTransitioning?.() || !!document.querySelector('#menu.open, #sheet.open, #onboarding');
-    const key = JSON.stringify([regions, dragging, interactive]);
+    const dragging = !A.hidden && !!A.panel.isDragging?.();
+    const interactive = engaged() || !!document.querySelector('#menu.open, #sheet.open, #onboarding');
+    const key = JSON.stringify([regions.map(r => [Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h)]), dragging, interactive]);
     if (key === regionKey) return;
     regionPending = true;
     command('set_regions', { regions, dragging, interactive }).then(() => { regionKey = key; }).catch(() => {}).finally(() => {
@@ -121,11 +115,13 @@ export function installDesktop(A: any) {
       if (regionDirty) updateRegions();
     });
   }
-  A.on('petpointer', updateRegions);
-  A.on('pethover', updateRegions);
+  A.on('top', updateRegions);
   A.on('menu', updateRegions);
   A.on('panel', updateRegions);
-  A.on('panelmotion', (active: boolean) => { updateRegions(); if (!active && !A.panel.isOpen()) A.releaseWindow(); });
+  A.on('panelmove', updateRegions);
+  A.on('paneldrag', updateRegions);
+  A.on('summon', updateRegions);
+  A.on('panelmotion', (active: boolean) => { updateRegions(); if (!active && !engaged()) A.releaseWindow(); });
 
   A.sysNotify = async (ev: any) => {
     if (!native) { A.toast(`${ev.title || '提醒'}：${ev.text}`, 8000); return; }
@@ -142,20 +138,15 @@ export function installDesktop(A: any) {
     if (!native) {
       document.documentElement.classList.add('browser-preview');
       document.querySelector<HTMLElement>('#preview')!.hidden = false;
+      document.querySelector('#preview-summon')!.addEventListener('click', () => A.summon.toggle());
       document.querySelector('#preview-chat')!.addEventListener('click', () => A.panel.toggle());
       document.querySelector('#preview-settings')!.addEventListener('click', () => A.openSettings());
       return;
     }
-    await listen<any>('desktop-cursor', ({ payload: p }) => {
-      // Compare sampling time, not delivery time: a queued pre-press sample
-      // must never cancel a newer gesture when WebKit resumes after idling.
-      if (p.buttonsDown === false && A.petPointerActive && p.sampledAt - A.petPointerStartedAt > 100) A.cancelPetInteraction();
-      A.robot.lookAtPoint(p.x, p.y);
-      A.updatePetHover(p.x, p.y);
-    });
+    await listen<any>('desktop-cursor', ({ payload: p }) => A.top?.cursor(p.x, p.y));
     await listen('desktop-outside', () => {
       if (A.menu?.isOpen?.()) A.menu.close();
-      if (A.S.outsideClose && A.panel.isOpen()) A.panel.close();
+      A.top?.outside?.();
     });
     await listen<any>('desktop-sensors', ({ payload }) => A.emit('sensors', payload));
     await listen('desktop-tick', () => A.emit('tick'));
@@ -164,23 +155,24 @@ export function installDesktop(A: any) {
       else if (action === 'hide') A.setHidden(true);
       else if (action === 'show') A.setHidden(false);
       else if (action === 'chat') { if (A.hidden) A.setHidden(false); A.panel.open(); }
+      else if (action === 'summon') { if (A.hidden) A.setHidden(false); A.summon.open(); }
       else if (action === 'workspace') { await A.agent?.openWorkspace?.(); }
       else if (action === 'settings' || action === 'agent') { if (A.hidden) A.setHidden(false); A.openSettings(action === 'agent' ? 'agent' : undefined); }
       else if (action === 'dnd') A.setDnd(A.isDnd() ? 0 : 30);
       else if (action === 'quit') await A.quit();
-      else if (action === 'reposition') { if (A.hidden) A.setHidden(false); A.S.pos = null; A.placePet(); A.save(); }
+      else if (action === 'reposition') { if (A.hidden) A.setHidden(false); await A.top?.relayout(); }
+      else if (action === 'relayout') await A.top?.relayout();
     });
     const win = getCurrentWindow();
     await win.onFocusChanged(({ payload: focused }) => {
       if (!focused) {
         if (A.menu?.isOpen?.()) A.menu.close();
-        if (A.S.outsideClose && A.panel.isOpen()) A.panel.close();
+        A.top?.outside?.();
       }
     });
     A.S.autostart = await isEnabled().catch(() => false);
     A.set('screenPerm', await command('screen_permission', { request: false }));
     sensors(); await hotkey();
-    await command('set_on_top', { on: A.S.onTop });
     updateRegions(); setInterval(updateRegions, 100);
     await command('desktop_ready');
     if (!A.S.onboarding) A.focusWindow();

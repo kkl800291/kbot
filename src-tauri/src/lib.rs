@@ -1,3 +1,4 @@
+mod backdrop;
 mod desktop;
 mod dsh;
 mod interaction_diagnostics;
@@ -116,7 +117,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
-                let _ = w.emit("desktop-action", "chat");
+                let _ = w.emit("desktop-action", "summon");
             }
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -139,8 +140,9 @@ pub fn run() {
             desktop::fit_monitor(&w, false)?;
             w.set_focusable(false)?;
             w.set_ignore_cursor_events(true)?;
-            let show = MenuItem::with_id(app, "visibility", "显示／隐藏伙伴", true, None::<&str>)?;
-            let chat = MenuItem::with_id(app, "chat", "打开聊天", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "visibility", "显示／隐藏 KBOT", true, None::<&str>)?;
+            let summon = MenuItem::with_id(app, "summon", "召唤 KBOT", true, None::<&str>)?;
+            let chat = MenuItem::with_id(app, "chat", "打开对话窗口", true, None::<&str>)?;
             let workspace = MenuItem::with_id(app, "workspace", "打开养成目录", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置…", true, Some("CmdOrCtrl+,"))?;
             let move_screen =
@@ -152,6 +154,7 @@ pub fn run() {
             let menu = Menu::with_items(
                 app,
                 &[
+                    &summon,
                     &chat,
                     &show,
                     &move_screen,
@@ -203,6 +206,7 @@ pub fn run() {
             dsh::dsh_restart,
             dsh::dsh_stop,
             dsh::dsh_request,
+            dsh::dsh_account_action,
             dsh::dsh_init_workspace,
             dsh::dsh_open_workspace,
             dsh::dsh_install_desktop_patch,
@@ -210,11 +214,13 @@ pub fn run() {
             desktop::configure_sensors,
             desktop::focus_companion,
             desktop::release_focus,
-            desktop::set_on_top,
+            desktop::idle_seconds,
             desktop::hide_companion,
             desktop::move_to_cursor,
             desktop::screen_permission,
             desktop::capture_screen,
+            backdrop::set_backdrop,
+            backdrop::top_metrics,
             settings_window::open_settings_window,
             settings_window::settings_window_action,
             voice::voice_speak,
@@ -249,7 +255,7 @@ pub fn run() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
-                    let _ = window.emit("desktop-action", "chat");
+                    let _ = window.emit("desktop-action", "summon");
                 }
             }
         });

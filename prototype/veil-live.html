@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KBOT · 光纹生命体 · 动态实验页</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #4d4b66; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+  /* 整个画面按概念图的 1536×1024 摆放，再整体缩放到窗口大小 */
+  #stage { position: absolute; left: 50%; top: 50%; width: 1536px; height: 1024px; overflow: hidden; transform-origin: 0 0; }
+  #plate, #scene, #dim, #flash, #c { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #dim { background: linear-gradient(180deg, rgba(64, 60, 120, .16), rgba(52, 46, 96, .26)); opacity: 0; }
+  #flash { background: radial-gradient(ellipse 62% 56% at 50% 34%, rgba(236, 232, 255, .5), rgba(214, 208, 255, .2) 45%, transparent 78%); opacity: 0; mix-blend-mode: screen; }
+  .brand { position: absolute; left: 58px; top: 54px; color: #fff; opacity: 0; }
+  .brand b { display: block; font: 400 66px/1 "Times New Roman", "Songti SC", serif; letter-spacing: 1px; }
+  .brand span { display: block; margin-top: 12px; font: 300 25px/1 "PingFang SC", sans-serif; letter-spacing: 4px; opacity: .92; }
+  .field { position: absolute; left: 515px; top: 590px; width: 505px; height: 48px; border-radius: 24px; opacity: 0; padding: 0 22px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, .14)); border: 1px solid rgba(255, 255, 255, .34);
+    box-shadow: 0 10px 30px rgba(40, 36, 80, .18), inset 0 1px 0 rgba(255, 255, 255, .3);
+    color: #fff; font: 16px/46px -apple-system, "PingFang SC", sans-serif; outline: none; caret-color: #fff; -webkit-appearance: none; }
+  .field::placeholder { color: rgba(255, 255, 255, .5); }
+  .side { position: fixed; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 7px; padding: 10px 12px; border-radius: 12px; background: rgba(14, 14, 22, .78); color: #d8dce6; z-index: 5; }
+  .side.hide { display: none; }
+  .grp { display: flex; gap: 5px; align-items: center; }
+  .grp > span { width: 44px; color: #8a90a0; }
+  button { background: #1d2028; color: #d8dce6; border: 1px solid #2c303b; border-radius: 6px; padding: 3px 9px; font: inherit; cursor: pointer; }
+  button.on { background: #2a2a54; border-color: #7a78e0; color: #dcdcff; }
+  #stats { font: 11px/1.5 ui-monospace, Menlo, monospace; color: #9aa3b2; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <!-- 背景是替身：概念图抹掉前景后的大色块，加两个示意窗口。正式产品里这一层是用户真实桌面 -->
+  <img id="plate" src="./veil/backdrop.jpg" alt="">
+  <svg id="scene" viewBox="0 0 1536 1024" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="thumb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9a8fc4"/><stop offset=".55" stop-color="#d7a9b8"/><stop offset=".56" stop-color="#7f7fb4"/><stop offset="1" stop-color="#6c6ea6"/></linearGradient>
+    </defs>
+    <g>
+      <path d="M67 200 L645 176 L645 588 L67 566Z" fill="#2f3648" opacity=".96"/>
+      <path d="M67 200 L196 195 L196 571 L67 566Z" fill="#3a4156"/>
+      <circle cx="104" cy="237" r="7" fill="#d8605c"/><circle cx="124" cy="236" r="7" fill="#d9a53f"/><circle cx="144" cy="235" r="7" fill="#57a85a"/>
+      <g opacity=".62" stroke-width="6" stroke-linecap="round">
+        <path d="M232 262h150M232 290h210M252 318h120M252 346h180M232 374h90M232 402h240M252 430h160M252 458h200M232 486h110M232 514h170" stroke="#6f86c4"/>
+        <path d="M402 262h90M462 290h60M392 318h130M452 346h50M332 374h120M432 430h70M352 486h120" stroke="#c98f7a"/>
+        <path d="M512 262h60M532 318h40M512 346h70M452 402h90M472 458h60" stroke="#7fb08a"/>
+        <path d="M96 276h74M96 304h60M96 332h78M96 360h56M96 388h66M96 416h50" stroke="#7d87a6"/>
+      </g>
+    </g>
+    <g>
+      <rect x="1022" y="150" width="600" height="436" rx="16" fill="#cdc8d8" opacity=".97"/>
+      <rect x="1022" y="150" width="600" height="86" rx="16" fill="#c6c1d3"/>
+      <circle cx="1061" cy="171" r="9" fill="#e0606a"/><circle cx="1100" cy="171" r="9" fill="#e6b450"/><circle cx="1137" cy="171" r="9" fill="#4fb05e"/>
+      <rect x="1290" y="182" width="230" height="30" rx="15" fill="#d8d4e2"/>
+      <rect x="1285" y="245" width="232" height="122" rx="6" fill="url(#thumb)"/>
+      <g stroke="#a9a6bf" stroke-width="8" stroke-linecap="round" opacity=".85">
+        <path d="M1070 250h170M1070 285h130M1070 345h160M1070 400h420M1070 425h440M1070 450h420M1070 475h300M1070 520h240"/>
+      </g>
+    </g>
+  </svg>
+  <div id="dim"></div>
+  <div id="flash"></div>
+  <canvas id="c"></canvas>
+  <div class="brand"><b>KBOT</b><span>虚拟生命 · 光纹形态</span></div>
+  <input class="field" id="field" placeholder="在这里打字，看它的反应" autocomplete="off" spellcheck="false">
+</div>
+<div class="side" id="side">
+  <div class="grp" id="gState"><span>状态</span></div>
+  <div class="grp"><span>入场</span><button id="bIn">甩出</button><button id="bShort">短版</button></div>
+  <div class="grp"><span>退场</span><button id="bClose">散去</button><button id="bGo">领命</button></div>
+  <div id="stats"></div>
+</div>
+<script type="module">
+import * as pose from '../src/ui/veil/pose.js';
+import { createMesh } from '../src/ui/veil/mesh.js';
+import { createRenderer, LOOK } from '../src/ui/veil/render.js';
+import { createLife, STATES } from '../src/ui/veil/life.js';
+
+const $ = s => document.querySelector(s);
+const q = new URLSearchParams(location.search);
+const stage = $('#stage'), canvas = $('#c');
+if (q.has('bare')) $('#side').classList.add('hide');
+function fit() {
+  const k = q.has('raw') ? 1 : Math.min(innerWidth / 1536, innerHeight / 1024);
+  stage.style.transform = `scale(${k}) translate(-50%, -50%)`;
+}
+fit(); addEventListener('resize', fit);
+
+const dpr = Number(q.get('dpr')) || Math.min(2, devicePixelRatio || 1);
+const view = { w: 1536, h: 1024, dpr };
+canvas.width = view.w * dpr; canvas.height = view.h * dpr;
+const renderer = createRenderer(canvas, { preserve: true });
+const mesh = createMesh(pose);
+const life = createLife();
+const look = { ...LOOK };
+const NAMES = { idle: '待命', listen: '倾听', think: '思考' };
+
+// 桌面跟着“静下来”：窗口失焦、整体略暗；输入框从第一刻就在
+function ambient() {
+  const S = life.S, v = S.veil;
+  $('#scene').style.filter = v > 0.004 ? `blur(${(3.5 * v).toFixed(2)}px)` : 'none';
+  $('#dim').style.opacity = v.toFixed(3);
+  $('#flash').style.opacity = (0.7 * S.flash).toFixed(3);
+  $('.brand').style.opacity = v.toFixed(3);
+  $('.field').style.opacity = Math.min(1, v * 2.5).toFixed(3);
+}
+let ms = 0;
+function render() {
+  const t0 = performance.now();
+  look.time = life.clock.t;
+  renderer.draw(mesh.update({ scale: 1, ox: 0, oy: 0 }, life.dyn), view, look);
+  ms += (performance.now() - t0 - ms) * 0.06;
+  ambient();
+}
+
+let paused = false, last = performance.now(), frames = 0, fpsAt = last;
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = (now - last) / 1000; last = now; frames++;
+  if (paused) return;
+  life.step(dt);
+  render();
+}
+
+function mark() { document.querySelectorAll('#gState button').forEach(b => b.classList.toggle('on', b.dataset.v === life.state)); }
+for (const name of Object.keys(STATES)) {
+  const b = document.createElement('button'); b.dataset.v = name; b.textContent = NAMES[name];
+  b.onclick = () => { life.setState(name); mark(); };
+  $('#gState').append(b);
+}
+$('#bIn').onclick = () => { life.hide(); life.arrive(); };
+$('#bShort').onclick = () => { life.hide(); life.arrive(true); };
+$('#bClose').onclick = () => life.depart('close');
+$('#bGo').onclick = () => life.depart('go');
+const field = $('#field');
+// 打字：每个字激起一圈涟漪；打字时它在听，停下来一会儿回到待命
+let quiet = 0;
+field.addEventListener('input', () => {
+  life.poke(0.6);
+  if (life.state !== 'think') { life.setState('listen'); mark(); clearTimeout(quiet); quiet = setTimeout(() => { if (life.state === 'listen') { life.setState('idle'); mark(); } }, 1600); }
+});
+field.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter' && life.present) { field.value = ''; life.depart('go'); }
+  if (e.key === 'Escape' && life.present) { field.value = ''; field.blur(); life.depart('close'); }
+});
+// 鼠标：换算成姿态坐标
+stage.addEventListener('pointermove', e => { const r = stage.getBoundingClientRect(); life.attend((e.clientX - r.left) / r.width * 1536, (e.clientY - r.top) / r.height * 1024); });
+stage.addEventListener('pointerleave', () => life.attend(null));
+addEventListener('keydown', e => {
+  if (e.key === ' ') { e.preventDefault(); if (life.present) life.depart('close'); else life.arrive(); }
+  if (e.key === 'Enter' && life.present) life.depart('go');
+  if (e.key === 'Escape' && life.present) life.depart('close');
+  const n = { 1: 'idle', 2: 'listen', 3: 'think' }[e.key];
+  if (n) { clearTimeout(quiet); life.setState(n); mark(); }
+});
+setInterval(() => {
+  const now = performance.now(), fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now;
+  $('#stats').textContent = `${NAMES[life.state]} · 每帧 ${ms.toFixed(1)} ms · ${fps.toFixed(0)} fps\n空格 召唤/散去 · 回车 领命 · 1 2 3 切状态`;
+}, 500);
+
+life.snap(q.get('state') || 'idle'); mark();
+if (q.has('shown')) life.show(); else life.arrive();
+requestAnimationFrame(tick);
+
+// 给截图用：停住时间，直接摆到某一刻
+const run = seconds => { for (let t = 0; t < seconds - 1e-6; t += 1 / 120) life.step(1 / 120); render(); };
+window.__lab = {
+  life, look,
+  /** 某个状态稳定后第 seconds 秒的样子。 */
+  still(state, seconds = 3) { paused = true; life.reset(); life.show(); life.snap(state); run(seconds); return state; },
+  /** 从 a 状态切到 b 状态，过了 seconds 秒。 */
+  shift(a, b, seconds) { paused = true; life.reset(); life.show(); life.snap(a); run(3); life.setState(b); run(seconds); return seconds; },
+  /** 入场（kind：arrive / short）或退场（close / go）进行到 seconds 秒。 */
+  seek(kind, seconds, state = 'idle') {
+    paused = true; life.reset(); life.snap(state);
+    if (kind === 'arrive' || kind === 'short') life.arrive(kind === 'short');
+    else { life.show(); run(3); life.depart(kind); }
+    run(seconds); return seconds;
+  },
+  /** 接着往前走 seconds 秒。 */
+  more(seconds) { run(seconds); return +life.clock.t.toFixed(2); },
+  poke(k) { life.poke(k); },
+  bench(n = 120) { const t0 = performance.now(); for (let i = 0; i < n; i++) mesh.update({ scale: 1 }, life.dyn); return +((performance.now() - t0) / n).toFixed(2); },
+  play() { paused = false; },
+};
+window.__ready = true;
+</script>
+</body>
+</html>

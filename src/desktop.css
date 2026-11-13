@@ -1,28 +1,22 @@
 html, body { background: transparent !important; }
 [hidden] { display: none !important; }
 #menubar { display: none; }
-#pet:focus-visible { outline: 2px solid var(--ink); outline-offset: -16px; border-radius: 38%; }
-/* Native hit regions already pass transparent areas through to other apps.
-   Requiring a second asynchronous DOM hover update can swallow mouse-down. */
-.native-host #pet:not(.hidden) { pointer-events: auto; }
 #sheet { background: transparent; backdrop-filter: none; pointer-events: none; }
 #sheet .sh-win { pointer-events: auto; max-height: calc(100vh - 32px); }
-#panel, #sheet, .bubble { color: var(--text); }
+#sheet { color: var(--text); }
 #preview { position: fixed; top: 20px; left: 20px; display: flex; align-items: center; gap: 10px; color: #f5f5f7; font: 13px var(--font); }
 #preview b { font-weight: 600; }
 #preview span { opacity: .7; margin-right: 6px; }
 #preview button { border: 0; background: rgba(255, 255, 255, .16); color: #fff; height: 28px; padding: 0 13px; border-radius: 14px; font-weight: 500; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .2); }
 #preview button:hover { background: rgba(255, 255, 255, .26); }
-.browser-preview body { background: radial-gradient(1100px 700px at 78% 14%, #8ea2d8 0%, transparent 60%), radial-gradient(900px 700px at 8% 96%, #b79ac4 0%, transparent 60%), linear-gradient(160deg, #4b5c86, #6a6d97 52%, #8f7a96) !important; }
-html.theme-dark.browser-preview body { background: radial-gradient(1100px 700px at 78% 14%, #2c3a64 0%, transparent 60%), radial-gradient(900px 700px at 8% 96%, #3d2d4c 0%, transparent 60%), linear-gradient(160deg, #141826, #1d1d30 52%, #251c2b) !important; }
+.browser-preview body { background: radial-gradient(900px 420px at 72% 70%, rgba(226, 204, 182, .55) 0%, transparent 62%), linear-gradient(180deg, #8b9cae 0%, #aeb7bf 40%, #cfc3b6 68%, #86909b 100%) !important; }
 #onboarding { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; pointer-events: none; font-family: var(--font); color: var(--text); }
-.welcome-card { width: min(420px, calc(100vw - 32px)); padding: 32px 28px 24px; background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8); pointer-events: auto; max-height: calc(100vh - 32px); overflow-y: auto; text-align: center; animation: welcome .42s var(--spring); }
-.welcome-mark { width: 64px; height: 64px; gap: 9px; margin: 4px auto 22px; --mark-drop: 0 10px 26px -8px rgba(var(--glow-rgb), .6), 0 1px 2px rgba(0, 0, 0, .1); }
-.welcome-mark i { width: 7px; height: 17px; animation: eblink 4.5s infinite; }
-.welcome-eyebrow { font-size: 12px; font-weight: 500; color: var(--ink); }
-.welcome-card h1 { font-family: var(--font-display); font-size: 26px; letter-spacing: -.025em; margin: 6px 0 10px; font-weight: 700; }
+.welcome-card { width: min(430px, calc(100vw - 32px)); padding: 32px 28px 24px; background: var(--glass-sheen), var(--surface); border-radius: 24px; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); pointer-events: auto; max-height: calc(100vh - 32px); overflow-y: auto; text-align: center; animation: welcome .42s var(--spring); }
+.welcome-mark { display: flex; justify-content: center; margin: 0 auto 14px; }
+.welcome-eyebrow { font-size: 12px; font-weight: 500; letter-spacing: .08em; color: var(--ink); }
+.welcome-card h1 { font-family: var(--font-display); font-size: 25px; letter-spacing: -.02em; margin: 6px 0 10px; font-weight: 650; }
 .welcome-card p { font-size: 13px; line-height: 1.65; margin: 0 auto; color: var(--text-2); max-width: 330px; }
-.welcome-options { margin: 22px 0 14px; display: grid; text-align: left; border-radius: 12px; background: var(--raised); box-shadow: var(--lift); overflow: hidden; }
+.welcome-options { margin: 22px 0 14px; display: grid; text-align: left; border-radius: 14px; background: var(--raised); box-shadow: var(--lift); overflow: hidden; }
 .welcome-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; cursor: default; }
 .welcome-option + .welcome-option::before { content: ''; position: absolute; left: 44px; right: 0; top: 0; height: .5px; background: var(--line-strong); }
 .welcome-option input { -webkit-appearance: none; appearance: none; margin: 1px 0 0; width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px var(--text-3); background: transparent; transition: background .15s, box-shadow .15s; }
@@ -34,17 +28,28 @@ html.theme-dark.browser-preview body { background: radial-gradient(1100px 700px 
 .welcome-card .welcome-privacy { font-size: 11px; line-height: 1.6; color: var(--text-3); }
 .welcome-actions { display: flex; gap: 8px; margin-top: 20px; }
 .welcome-actions button { flex: 1; height: 34px; border-radius: 10px; font-size: 13px; }
+.account-card { padding: 18px; border-radius: 16px; text-align: left; background: var(--raised); box-shadow: var(--lift); }
+.account-heading { font-size: 14px; font-weight: 600; color: var(--text); }
+.account-description { margin-top: 8px; font-size: 12px; line-height: 1.65; color: var(--text-2); overflow-wrap: anywhere; }
+.account-card.has-error .account-description { color: var(--danger, #b44e42); }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.welcome-account { display: grid; gap: 10px; margin: 20px 0 16px; }
+.welcome-preferences, .sx-advanced { text-align: left; margin: 16px 0; }
+.welcome-preferences summary, .sx-advanced summary { cursor: pointer; color: var(--text-2); font-size: 12px; padding: 6px 0; }
+.welcome-preferences .welcome-options { margin-top: 8px; }
+.welcome-advanced { display: block; margin: 14px auto 0; padding: 3px; border: 0; background: none; color: var(--text-2); font: 11px var(--font); cursor: pointer; }
+.welcome-actions button:disabled { opacity: .55; cursor: default; }
 @keyframes welcome { from { opacity: 0; transform: translateY(10px) scale(.97); } }
 .startup-error { position: fixed; inset: 20%; padding: 32px; border-radius: 12px; background: #20283b; color: #fff; font: 14px/1.8 system-ui; }
 /* The native settings window owns its title bar, traffic lights and dragging. */
 html.settings-host, .settings-host body { background: var(--window) !important; }
-.settings-host #stage, .settings-host #panel, .settings-host #preview, .settings-host #notify { display: none !important; }
+.settings-host #stage, .settings-host #preview { display: none !important; }
 .settings-host #sheet { inset: 0; opacity: 1; transform: none; transition: none; }
 .settings-host #sheet .sh-win { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .settings-host .sh-bar { display: none; }
 /* 透明标题栏：红绿灯落在侧栏顶部，页面标题与红绿灯同一行 */
 .settings-host .sh-nav { padding-top: 64px; }
-.settings-host .sh-main h2 { height: 52px; padding: 0 28px; display: flex; align-items: center; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; user-select: none; -webkit-user-select: none; }
-.settings-host .sh-page { padding-left: 28px; padding-right: 28px; }
+.settings-host .sh-main h2 { visibility: visible; height: 52px; padding: 0 32px; display: flex; align-items: center; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: none; color: var(--text-2); user-select: none; -webkit-user-select: none; }
+.settings-host .sh-page { padding-top: 0; padding-left: 32px; padding-right: 32px; }
 .settings-host .sh-page > :first-child { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { .welcome-card { animation: none; } }

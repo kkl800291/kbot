@@ -114,7 +114,7 @@
         const hit = CONFLICTS.find(([c]) => ['alt', 'meta', 'ctrl', 'shift'].every(m => c[m] === k[m]) && c.code === k.code);
         if (hit) { msg.textContent = `与「${hit[1]}」的系统快捷键冲突，换一个吧`; return; }
         k.label = labelOf(k); A.sput('hotkey', k); stop();
-        A.toast(`快捷键已改为 ${k.label}`);
+        A.toast(`召唤快捷键已改为 ${k.label}`);
       };
       addEventListener('keydown', rec, true);
     });
@@ -136,8 +136,8 @@
     const keepRow = X.row('保留期限', null, X.select('retention', KEEP, v => { if (v) A.chat.prune(); count(); }, 100));
     $$('.sx-l', keepRow)[0].append(stat);
     el.append(
-      X.group('唤出与收起',
-        X.row('快捷键', '点击按键框，再按下新的组合键', hotkeyCtl()),
+      X.group('召唤与收起',
+        X.row('召唤快捷键', '按一下召唤 KBOT，再按一下收起。点击按键框后按下新的组合键即可更换', hotkeyCtl()),
         X.row('点击外部时收起', null, X.toggle('outsideClose')),
       ),
       X.group('对话记录', keepRow,

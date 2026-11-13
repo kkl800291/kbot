@@ -81,7 +81,7 @@ export function buildDueProactiveEvents({
         key: 'water',
         kind: 'remind',
         pri: 'mid',
-        text: `你已经连续工作约 ${Math.round(activeMinutes)} 分钟啦，喝口水再继续？`,
+        text: `您已经连续工作约 ${Math.round(activeMinutes)} 分钟了，喝口水再继续吧。`,
         expr: 'remind',
       } satisfies ProactiveEvent;
     }
@@ -90,7 +90,7 @@ export function buildDueProactiveEvents({
         key: 'eye',
         kind: 'remind',
         pri: 'mid',
-        text: '看屏幕有一会儿了，抬头看远处 20 秒吧。',
+        text: '您看屏幕有一阵了，不妨望向远处，歇 20 秒眼睛。',
         expr: 'remind',
       } satisfies ProactiveEvent;
     }
@@ -99,24 +99,24 @@ export function buildDueProactiveEvents({
 
   const lunch = parseClock(params.lunchAt);
   if (nearMinute(now, lunch) && !fired.lunch) {
-    return [{ key: 'lunch', kind: 'remind', pri: 'mid', text: '到午饭时间啦，先吃点东西再继续。', expr: 'happy' }];
+    return [{ key: 'lunch', kind: 'remind', pri: 'mid', text: '午饭时间到了，先去用餐吧，回来再继续。', expr: 'happy' }];
   }
 
   const workTo = parseClock(settings.workTo);
   const offworkLead = Math.max(0, Number(params.offworkLead) || 0);
   const offwork = workTo == null ? null : (workTo - offworkLead + 1440) % 1440;
   if (nearMinute(now, offwork) && !fired.offwork) {
-    return [{ key: 'offwork', kind: 'remind', pri: 'mid', text: '差不多到收尾时间了，要不要记一下明天的第一件事？', expr: 'happy' }];
+    return [{ key: 'offwork', kind: 'remind', pri: 'mid', text: '快到收工时间了。要不要先记下明天的第一件事？', expr: 'happy' }];
   }
 
   const night = parseClock(params.nightAt);
   if (nearMinute(now, night) && !fired.night) {
-    return [{ key: 'night', kind: 'remind', pri: 'mid', text: '已经很晚了，今天辛苦了。要不要收个尾？', expr: 'sleepy' }];
+    return [{ key: 'night', kind: 'remind', pri: 'mid', text: '时候不早了，今天辛苦了。需要我帮您收个尾吗？', expr: 'sleepy' }];
   }
 
   const workFrom = parseClock(settings.workFrom);
   if (nearMinute(now, workFrom) && !fired.start) {
-    return [{ key: 'start', kind: 'speech', pri: 'low', text: '开始工作啦，我在桌角陪你。', expr: 'happy' }];
+    return [{ key: 'start', kind: 'speech', pri: 'low', text: '到上班时间了。有什么需要，随时吩咐。', expr: 'happy' }];
   }
   const nextRoutine = routine();
   return nextRoutine ? [nextRoutine] : [];
@@ -215,7 +215,7 @@ export function installProactive(A: any) {
     state.awayAt = null;
     state.lastTickAt = now;
     if (enabled() && awayFor >= 5 * 60_000 && !A.isDnd?.() && !A.meeting) {
-      A.speak?.({ kind: 'speech', pri: 'low', text: '回来啦，刚才忙到哪儿了？', expr: 'happy', dur: 8500 });
+      A.speak?.({ kind: 'speech', pri: 'low', text: '欢迎回来。刚才进行到哪儿了？', expr: 'happy', dur: 8500 });
     }
   });
   A.on('set:aiCompanion', () => { if (!enabled()) A.bubble?.hideSpeech?.(); });

@@ -1,6 +1,6 @@
 {
   "name": "cyber-companion",
-  "version": "0.2.9",
+  "version": "0.5.2",
   "private": true,
   "repository": {
     "type": "git",
@@ -14,6 +14,7 @@
     "tauri": "node scripts/desktop.mjs",
     "desktop": "node scripts/desktop.mjs dev",
     "desktop:build": "node scripts/desktop.mjs build",
+    "runtime:prepare": "node scripts/prepare-dsh-runtime.mjs",
     "release": "node scripts/release-deploy.mjs",
     "release:manifest": "node scripts/generate-update-manifest.mjs",
     "test": "vitest run"

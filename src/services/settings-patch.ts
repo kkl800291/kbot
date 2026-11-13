@@ -31,9 +31,9 @@ export type SettingsChange = {
 
 const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype']);
 const userSettings = new Set([
-  'theme', 'palette', 'shell', 'size', 'reduced', 'outsideClose', 'sound',
+  'theme', 'palette', 'reduced', 'outsideClose', 'sound',
   'persona', 'freq', 'nickname', 'work', 'rest', 'webDefault', 'screenPerm',
-  'autostart', 'onTop', 'workFrom', 'workTo', 'holidays', 'params', 'festival',
+  'autostart', 'workFrom', 'workTo', 'holidays', 'params', 'festival',
   'term', 'city', 'senseIdle', 'senseApp', 'senseWeather', 'senseCal', 'apps',
   'hotkey', 'retention', 'send', 'ai', 'aiCompanion', 'cityInfo', 'cityCoords',
   'dsh', 'voice', 'updater',

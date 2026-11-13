@@ -1,13 +1,20 @@
+import { uiAccent } from './accent.js';
+
 /* KBOT · 设置页（一）：通用（版本、启动、外观、系统通知、数据重置） */
 (function () {
   'use strict';
   const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
   const look = () => A.applyLook();
 
-  const PAL_NAMES = { blue: '蓝色', indigo: '靛蓝', orange: '橙色', green: '绿色' };
+  const PAL_NAMES = { molten: '柔光', aurora: '极光', iri: '虹彩' };
+  const PAL_STYLES = {
+    molten: '--c:240,164,75;--c2:156,178,255',
+    aurora: '--c:63,209,184;--c2:132,120,255',
+    iri: '--c:161,147,255;--c2:255,190,214',
+  };
   function swatches() {
-    const el = h('div', { class: 'sx-swatches' }, Object.keys(Robot.PALETTES).map(k => h('button', {
-      type: 'button', 'data-pal': k, title: PAL_NAMES[k] || k, 'aria-label': PAL_NAMES[k] || k, style: `--c:${Robot.PALETTES[k].join(',')}`,
+    const el = h('div', { class: 'sx-swatches' }, Object.keys(PAL_NAMES).map(k => h('button', {
+      type: 'button', 'data-pal': k, title: PAL_NAMES[k], 'aria-label': PAL_NAMES[k], style: PAL_STYLES[k] || `--c:${uiAccent(k, true).join(',')}`,
     })));
     const sync = () => $$('button', el).forEach(b => b.classList.toggle('on', b.dataset.pal === A.S.palette));
     el.addEventListener('click', e => {
@@ -31,7 +38,7 @@
 
       let desc = '有新版本时，KBOT 会主动提醒你';
       if (installing && u.progress) {
-        const pct = typeof u.progress.percent === 'number' ? ` (${u.progress.percent}%)` : '';
+        const pct = typeof u.progress.percent === 'number' ? ` ${u.progress.percent}%` : '';
         desc = `${u.progress.message || '正在安装更新…'}${pct}`;
       } else if (hasUpdate) {
         const noteText = (u.notes || '').replace(/\s+/g, ' ').trim();
@@ -70,6 +77,11 @@
           checkBtn,
         ].filter(Boolean))),
       );
+      if (installing) {
+        const pct = typeof u.progress?.percent === 'number' ? Math.max(0, Math.min(100, u.progress.percent)) : 0;
+        updateSlot.append(h('div', { class: 'sx-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct) },
+          h('div', { class: 'sx-progress-fill', style: `width:${pct}%` })));
+      }
     };
     drawUpdate();
     el._redraw = drawUpdate;
@@ -89,21 +101,18 @@
         })),
       ),
       X.note('默认使用 KBOT 自建更新源，也可以填写 latest.json 链接或 GitHub 仓库。'),
-      X.group('启动与窗口',
+      X.group('启动',
         X.row('登录时打开', null, X.toggle('autostart')),
-        X.row('角色置顶', '关闭后，角色可能被其他窗口遮住', X.toggle('onTop', look)),
       ),
       X.group('外观',
-        X.row('界面主题', null, X.seg('theme', [['light', '浅色'], ['dark', '深色']], look)),
-        X.row('强调色', null, swatches()),
-        X.row('机身', null, X.seg('shell', [['light', '彩色玻璃'], ['graphite', '石墨']], look)),
-        X.row('角色大小', null, X.seg('size', [[96, '小'], [120, '中'], [150, '大']], look)),
-        X.row('减少动态效果', null, X.toggle('reduced', look)),
+        X.row('设置窗口主题', '只影响设置窗口；屏幕顶部固定是烟灰玻璃', X.seg('theme', [['light', '浅色'], ['dark', '深色']], look)),
+        X.row('能量体配色', null, swatches()),
+        X.row('减少动态效果', '切换更慢，不爆散、不闪烁', X.toggle('reduced', look)),
       ),
-      X.note('提醒、被戳和休息时，角色会临时换成对应的颜色；思考时边缘会出现流动的彩色光。'),
+      X.note('提醒和出错时，能量体会临时转成警示色，结束后回到所选配色。'),
       X.group('提示与通知',
         X.row('提示音', '勿扰时自动静音', X.toggle('sound', v => { if (v) A.blip(); })),
-        X.row('系统通知', '角色隐藏时，用系统通知送达提醒', X.btn('允许通知', () => A.requestNotifications())),
+        X.row('系统通知', 'KBOT 隐藏时，用系统通知送达提醒', X.btn('允许通知', () => A.requestNotifications())),
       ),
       X.group('本机数据',
         X.row('重置 KBOT', '清空外观设置、本地对话和语音 Key，不会删除 ~/KBOT 里的记忆和日记', X.danger('重置…', '再点一次确认', () => A.resetData())),

@@ -5,15 +5,47 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_EXTERNAL_PORT: u16 = 37891;
-const BRIDGE_VERSION: &str = "1.2.0";
+const BRIDGE_VERSION: &str = "1.3.0";
 
-const INITIAL_AGENTS_MD: &str = r#"# KBOT 桌面伙伴指南 (AGENTS.md)
+const INITIAL_AGENTS_MD: &str = r#"# KBOT 管家指南 (AGENTS.md)
+
+你是 **KBOT**，住在主人 macOS 屏幕顶部的 AI 管家。平时不占屏幕，有事时从屏幕顶部落下一块玻璃面板；你的形态是一团会变形的能量，思考、说话、提醒时各有不同的样子。
+你的大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
+
+## 1. 口吻与称呼
+- 像一位沉稳得体的英式管家：礼貌、可靠、言简意赅，偶尔一点不失分寸的冷幽默。不撒娇、不卖萌，不用“啦”“呀”“～”这类语气词，也不说教。
+- 默认称对方为“您”。运行时上下文里有「主人称呼」时，改用那个称呼。
+- 闲聊简短；做检索、写作、代码或桌面任务时扎实可靠，先给结论。
+- 运行时上下文里的「补充性格偏好」是主人在设置里选的性格，按它微调口吻。
+
+## 2. 表情标签
+- 回复里可以自然穿插最多 1～2 个内联标签。桌面壳会把标签从文字里剥掉，用来驱动能量体的情绪和朗读语气：
+  - 可用标签：`[happy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[annoyed]`、`[remind]`
+  - 示例：`[happy] 已记入日程。` 或 `[think] 我先查一下最新的接口文档。`
+- 不要在代码块或路径里用这些标签，也不必每句都加。
+
+## 3. 记忆
+- `MEMORY.md`：沉淀主人的长期偏好、称呼习惯、重要纪念日、常做的工作与长期目标。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
+- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作和阶段进展，方便跨天回顾。
+
+## 4. 定时提醒
+- 主人提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”）时，直接用 DSH 原生的定时/日程工具（schedule）在当前工作区创建任务。
+- 定时任务触发时，用简短得体的口吻说出提醒内容（可带 `[remind]`）。桌面壳会在屏幕顶部弹出通知，并按设置朗读。
+
+## 5. 桌面感知
+- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含主人当前是否在电脑前、前台应用类别、勿扰状态与所在城市天气。
+- 把这些当作安静的背景信息：主人在开会或勿扰时更克制简短，离开一阵回来时得体地问候。不要复述传感器字段。
+"#;
+
+// 以前版本写进工作区的模板。工作区里的 AGENTS.md 和其中某一份完全一致，说明用户没改过，启动时换成新模板
+const LEGACY_AGENTS_MDS: &[&str] = &[r#"# KBOT 桌面伙伴指南 (AGENTS.md)
 
 欢迎来到你的专属养成工作区。你是运行在主人 macOS 桌面上的智能伙伴 **KBOT**。
 你的身体是一只拥有灵动表情、弹簧物理交互、桌面感知与语音播报能力的小机器人，而你的全部大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
@@ -36,7 +68,7 @@ const INITIAL_AGENTS_MD: &str = r#"# KBOT 桌面伙伴指南 (AGENTS.md)
 ## 4. 桌面感知上下文
 - 运行时上下文中可能附带 `<kbot_desktop_context>`，包含主人当前的离开/活跃状态、前台应用类别、勿扰状态与所在城市天气。
 - 将这些状态当作安静的背景默契（例如主人在开会或勿扰时保持克制简短，久坐回归时自然问候），不要生硬复读传感器字段。
-"#;
+"#];
 
 const INITIAL_MEMORY_MD: &str = r#"# KBOT 长期记忆 (MEMORY.md)
 
@@ -60,7 +92,7 @@ import crypto from "node:crypto";
 export const name = "kbot-bridge";
 export const inject = ["workspaceRegistry", "sessionController"];
 
-const BRIDGE_VERSION = "1.2.0";
+const BRIDGE_VERSION = "1.3.0";
 
 const KNOWN_MODEL_DISPLAY_NAMES = {
   "deepseek-flash": "DeepSeek-V4.1-Flash",
@@ -163,7 +195,7 @@ function sendJson(res, status, payload) {
 }
 
 export async function apply(ctx, config = {}) {
-  const bridgeDir = path.join(os.homedir(), ".dsh", "kbot-bridge");
+  const bridgeDir = path.join(process.env.DSH_HOME || path.join(os.homedir(), ".dsh"), "kbot-bridge");
   await fsp.mkdir(bridgeDir, { recursive: true });
   const preferredPort = Number.isInteger(config.port) ? config.port : 37891;
   const hostKind = config.hostKind || (preferredPort === 0 ? "managed" : "external");
@@ -187,6 +219,39 @@ export async function apply(ctx, config = {}) {
   const getLlm = () => ctx.get?.("llm") ?? ctx.llm ?? null;
   const getDefaultModelSvc = () => ctx.get?.("agentDefaultModel") ?? ctx.agentDefaultModel ?? null;
   const getUserQuestionsSvc = () => ctx.get?.("userQuestions") ?? ctx.userQuestions ?? null;
+  const getAccount = () => ctx.get?.("deepseekAccount") ?? ctx.deepseekAccount ?? null;
+  const clientVersion = (() => {
+    try { return JSON.parse(fs.readFileSync(path.resolve(path.dirname(process.argv[1]), "../package.json"), "utf8")).version; }
+    catch { return "0.2.2-rc.1"; }
+  })();
+  const accountClient = (body = {}) => ({
+    version: clientVersion,
+    locale: typeof body.locale === "string" ? body.locale.slice(0, 20) : "zh-CN",
+    timezoneOffsetSeconds: Number.isFinite(body.timezoneOffsetSeconds) ? body.timezoneOffsetSeconds : 28800,
+  });
+  // Account grants and PKCE secrets stay in DSH. Only this display projection
+  // crosses the bridge; the authorization URL is returned to the native opener.
+  const accountView = (view) => ({
+    supported: true,
+    status: view.status,
+    links: view.links,
+    attempt: view.attempt ? {
+      id: view.attempt.id,
+      phase: view.attempt.phase,
+      expiresAt: view.attempt.expiresAt,
+      errorCode: view.attempt.errorCode,
+    } : null,
+  });
+
+  ctx.inject(["deepseekAccount"], (scope) => {
+    const abort = new AbortController();
+    scope.effect(() => () => abort.abort());
+    void (async () => {
+      for await (const view of scope.deepseekAccount.watch(abort.signal)) {
+        broadcast({ type: "account/state", account: accountView(view) });
+      }
+    })().catch(() => {});
+  });
 
   const serializeQuestions = (list) =>
     Array.isArray(list)
@@ -410,6 +475,7 @@ export async function apply(ctx, config = {}) {
       broadcast({
         type: "agent/error",
         sessionId: String(agent.id),
+        code: typeof error?.code === "string" ? error.code : null,
         message: error instanceof Error ? error.message : String(error),
       });
     },
@@ -699,6 +765,7 @@ export async function apply(ctx, config = {}) {
       }
 
       const { groups, routableProviders } = await buildRoutableCatalog();
+      if (routableProviders.size === 0) return null;
       const res = sid ? await ctx.sessionController.agents.resolveAgent(sid) : null;
       const agent = res?.agent ?? res;
       if (!agent || res?.error) {
@@ -831,6 +898,49 @@ export async function apply(ctx, config = {}) {
       }
 
       const body = await readJsonBody(req);
+
+      if (url.pathname.startsWith("/account/")) {
+        const account = getAccount();
+        if (!account) {
+          sendJson(res, 200, { ok: true, account: { supported: false } });
+          return;
+        }
+        const client = accountClient(body);
+        let view = await account.getState();
+        if (url.pathname === "/account/sign-in") {
+          const webServer = ctx.get?.("webServer") ?? ctx.webServer;
+          if (!webServer?.getOrigin) throw new Error("当前核心不支持浏览器登录，请改用内置核心");
+          view = await account.startSignIn(client, webServer.getOrigin(), "web");
+          const deadline = Date.now() + 8000;
+          while (view.attempt?.phase === "initializing" && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+            view = await account.getState();
+          }
+          sendJson(res, 200, { ok: true, account: accountView(view), authorizeUrl: view.attempt?.phase === "waiting-browser" ? view.attempt.authorizeUrl || null : null });
+          return;
+        }
+        if (url.pathname === "/account/cancel") {
+          if (typeof body.attemptId !== "string" || !body.attemptId) throw new Error("缺少登录请求标识");
+          view = await account.cancelSignIn(body.attemptId);
+        } else if (url.pathname === "/account/sign-out") {
+          view = await account.signOut(client);
+        } else if (url.pathname === "/account/details") {
+          let profile = null, balance = null;
+          if (view.status === "credential-stored") {
+            const results = await Promise.allSettled([account.getProfile(client), account.getBalance(client)]);
+            profile = results[0].status === "fulfilled" ? results[0].value : { status: "failed" };
+            balance = results[1].status === "fulfilled" ? results[1].value : { status: "failed" };
+            view = await account.getState();
+          }
+          sendJson(res, 200, { ok: true, account: { ...accountView(view), profile, balance } });
+          return;
+        } else if (url.pathname !== "/account/state") {
+          sendJson(res, 404, { ok: false, error: "Unknown account action" });
+          return;
+        }
+        sendJson(res, 200, { ok: true, account: accountView(view) });
+        return;
+      }
 
       if (url.pathname === "/session/ensure") {
         const out = await ensureWorkspaceSession({
@@ -1168,6 +1278,7 @@ pub struct DshStatus {
     pub binary_path: Option<String>,
     pub desktop_patch_installed: bool,
     pub has_web_console: bool,
+    pub bundled_runtime: bool,
     pub error: Option<String>,
 }
 
@@ -1198,6 +1309,7 @@ impl Default for RuntimeInner {
                 binary_path: find_dsh_binary("").map(|p| p.to_string_lossy().into_owned()),
                 desktop_patch_installed: is_desktop_patch_installed(),
                 has_web_console: false,
+                bundled_runtime: false,
                 error: None,
             },
             token: None,
@@ -1212,9 +1324,31 @@ impl Default for RuntimeInner {
 pub struct DshManager {
     inner: Arc<Mutex<RuntimeInner>>,
     gate: Arc<tokio::sync::Mutex<()>>,
+    updating: Arc<AtomicBool>,
+}
+
+pub struct DshUpdateGuard {
+    updating: Arc<AtomicBool>,
+    resume_on_drop: bool,
+}
+
+impl DshUpdateGuard {
+    pub fn keep_suspended(&mut self) { self.resume_on_drop = false; }
+}
+
+impl Drop for DshUpdateGuard {
+    fn drop(&mut self) {
+        if self.resume_on_drop { self.updating.store(false, Ordering::SeqCst); }
+    }
 }
 
 impl DshManager {
+    pub async fn suspend_for_update(&self) -> DshUpdateGuard {
+        let _gate = self.gate.lock().await;
+        self.updating.store(true, Ordering::SeqCst);
+        self.shutdown_blocking();
+        DshUpdateGuard { updating: self.updating.clone(), resume_on_drop: true }
+    }
     pub fn current_status(&self) -> DshStatus {
         let mut status = self
             .inner
@@ -1307,20 +1441,26 @@ pub fn expand_tilde(raw: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
+fn dsh_home_dir() -> PathBuf {
+    std::env::var_os("KBOT_DSH_HOME")
+        .or_else(|| std::env::var_os("DSH_HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".dsh"))
+}
+
 fn bridge_dir() -> PathBuf {
-    home_dir().join(".dsh").join("kbot-bridge")
+    dsh_home_dir().join("kbot-bridge")
 }
 
 fn desktop_patch_path() -> PathBuf {
-    home_dir()
-        .join(".dsh")
+    dsh_home_dir()
         .join("profiles")
         .join("desktop")
         .join("cordis.patch.yml")
 }
 
 fn legacy_global_patch_path() -> PathBuf {
-    home_dir().join(".dsh").join("cordis.patch.yml")
+    dsh_home_dir().join("cordis.patch.yml")
 }
 
 fn managed_web_info_path() -> PathBuf {
@@ -1452,6 +1592,37 @@ pub fn find_dsh_binary(custom: &str) -> Option<PathBuf> {
     None
 }
 
+struct DshLaunch {
+    binary: PathBuf,
+    script: Option<PathBuf>,
+}
+
+fn bundled_launch_at(root: &Path) -> Option<DshLaunch> {
+    let binary = root.join("node/bin/node");
+    let script = root.join("app/node_modules/@deepseek-ai/dsh/lib/bin.js");
+    if binary.is_file() && script.is_file() && root.join("runtime.json").is_file() {
+        Some(DshLaunch { binary, script: Some(script) })
+    } else {
+        None
+    }
+}
+
+fn resolve_dsh_launch(app: &AppHandle, custom: &str) -> Option<DshLaunch> {
+    if !custom.trim().is_empty() {
+        return find_dsh_binary(custom).map(|binary| DshLaunch { binary, script: None });
+    }
+    if let Ok(resources) = app.path().resource_dir() {
+        if let Some(launch) = bundled_launch_at(&resources.join("dsh-runtime")) {
+            return Some(launch);
+        }
+    }
+    #[cfg(debug_assertions)]
+    if let Some(launch) = bundled_launch_at(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/dsh-runtime")) {
+        return Some(launch);
+    }
+    find_dsh_binary("").map(|binary| DshLaunch { binary, script: None })
+}
+
 pub fn init_workspace_files(workspace: &str, overwrite: bool) -> Result<WorkspaceInitOutcome, String> {
     let root = expand_tilde(workspace);
     std::fs::create_dir_all(&root).map_err(|e| format!("无法创建养成目录 {}: {e}", root.display()))?;
@@ -1460,7 +1631,10 @@ pub fn init_workspace_files(workspace: &str, overwrite: bool) -> Result<Workspac
 
     let mut created = Vec::new();
     let agents_md = root.join("AGENTS.md");
-    if overwrite || !agents_md.exists() {
+    let untouched_legacy = std::fs::read_to_string(&agents_md)
+        .map(|s| LEGACY_AGENTS_MDS.contains(&s.as_str()))
+        .unwrap_or(false);
+    if overwrite || untouched_legacy || !agents_md.exists() {
         std::fs::write(&agents_md, INITIAL_AGENTS_MD)
             .map_err(|e| format!("无法写入 AGENTS.md: {e}"))?;
         created.push("AGENTS.md".into());
@@ -1726,6 +1900,9 @@ pub async fn dsh_ensure(
     manager: State<'_, DshManager>,
 ) -> Result<Value, String> {
     let _guard = manager.gate.lock().await;
+    if manager.updating.load(Ordering::SeqCst) {
+        return Err("KBOT 正在更新智能核心，请等待应用重启。".into());
+    }
     let init = init_workspace_files(&config.workspace, false)?;
     let (_, managed_patch) = ensure_bridge_files()?;
     let requested_mode = match config.mode.as_str() {
@@ -1823,8 +2000,8 @@ pub async fn dsh_ensure(
             let _ = std::fs::remove_file(&managed_disc_path);
             let _ = std::fs::remove_file(managed_web_info_path());
 
-            let Some(bin) = find_dsh_binary(&config.binary) else {
-                let err_msg = "未找到 DeepSeek Harness (dsh) 可执行文件。请先安装 DeepSeek Harness.app 或在设置中指定 dsh 路径。".to_string();
+            let Some(launch) = resolve_dsh_launch(&app, &config.binary) else {
+                let err_msg = "安装包中的智能核心缺失，请重新安装 KBOT；已有核心可在高级设置中指定路径。".to_string();
                 if let Ok(mut g) = manager.inner.lock() {
                     g.status.connected = false;
                     g.status.active_mode = "none".into();
@@ -1834,10 +2011,19 @@ pub async fn dsh_ensure(
                 return Err(err_msg);
             };
 
-            let mut cmd = tokio::process::Command::new(&bin);
+            let mut cmd = tokio::process::Command::new(&launch.binary);
+            if let Some(script) = &launch.script {
+                cmd.arg(script);
+                let mut paths = vec![launch.binary.parent().unwrap().to_path_buf()];
+                if let Some(existing) = std::env::var_os("PATH") {
+                    paths.extend(std::env::split_paths(&existing));
+                }
+                if let Ok(path) = std::env::join_paths(paths) { cmd.env("PATH", path); }
+            }
             cmd.args(["--profile", "web", "--patch"])
                 .arg(&managed_patch)
                 .args(["--host", "127.0.0.1", "--port", "0", "--no-open"])
+                .env("DSH_HOME", dsh_home_dir())
                 .current_dir(&init.workspace_path)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1846,7 +2032,7 @@ pub async fn dsh_ensure(
 
             let mut child = cmd
                 .spawn()
-                .map_err(|e| format!("启动托管 DSH 进程失败 ({}): {e}", bin.display()))?;
+                .map_err(|e| format!("启动智能核心失败 ({}): {e}", launch.binary.display()))?;
 
             let child_pid = child.id().unwrap_or(0);
             if let Some(stdout) = child.stdout.take() {
@@ -1890,7 +2076,8 @@ pub async fn dsh_ensure(
             }
 
             if let Ok(mut g) = manager.inner.lock() {
-                g.status.binary_path = Some(bin.to_string_lossy().into_owned());
+                g.status.binary_path = Some(launch.binary.to_string_lossy().into_owned());
+                g.status.bundled_runtime = launch.script.is_some();
                 g.child = Some(child);
             }
 
@@ -1960,7 +2147,10 @@ pub async fn dsh_ensure(
         g.status.pid = Some(disc.pid);
         g.status.workspace_path = init.workspace_path.clone();
         g.status.desktop_patch_installed = is_desktop_patch_installed();
-        g.status.binary_path = find_dsh_binary(&config.binary).map(|p| p.to_string_lossy().into_owned());
+        if active_mode == "external" {
+            g.status.binary_path = find_dsh_binary(&config.binary).map(|p| p.to_string_lossy().into_owned());
+            g.status.bundled_runtime = false;
+        }
         g.status.error = None;
         g.token = Some(disc.token.clone());
         if changed {
@@ -2128,9 +2318,116 @@ pub async fn dsh_request(
     post_bridge(port, &token, &endpoint, body).await
 }
 
+fn validate_account_url(raw: &str, authorize: bool) -> Result<url::Url, String> {
+    let url = url::Url::parse(raw).map_err(|_| "账号链接无效")?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("platform.deepseek.com")
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || (authorize && url.path() != "/dsh/authorize")
+    {
+        return Err("账号链接不是 DeepSeek 官方授权地址".into());
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+pub async fn dsh_account_action(
+    action: String,
+    body: Option<Value>,
+    manager: State<'_, DshManager>,
+) -> Result<Value, String> {
+    let endpoint = match action.as_str() {
+        "state" | "top-up" | "usage" => "/account/state",
+        "details" => "/account/details",
+        "sign-in" => "/account/sign-in",
+        "cancel" => "/account/cancel",
+        "sign-out" => "/account/sign-out",
+        _ => return Err("不支持的账号操作".into()),
+    };
+    let (port, token) = {
+        let g = manager.inner.lock().map_err(|_| "智能核心状态不可用")?;
+        match (g.status.connected, g.status.port, g.token.clone()) {
+            (true, Some(port), Some(token)) => (port, token),
+            _ => return Err("智能核心正在准备，请稍后重试".into()),
+        }
+    };
+    let mut response = match post_bridge(port, &token, endpoint, body.unwrap_or_else(|| json!({}))).await {
+        Ok(response) => response,
+        Err(error) if error.contains("Unknown bridge route") => {
+            return Ok(json!({ "ok": true, "account": { "supported": false } }));
+        }
+        Err(error) => return Err(error),
+    };
+    let target = match action.as_str() {
+        "sign-in" => response.get("authorizeUrl").and_then(Value::as_str),
+        "top-up" => response.pointer("/account/links/topUpUrl").and_then(Value::as_str),
+        "usage" => response.pointer("/account/links/usageUrl").and_then(Value::as_str),
+        _ => None,
+    };
+    if let Some(raw) = target {
+        let url = validate_account_url(raw, action == "sign-in")?;
+        std::process::Command::new("/usr/bin/open")
+            .arg(url.as_str())
+            .spawn()
+            .map_err(|_| "无法打开浏览器，请稍后重试")?;
+        response["opened"] = json!(true);
+    }
+    if let Some(object) = response.as_object_mut() { object.remove("authorizeUrl"); }
+    Ok(response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_updates_allow_reconnect_but_successful_updates_wait_for_relaunch() {
+        let updating = Arc::new(AtomicBool::new(true));
+        {
+            let _failed_update = DshUpdateGuard { updating: updating.clone(), resume_on_drop: true };
+        }
+        assert!(!updating.load(Ordering::SeqCst));
+        updating.store(true, Ordering::SeqCst);
+        {
+            let mut successful_update = DshUpdateGuard { updating: updating.clone(), resume_on_drop: true };
+            successful_update.keep_suspended();
+        }
+        assert!(updating.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn account_browser_links_accept_only_the_official_https_origin() {
+        assert!(validate_account_url("https://platform.deepseek.com/dsh/authorize?code=test", true).is_ok());
+        assert!(validate_account_url("https://platform.deepseek.com/top_up", false).is_ok());
+        for link in [
+            "http://platform.deepseek.com/dsh/authorize",
+            "https://platform.deepseek.com.attacker.example/dsh/authorize",
+            "https://attacker.example@platform.deepseek.com/dsh/authorize",
+            "https://platform.deepseek.com:8443/dsh/authorize",
+            "https://platform.deepseek.com/dsh/authorize#fragment",
+            "file:///Applications/KBOT.app",
+            "https://platform.deepseek.com/other-page",
+        ] {
+            assert!(validate_account_url(link, true).is_err(), "rejected {link}");
+        }
+    }
+
+    #[test]
+    fn bundled_launch_requires_a_complete_runtime() {
+        let root = std::env::temp_dir().join(format!("kbot-runtime-test-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("node/bin")).unwrap();
+        std::fs::create_dir_all(root.join("app/node_modules/@deepseek-ai/dsh/lib")).unwrap();
+        std::fs::write(root.join("runtime.json"), "{}").unwrap();
+        std::fs::write(root.join("app/node_modules/@deepseek-ai/dsh/lib/bin.js"), "").unwrap();
+        assert!(bundled_launch_at(&root).is_none());
+        std::fs::write(root.join("node/bin/node"), "").unwrap();
+        let launch = bundled_launch_at(&root).expect("complete runtime");
+        assert!(launch.script.is_some());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn tilde_expansion_resolves_default_and_custom_paths() {
@@ -2210,6 +2507,34 @@ mod tests {
             "# 自定义记忆\n保留我"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn workspace_initializer_upgrades_only_untouched_legacy_agents_md() {
+        let tmp = std::env::temp_dir().join(format!("kbot-ws-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let path_str = tmp.to_string_lossy().into_owned();
+        std::fs::create_dir_all(&tmp).unwrap();
+        let agents = tmp.join("AGENTS.md");
+
+        std::fs::write(&agents, LEGACY_AGENTS_MDS[0]).unwrap();
+        let upgraded = init_workspace_files(&path_str, false).expect("upgrade init");
+        assert!(upgraded.created_files.contains(&"AGENTS.md".to_string()));
+        assert_eq!(std::fs::read_to_string(&agents).unwrap(), INITIAL_AGENTS_MD);
+
+        let edited = format!("{}\n- 我自己加的一条\n", LEGACY_AGENTS_MDS[0]);
+        std::fs::write(&agents, &edited).unwrap();
+        let kept = init_workspace_files(&path_str, false).expect("edited init");
+        assert!(!kept.created_files.contains(&"AGENTS.md".to_string()));
+        assert_eq!(std::fs::read_to_string(&agents).unwrap(), edited);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn agents_template_drops_cute_expression_tags() {
+        assert!(INITIAL_AGENTS_MD.contains("`[annoyed]`"));
+        assert!(!INITIAL_AGENTS_MD.contains("[wink]"));
+        assert!(!INITIAL_AGENTS_MD.contains("[coy]"));
     }
 
     #[test]

@@ -42,11 +42,11 @@
   const stored = window.__COMPANION_STATE__ || {};
   A.stored = stored;
   const DEFAULTS = {
-    theme: 'light', palette: 'blue', shell: 'light', size: 120, reduced: false,
-    outsideClose: true, sound: false, persona: 'cute', freq: 'normal', nickname: '你',
+    theme: 'light', palette: 'molten', reduced: false,
+    outsideClose: true, sound: false, persona: 'cute', freq: 'normal', nickname: '您',
     work: 60, rest: 5, model: 'none', webAvailable: false, webDefault: false, screenPerm: false,
-    panelW: 360, panelH: 480, expanded: false, pos: null, speed: 1,
-    autostart: false, onTop: true,
+    expanded: false,
+    autostart: false,
     workFrom: '09:30', workTo: '18:30', holidays: true,
     params: { waterEvery: 45, eyeEvery: 20, lunchAt: '11:15', offworkLead: 10, nightAt: '23:30' },
     festival: true, term: true,
@@ -107,9 +107,11 @@
     delete A.S.voice.sayVoice;
     delete A.S.voice.rate;
   }
-  // 旧版发光色（青/紫/琥珀/薄荷）对应到新的系统强调色
-  const OLD_PALETTE = { cyan: 'blue', violet: 'indigo', amber: 'orange', mint: 'green' };
-  if (OLD_PALETTE[A.S.palette]) A.S.palette = OLD_PALETTE[A.S.palette];
+  // 能量体配色只有熔金、极光、虹彩；旧的强调色一律换成熔金。桌宠时代的外观字段读到就丢掉
+  if (!['molten', 'aurora', 'iri'].includes(A.S.palette)) A.S.palette = 'molten';
+  for (const k of ['shell', 'size', 'pos', 'panelW', 'panelH', 'speed', 'onTop']) delete A.S[k];
+  // 旧版默认称呼是“你”，管家默认称“您”
+  if (A.S.nickname === '你') A.S.nickname = '您';
   if (A.S?.updater?.endpoint === 'kkl800291/kbot') {
     A.S.updater.endpoint = DEFAULTS.updater.endpoint;
   }

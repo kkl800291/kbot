@@ -1,3 +1,5 @@
+import { energyMark } from './energy.js';
+
 /* KBOT · 设置窗口：外壳、导航与通用控件（纯桌面壳 5 页：通用 / 智能核心 / 语音 / 感知 / 对话） */
 (function () {
   'use strict';
@@ -157,10 +159,10 @@
   // ---------- 外壳 ----------
   const PAGE_INFO = {
     general: '软件更新、启动方式与外观',
-    agent: '连接 DeepSeek Harness，管理记忆与性格',
+    agent: '登录 DeepSeek，管理账号、记忆与性格',
     voice: '语音播报与发音引擎',
     sense: '让 KBOT 了解你在做什么，全部在本机完成',
-    chat: '唤出快捷键与对话记录',
+    chat: '召唤快捷键与对话记录',
   };
   let search, results, cardStatus, index = null;
 
@@ -170,7 +172,7 @@
     search = h('input', { class: 'sh-search', type: 'search', placeholder: '搜索', 'aria-label': '搜索设置', spellcheck: 'false', autocomplete: 'off' });
     cardStatus = h('span');
     const card = h('button', { class: 'sh-card', type: 'button', 'data-go': 'agent', 'aria-label': 'KBOT 智能核心' }, [
-      h('div', { class: 'p-avatar sh-av', 'aria-hidden': 'true' }, [h('i'), h('i')]),
+      h('span', { class: 'sh-avatar' }, energyMark(30, { palette: A.S.palette, tone: 'dark' })),
       h('div', { class: 'sh-card-t' }, [h('b', {}, 'KBOT'), cardStatus]),
     ]);
     results = h('div', { class: 'sh-results', hidden: true, role: 'listbox', 'aria-label': '搜索结果' });
@@ -182,8 +184,8 @@
     ]);
     sheet = h('div', { id: 'sheet', hidden: true, role: 'dialog', 'aria-label': '设置' }, h('div', { class: 'sh-win' }, [
       h('div', { class: 'sh-bar' }, [
-        h('button', { class: 'sh-dot', type: 'button', title: '关闭（Esc）', 'aria-label': '关闭设置', onclick: () => A.closeSettings() }),
-        h('i'), h('i'), h('span', {}, 'KBOT · 设置'),
+        h('button', { class: 'sh-dot', type: 'button', title: '关闭（Esc）', 'aria-label': '关闭设置', html: A.icon('x', 11), onclick: () => A.closeSettings() }),
+        h('span', {}, 'KBOT · 调谐'),
       ]),
       h('div', { class: 'sh-body' }, [nav, h('div', { class: 'sh-main' }, [titleEl, pageEl])]),
     ]));
@@ -241,9 +243,11 @@
   function hero(id) {
     const [, label, ic] = PAGES.find(p => p[0] === id);
     return h('div', { class: 'sh-hero' }, [
-      h('span', { class: 'sh-hero-ic', 'data-k': id, html: A.icon(ic, 26) }),
-      h('b', {}, label),
-      h('p', {}, PAGE_INFO[id]),
+      h('span', { class: 'sh-hero-ic', 'data-k': id, html: A.icon(ic, 20) }),
+      h('div', { class: 'sh-hero-text' }, [
+        h('b', {}, label),
+        h('p', {}, PAGE_INFO[id]),
+      ]),
     ]);
   }
 
@@ -274,6 +278,7 @@
     if (!sheet) build();
     A.menu?.close?.();
     if (A.panel?.isOpen?.()) A.panel.close();
+    A.summon?.close?.();
     A.focusWindow?.();
     sheet.hidden = false; sheet.inert = false;
     go(page || current);
@@ -294,6 +299,9 @@
   A.on('set:model', () => { if (nav) markNav(); });
   A.on('dsh:state', () => {
     if (nav) markNav();
+    if (isOpen && current === 'agent' && pageEl?._redraw) pageEl._redraw();
+  });
+  A.on('account:state', () => {
     if (isOpen && current === 'agent' && pageEl?._redraw) pageEl._redraw();
   });
   A.on('updater:state', () => {

@@ -10,6 +10,7 @@ export async function installSettingsOwner(A: any) {
     builtin: A.builtin || {},
     birthdays: A.birthdays || [],
     dshState: A.dshState || null,
+    accountState: A.accountState || null,
     updateState: A.updateState || null,
     conversations: A.chat.convs.map((c: any) => ({ id: c.id, messages: c.messages.length ? [{}] : [] })),
     hidden: A.hidden,
@@ -24,6 +25,7 @@ export async function installSettingsOwner(A: any) {
   A.save = () => { save(); publish(); };
   A.on('hidden', publish);
   A.on('dsh:state', publish);
+  A.on('account:state', publish);
   A.on('updater:state', publish);
 
   let tail = Promise.resolve();
@@ -39,7 +41,7 @@ export async function installSettingsOwner(A: any) {
           A.builtin = state.builtin;
           A.birthdays = state.birthdays;
           for (const k of changed) A.emit('set:' + k, A.S[k]);
-          if (changed.some(k => ['theme', 'palette', 'shell', 'size', 'reduced', 'onTop'].includes(k))) A.applyLook();
+          if (changed.some(k => ['palette', 'reduced'].includes(k))) A.applyLook();
           if (changed.includes('city') || changed.includes('cityCoords')) A.emit('sense:city');
           if (birthdaysChanged) A.emit('birthdays');
           A.save();
@@ -55,15 +57,26 @@ export async function installSettingsOwner(A: any) {
           await A.agent?.initWorkspace?.(Boolean(payload.overwrite));
         } else if (action === 'dsh-desktop-patch') {
           await A.agent?.setDesktopPatch?.(Boolean(payload.enabled));
+        } else if (action.startsWith('account-')) {
+          const methods: Record<string, string> = {
+            'account-sign-in': 'signIn', 'account-cancel': 'cancelSignIn', 'account-refresh': 'refresh',
+            'account-top-up': 'openTopUp', 'account-usage': 'openUsage', 'account-sign-out': 'signOut',
+          };
+          const method = methods[action];
+          if (!method) throw new Error('不支持的账号操作');
+          // Browser authorization can outlive the settings RPC. State updates
+          // continue through the owner window while the browser is open.
+          A.account?.[method]?.()?.catch?.(() => {});
         } else if (action === 'updater-check') {
-          await A.updater?.check?.(payload.manual !== false);
+          // 检查和安装都可能很久，不让设置窗口干等：马上回一个“进行中”的状态，之后的进展靠状态推送
+          A.updater?.check?.(payload.manual !== false)?.catch?.(() => {});
         } else if (action === 'updater-install') {
-          await A.updater?.install?.();
+          A.updater?.install?.()?.catch?.(() => {});
         } else if (action === 'clear-chats') A.chat.clearAll();
         else if (action === 'prune-chats') A.chat.prune();
         else if (action === 'preview-persona') {
-          if (!A.hidden && !A.panel.isOpen()) {
-            A.bubble.show({ kind: 'speech', pri: 'low', text: String(payload.text).slice(0, 100), expr: 'wink' });
+          if (!A.hidden && !A.panel.isOpen() && !A.summon.isOpen()) {
+            A.bubble.show({ kind: 'speech', pri: 'low', text: String(payload.text).slice(0, 100), expr: 'happy' });
           }
         } else if (action === 'preview-sound') A.blip();
         else if (action === 'notifications') await A.requestNotifications();
@@ -86,6 +99,7 @@ export async function installSettingsOwner(A: any) {
   A.openSettings = async (page?: string) => {
     A.menu.close();
     if (A.panel.isOpen()) A.panel.close();
+    A.summon.close();
     A.cancelFocusRelease?.();
     try {
       await command('release_focus');

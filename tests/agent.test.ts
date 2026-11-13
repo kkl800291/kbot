@@ -49,8 +49,9 @@ describe('DSH expression parser and desktop sensor helpers', () => {
   it('strips inline expression tags while keeping non-expression brackets and code blocks intact', () => {
     const raw = '[happy] 早安呀！参考链接 [1] 和数组 `arr[0]`：\n```ts\nconst tag = "[wink]";\n```\n最后祝你顺利 [wink]';
     const parsed = extractExpressions(raw);
-    expect(parsed.expressions).toEqual(['happy', 'wink']);
-    expect(parsed.lastExpr).toBe('wink');
+    // wink、coy 已不是可用标签，但旧提示词里出现时仍剥掉，按 happy 处理
+    expect(parsed.expressions).toEqual(['happy', 'happy']);
+    expect(parsed.lastExpr).toBe('happy');
     expect(parsed.text).toContain('早安呀！参考链接 [1] 和数组 `arr[0]`：');
     expect(parsed.text).toContain('const tag = "[wink]";');
     expect(parsed.text).not.toContain('[happy]');
@@ -77,7 +78,7 @@ describe('DSH expression parser and desktop sensor helpers', () => {
       out += parser.push(chunk);
     }
     out += parser.flush();
-    expect(seen).toEqual(['coy']);
+    expect(seen).toEqual(['happy']);
     expect(out).toContain('[happy] 示例');
     expect(out).not.toContain('[coy]');
   });

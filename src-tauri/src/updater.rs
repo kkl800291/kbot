@@ -636,7 +636,8 @@ pub async fn install_app_update(
         .unwrap_or("KBOT-update.dmg");
     let artifact_path = work_dir.join(artifact_name);
 
-    emit_progress(&app, "downloading", 8, "正在下载新版本安装包…");
+    // 整体进度：下载占 0～80，校验 84，解压 90，替换 96，重启 100。界面上只显示这一个数
+    emit_progress(&app, "downloading", 0, "正在下载新版本…");
 
     if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
         let client = reqwest::Client::builder()
@@ -656,7 +657,7 @@ pub async fn install_app_update(
         }
         let total = resp.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
-        let mut last_pct: u8 = 8;
+        let mut last_pct: u8 = 0;
         let mut file = tokio::fs::File::create(&artifact_path)
             .await
             .map_err(|e| format!("创建临时安装包文件失败: {e}"))?;
@@ -668,10 +669,10 @@ pub async fn install_app_update(
                 .map_err(|e| format!("写入更新包失败: {e}"))?;
             downloaded += chunk.len() as u64;
             if total > 0 {
-                let pct = 10 + ((downloaded.saturating_mul(55)) / total).min(55) as u8;
-                if pct >= last_pct + 4 {
+                let pct = ((downloaded.saturating_mul(80)) / total).min(80) as u8;
+                if pct > last_pct {
                     last_pct = pct;
-                    emit_progress(&app, "downloading", pct, &format!("正在下载更新包（{}%）…", (downloaded * 100 / total).min(100)));
+                    emit_progress(&app, "downloading", pct, "正在下载新版本…");
                 }
             }
         }
@@ -692,7 +693,7 @@ pub async fn install_app_update(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        emit_progress(&app, "verifying", 68, "正在校验安装包完整性…");
+        emit_progress(&app, "verifying", 84, "正在校验安装包…");
         let path_clone = artifact_path.clone();
         let actual = tokio::task::spawn_blocking(move || compute_file_sha256(&path_clone))
             .await
@@ -704,7 +705,7 @@ pub async fn install_app_update(
         }
     }
 
-    emit_progress(&app, "extracting", 76, "正在解压并验证新版本应用…");
+    emit_progress(&app, "extracting", 90, "正在解压新版本…");
     let artifact_for_extract = artifact_path.clone();
     let work_for_extract = work_dir.clone();
     let staged_app = tokio::task::spawn_blocking(move || {
@@ -713,11 +714,15 @@ pub async fn install_app_update(
     .await
     .map_err(|e| format!("解压任务异常: {e}"))??;
 
-    emit_progress(&app, "installing", 90, "正在替换应用并准备重启…");
+    emit_progress(&app, "installing", 96, "正在安装新版本…");
     let target_app = resolve_target_app_bundle();
     let backup_app = work_dir.join("backup-KBOT.app");
     let target_for_swap = target_app.clone();
     let work_for_cleanup = work_dir.clone();
+    // Bundled Node and DSH live inside the app being replaced. Stop the owned
+    // runtime and prevent the UI's reconnect timer from launching it mid-swap.
+    // A failed install drops this guard and permits reconnecting the old core.
+    let mut runtime_update = dsh.suspend_for_update().await;
 
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         if target_for_swap.exists() {
@@ -731,11 +736,15 @@ pub async fn install_app_update(
         let copy_status = std::process::Command::new("/usr/bin/ditto")
             .arg(&staged_app)
             .arg(&target_for_swap)
-            .status()
-            .map_err(|e| format!("写入新版本应用失败: {e}"))?;
-        if !copy_status.success() {
+            .status();
+        if !copy_status.as_ref().is_ok_and(|status| status.success()) {
+            if target_for_swap.exists() {
+                std::fs::remove_dir_all(&target_for_swap)
+                    .map_err(|e| format!("新版本写入失败且无法清理未完成的安装；旧版本保留在 {}: {e}", backup_app.display()))?;
+            }
             if backup_app.exists() {
-                let _ = std::fs::rename(&backup_app, &target_for_swap);
+                std::fs::rename(&backup_app, &target_for_swap)
+                    .map_err(|e| format!("自动恢复失败；旧版本保留在 {}: {e}", backup_app.display()))?;
             }
             return Err("写入新版本到应用目录失败，已回滚旧版本".into());
         }
@@ -744,9 +753,9 @@ pub async fn install_app_update(
     })
     .await
     .map_err(|e| format!("安装任务异常: {e}"))??;
+    runtime_update.keep_suspended();
 
-    emit_progress(&app, "relaunching", 100, "更新完成，正在重启 KBOT…");
-    dsh.shutdown_blocking();
+    emit_progress(&app, "relaunching", 100, "更新完成，正在重启…");
     speech.stop_active();
 
     let relaunch_target = target_app.to_string_lossy().into_owned();

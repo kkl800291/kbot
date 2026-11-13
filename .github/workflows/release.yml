@@ -79,6 +79,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare bundled intelligence runtime
+        run: npm run runtime:prepare
+
       - name: Run unit tests
         run: |
           npm test

@@ -1,12 +1,27 @@
 # KBOT 品牌视觉
 
-当前版本（0.2.1 起）使用光之球角色和应用图标，母版与重新导出方法见 [kbot-icon-orb](kbot-icon-orb/README.md)。正式打包图标从该母版生成；以下陶瓷机器人素材保留为设计历史。
+0.5.1 起，正式 APP 图标使用**暖白底、墨黑 K 标记**。桌面角色继续使用光纹生命体。
+
+- 矢量母版：[kbot-icon-minimal-v3/neutral.svg](kbot-icon-minimal-v3/neutral.svg)。
+- PNG 母版：[kbot-icon-minimal-v3/neutral.png](kbot-icon-minimal-v3/neutral.png)，1024 × 1024 RGBA，透明外角。
+- 正式打包图标：`src-tauri/icons/` 中的 `.icns`、`.ico` 和各尺寸 PNG，全部从上述 SVG 生成。
+
+重新导出到构建目录：
+
+```sh
+npm run tauri -- icon assets/branding/kbot-icon-minimal-v3/neutral.svg --output src-tauri/target/branding-neutral-release
+```
+
+将导出目录中的同名桌面图标同步到 `src-tauri/icons/`。配色方案、矢量源稿与制作说明见 [kbot-icon-minimal-v3](kbot-icon-minimal-v3/README.md)。
+
+## 历史视觉记录
+
+0.2.1 至 0.5.0 使用光球 APP 图标，旧母版见 [kbot-icon-orb](kbot-icon-orb/README.md)。以下陶瓷机器人素材和提示词保留为早期设计历史。
 
 正式应用名：**KBOT**。深石墨、珍珠白陶瓷、冰蓝光眼；以少量轮廓和光影建立辨识度，图标不放文字，缩小后仍能识别。
 
 - `kbot-icon-master.png`：图标高清母版，透明外角，用于生成 macOS `.icns` 和各尺寸 PNG。
 - `kbot-cover.png`：横版品牌封面，保留 KBOT 字标和机器人主体。
-- `archive/`：替换前的图标，保留为设计历史。
 
 使用内置 **imagegen** 生成。图标为全新生成；横版封面以图标为视觉参考生成。未使用 CLI/API 回退方式。正式打包使用 `src-tauri/icons/` 的派生资源。
 

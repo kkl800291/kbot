@@ -1,9 +1,8 @@
+import { addressName, personaHint } from './persona';
 import { command, listen, native } from './runtime';
 
 export const VALID_EXPRESSIONS = new Set([
   'happy',
-  'wink',
-  'coy',
   'surprised',
   'think',
   'confused',
@@ -13,15 +12,14 @@ export const VALID_EXPRESSIONS = new Set([
   'annoyed',
 ]);
 
-const PERSONA_HINTS: Record<string, string> = {
-  cute: '语气温和俏皮、轻快自然，像亲近的桌面小搭档',
-  gentle: '语气细腻温柔、体贴耐心，节奏舒缓柔和',
-  lively: '语气阳光元气、积极明快，充满活力',
-  quiet: '语气安静简洁、克制利落，不啰嗦',
-  calm: '语气沉稳克制、条理清晰、安静可靠',
-  witty: '语气机敏风趣、言简意赅，偶尔带一点冷幽默',
-  warm: '语气细腻体贴、善于共情与鼓励',
-};
+// 旧工作区的提示词里可能还有这两个标签：照样从文字里剥掉，按 happy 处理
+const LEGACY_EXPRESSIONS: Record<string, string> = { wink: 'happy', coy: 'happy' };
+
+export function normalizeExpression(tag: string): string | null {
+  const lower = tag.toLowerCase();
+  if (VALID_EXPRESSIONS.has(lower)) return lower;
+  return LEGACY_EXPRESSIONS[lower] || null;
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   dev: '编程开发',
@@ -41,11 +39,11 @@ export function extractExpressions(raw: string): { text: string; expressions: st
   const cleaned = parts
     .map((segment, idx) => {
       if (idx % 2 === 1) return segment;
-      return segment.replace(/\[([a-z]{3,12})\](\s?)/gi, (full, tag: string, space: string) => {
-        const lower = tag.toLowerCase();
-        if (!VALID_EXPRESSIONS.has(lower)) return full;
-        expressions.push(lower);
-        return space ? '' : '';
+      return segment.replace(/\[([a-z]{3,12})\](\s?)/gi, (full, tag: string) => {
+        const expr = normalizeExpression(tag);
+        if (!expr) return full;
+        expressions.push(expr);
+        return '';
       });
     })
     .join('');
@@ -90,9 +88,9 @@ export function createExpressionStreamParser(onExpression?: (expr: string) => vo
           i += 1;
           continue;
         }
-        const candidate = chunk.slice(i + 1, closeIdx).toLowerCase();
-        if (VALID_EXPRESSIONS.has(candidate)) {
-          onExpression?.(candidate);
+        const expr = normalizeExpression(chunk.slice(i + 1, closeIdx));
+        if (expr) {
+          onExpression?.(expr);
           i = closeIdx + 1;
           if (chunk[i] === ' ' && (out === '' || out.endsWith('\n'))) {
             i += 1;
@@ -357,10 +355,16 @@ export function summarizeReplyForBubble(raw: string, maxChars = 76): string {
   return `${cleaned.slice(0, Math.max(12, maxChars - 1)).trimEnd()}…`;
 }
 
-export function normalizeDshError(raw: unknown): { message: string; needModelConfig: boolean } {
+export function normalizeDshError(raw: unknown): { message: string; needModelConfig: boolean; accountAction?: 'sign-in' | 'top-up' } {
   const text = String(raw instanceof Error ? raw.message : raw || '').trim();
   if (!text) return { message: 'DSH 执行出错', needModelConfig: false };
   const lower = text.toLowerCase();
+  if (/account_sign_in_required|account_token_invalid/.test(lower)) {
+    return { message: '请登录 DeepSeek 账号后重试。', needModelConfig: false, accountAction: 'sign-in' };
+  }
+  if (/account_quota/.test(lower)) {
+    return { message: 'DeepSeek 账号额度不足，请到官方平台充值后重试。', needModelConfig: false, accountAction: 'top-up' };
+  }
   if (
     lower.includes('no api key for provider') ||
     lower.includes('no credential for provider') ||
@@ -447,7 +451,7 @@ export function installAgent(A: any) {
         A.S.voice?.autoProactive
       ) {
         const emotion = ev.expr || (ev.kind === 'remind' ? 'remind' : 'happy');
-        A.voice?.speakText?.(ev.text, { emotion }).catch?.(() => {});
+        A.voice?.speakAuto?.(ev.text, { emotion });
       }
       return shown;
     };
@@ -473,7 +477,7 @@ export function installAgent(A: any) {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   function syncModelFlag() {
-    const nextModel = state.connected ? 'vision' : 'none';
+    const nextModel = state.connected && state.model ? 'vision' : 'none';
     if (A.S.model !== nextModel) {
       A.S.model = nextModel;
       A.emit('set:model', nextModel);
@@ -498,7 +502,9 @@ export function installAgent(A: any) {
     state.desktopPatchInstalled = Boolean(st.desktopPatchInstalled);
     state.error = st.error ?? null;
     if (sess.sessionId) state.sessionId = String(sess.sessionId);
-    applyModelPayload(sess.model);
+    if (!applyModelPayload(sess.model) && !sess.model) {
+      state.model = state.modelLabel = state.provider = state.providerLabel = null;
+    }
     syncModelFlag();
     if (Array.isArray(sess.pendingQuestions)) {
       sess.pendingQuestions.forEach((q: any) => attachPendingQuestion(q));
@@ -507,10 +513,9 @@ export function installAgent(A: any) {
 
   async function pushSensorContext(force = false) {
     if (!native || !state.connected) return;
-    const personaKey = A.S.persona || 'cute';
     const snapshot = {
-      nickname: A.S.nickname && A.S.nickname !== '你' ? A.S.nickname : '',
-      persona: PERSONA_HINTS[personaKey] || personaKey,
+      nickname: addressName(A.S.nickname),
+      persona: personaHint(A.S.persona),
       away: Boolean(A.away),
       frontmostCategory: A.S.senseApp && lastFrontmostCat ? CATEGORY_LABELS[lastFrontmostCat] || lastFrontmostCat : '',
       frontmostApp: A.S.senseApp && A.S.send?.appName && lastFrontmostApp ? lastFrontmostApp : '',
@@ -637,6 +642,7 @@ export function installAgent(A: any) {
       const norm = normalizeDshError(errorMsg);
       turn.msg.error = norm.message;
       if (norm.needModelConfig) turn.msg.needModelConfig = true;
+      if (norm.accountAction) turn.msg.accountAction = norm.accountAction;
     }
     const viaLabel = state.modelLabel || (state.model ? formatModelDisplayName(state.model) : '');
     if (viaLabel && !turn.msg.via) {
@@ -652,7 +658,8 @@ export function installAgent(A: any) {
     A.countCall?.();
     A.save();
 
-    if (status === 'done' && turn.msg.text.trim() && !A.panel?.isOpen?.()) {
+    // 召唤态里回复已经以字幕显示，不再另发通知
+    if (status === 'done' && turn.msg.text.trim() && !A.panel?.isOpen?.() && !A.summon?.isOpen?.()) {
       const brief = summarizeReplyForBubble(turn.msg.text, 78);
       if (brief) {
         const bubbleEv = {
@@ -661,6 +668,7 @@ export function installAgent(A: any) {
           text: brief,
           expr: turn.lastExpr || 'happy',
           convId: turn.conv.id,
+          msgId: turn.msg.id,
           silent: Boolean(A.isDnd?.()),
           dur: 9500,
         };
@@ -689,7 +697,7 @@ export function installAgent(A: any) {
       A.S.voice?.autoReply &&
       !A.isDnd?.()
     ) {
-      A.voice?.speakText?.(turn.msg.text, { emotion: turn.lastExpr || 'happy' }).catch?.(() => {});
+      A.voice?.speakAuto?.(turn.msg.text, { emotion: turn.lastExpr || 'happy' });
     }
   }
 
@@ -715,10 +723,10 @@ export function installAgent(A: any) {
     return null;
   }
 
-  function notifyQuestionIfCollapsed(conv: any, card: any) {
+  function notifyQuestionIfCollapsed(conv: any, card: any, msgId?: string) {
     if (!conv || A.panel?.isOpen?.()) return;
-    const firstQ = card?.questions?.[0]?.question || '我有个小问题想听听你的想法～';
-    const brief = summarizeReplyForBubble(`想问问你：${firstQ}`, 76);
+    const firstQ = card?.questions?.[0]?.question || '有件事需要您定夺。';
+    const brief = summarizeReplyForBubble(`想请教您：${firstQ}`, 76);
     if (!brief) return;
     const bubbleEv = {
       kind: 'remind',
@@ -726,12 +734,14 @@ export function installAgent(A: any) {
       text: brief,
       expr: 'remind',
       convId: conv.id,
+      msgId,
+      rich: true,
       silent: Boolean(A.isDnd?.()),
       dur: 14000,
     };
     if (A.hidden) {
       if (!A.isDnd?.()) {
-        A.sysNotify?.('KBOT 正在等待你的回答', brief, () => {
+        A.sysNotify?.('KBOT 正在等待您的回答', brief, () => {
           A.setHidden?.(false);
           A.panel?.open?.({ convId: conv.id });
         });
@@ -762,7 +772,7 @@ export function installAgent(A: any) {
     if (activeTurn && activeTurn.sessionId === sessionId) {
       targetMsg = activeTurn.msg;
       targetMsg.card = card;
-      C.status('等待你的回答…', 'busy');
+      C.status('等待您的回答…', 'busy');
       A.setBase?.('idle');
     } else {
       const lastMsg = conv.messages?.[conv.messages.length - 1];
@@ -785,7 +795,7 @@ export function installAgent(A: any) {
           C.append(targetMsg);
           A.robot?.flash?.('remind', 2400);
           A.save();
-          notifyQuestionIfCollapsed(conv, card);
+          notifyQuestionIfCollapsed(conv, card, targetMsg.id);
           return;
         }
       }
@@ -794,7 +804,7 @@ export function installAgent(A: any) {
     A.robot?.flash?.('remind', 2400);
     if (C.cur === conv && targetMsg) C.paint(targetMsg);
     A.save();
-    notifyQuestionIfCollapsed(conv, card);
+    notifyQuestionIfCollapsed(conv, card, targetMsg?.id);
   }
 
   function resolvePendingQuestion(ev: any) {
@@ -952,7 +962,7 @@ export function installAgent(A: any) {
           break;
         }
         case 'agent/error': {
-          finishActiveTurn('error', ev.message || 'DSH 执行出错');
+          finishActiveTurn('error', ev.code?.startsWith('ACCOUNT_') ? ev.code : ev.message || 'DSH 执行出错');
           break;
         }
         case 'turn/end': {
@@ -1049,6 +1059,7 @@ export function installAgent(A: any) {
         m.status = 'error';
         m.error = norm.message;
         if (norm.needModelConfig) m.needModelConfig = true;
+        if (norm.accountAction) m.accountAction = norm.accountAction;
         if (C.cur === conv) C.paint(m);
         C.setGenerating(false);
         C.status();
@@ -1241,7 +1252,7 @@ export function installAgent(A: any) {
         syncModelFlag();
       }
       return {
-        providers: Array.isArray(res?.providers) ? res.providers : [],
+        providers: Array.isArray(res?.providers) ? res.providers : Array.isArray(res?.groups) ? res.groups : [],
         current: res?.current || null,
       };
     },

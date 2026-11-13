@@ -1,13 +1,16 @@
+import { normalizePersona } from '../services/persona';
+import { accountPanel } from './account';
+
 /* KBOT · 设置页（二）：智能核心（DeepSeek Harness 双模桥接、~/KBOT 养成目录、角色语气） */
 (function () {
   'use strict';
   const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
 
   const PERSONAS = [
-    ['cute', '可爱灵动', '默认', '嗨～今天也一起高效搞定手头的事吧！'],
-    ['gentle', '温柔体贴', '', '累了就歇一会儿，我一直在桌角陪着你。'],
-    ['lively', '元气明快', '', '能量满格！有什么任务尽管交给我～'],
-    ['quiet', '安静克制', '', '在线待命，有事随时叫我。'],
+    ['cute', '从容', '默认', '随时为您效劳。今天先从哪件事开始？'],
+    ['gentle', '温和', '', '您已经忙了很久，歇一会儿吧，其余的交给我。'],
+    ['lively', '机敏', '', '已就绪。顺带一提，您的咖啡大概已经凉了。'],
+    ['quiet', '简洁', '', '在。请吩咐。'],
   ];
 
   const MODES = [
@@ -19,8 +22,10 @@
   pages.agent = el => {
     const statusSlot = h('div', {});
     const patchSlot = h('div', {});
+    const accountSlot = h('div', {});
 
     const drawStatus = () => {
+      accountSlot.replaceChildren(accountPanel(A));
       statusSlot.replaceChildren();
       patchSlot.replaceChildren();
       const st = A.dshState || {};
@@ -135,30 +140,35 @@
     const cards = h('div', { class: 'sx-persona' }, PERSONAS.map(([k, name, tag, line]) => h('button', { type: 'button', class: 'sx-pcard', 'data-k': k }, [
       h('b', {}, [name, tag ? h('em', {}, tag) : null]), h('span', {}, `「${line}」`),
     ])));
-    const syncPersona = () => $$('.sx-pcard', cards).forEach(b => b.classList.toggle('on', b.dataset.k === A.S.persona));
+    const syncPersona = () => $$('.sx-pcard', cards).forEach(b => b.classList.toggle('on', b.dataset.k === normalizePersona(A.S.persona)));
     cards.addEventListener('click', e => {
       const b = e.target.closest('.sx-pcard'); if (!b) return;
       A.sput('persona', b.dataset.k); syncPersona();
       const line = PERSONAS.find(p => p[0] === b.dataset.k)[3];
-      if (!A.hidden && !A.panel?.isOpen?.()) A.bubble?.show?.({ kind: 'speech', pri: 'low', text: line, expr: 'wink' });
+      if (!A.hidden && !A.panel?.isOpen?.()) A.bubble?.show?.({ kind: 'speech', pri: 'low', text: line, expr: 'happy' });
     });
     syncPersona();
 
-    const nick = X.text('nickname', { ph: '你', w: 140, max: 12 });
+    const nick = X.text('nickname', { ph: '您', w: 140, max: 12, allowEmpty: true });
     const callsToday = A.S.ai?.calls?.day === new Date().toDateString() ? A.S.ai.calls.n : 0;
 
     el.append(
-      statusGroup,
-      X.note('“自动”会优先复用已打开的 DeepSeek Harness，没有打开时由 KBOT 在后台启动。'),
+      accountSlot,
+      X.note('智能核心随 KBOT 安装，无需另外安装软件。登录和充值均通过 DeepSeek 官方页面完成。'),
+      h('details', { class: 'sx-advanced' }, [
+        h('summary', {}, '高级连接设置 · 自带 API Key / 外部核心'),
+        statusGroup,
+        X.note('“自动”会优先复用已打开的 DeepSeek Harness，没有打开时使用 KBOT 自带核心。'),
+      ]),
       X.group('养成目录',
         X.row('位置', '人格、长期记忆和日记都以 Markdown 保存在这里', wsInput),
         X.row('管理', null, h('div', { style: 'display:flex;gap:8px' }, [openWsBtn, initWsBtn])),
       ),
-      X.note('在对话里说“20 分钟后提醒我喝水”，到点后 KBOT 会用气泡和语音提醒你。'),
+      X.note('在对话里说“20 分钟后提醒我喝水”，到点后 KBOT 会提醒您，并按设置朗读。'),
       X.group('性格与称呼',
         cards,
         X.row('主动陪伴', '根据工作时长、时间和回来状态主动轻声提醒，可随时关闭', X.toggle('aiCompanion')),
-        X.row('怎么称呼你', null, nick),
+        X.row('怎么称呼您', '留空时称“您”', nick),
       ),
       X.group('今天',
         X.row('对话回复', null, h('span', { class: 'sx-status' }, `${callsToday} 次`)),

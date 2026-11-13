@@ -1,7 +1,7 @@
 /* KBOT · 回复生成：思考、联网步骤、流式输出、停止、重新生成、编辑重发 */
 (function () {
   'use strict';
-  const A = window.App, C = A.chat, { $, h } = A, robot = A.robot;
+  const A = window.App, C = A.chat, { $, h } = A;
 
   C.send = (text, images = []) => {
     text = (text || '').trim();

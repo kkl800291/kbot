@@ -1,3 +1,5 @@
+import { accountDescription, loginPending } from '../services/account';
+
 /* KBOT · 对话：会话数据、历史列表、消息渲染、工具授权卡、主动发言 */
 (function () {
   'use strict';
@@ -32,7 +34,7 @@
     messages: c.messages.map(m => {
       const o = {
         id: m.id, role: m.role, text: m.text, time: m.time, kind: m.kind, proactive: m.proactive, via: m.via, title: m.title, error: m.error, needModelConfig: !!m.needModelConfig,
-        sources: m.sources, citations: m.citations, steps: m.steps, chips: m.chips, card: m.card, done: m.done,
+        sources: m.sources, citations: m.citations, steps: m.steps, chips: m.chips, card: m.card, done: m.done, accountAction: m.accountAction,
         status: m.status === 'streaming' || m.status === 'thinking' ? 'stopped' : m.status,
       };
       if (m.images) o.images = m.images.map(i => ({ src: i.src, thumb: i.thumb || i.src, ow: i.ow, oh: i.oh }));
@@ -120,30 +122,34 @@
 
   function emptyEl() {
     return h('div', { class: 'empty' }, [
-      h('div', { class: 'e-face' }, [h('i'), h('i')]),
-      h('div', { class: 'e-title' }, '嗨，我是 KBOT～'),
-      h('div', { class: 'e-sub' }, '智能核心由 DeepSeek Harness 驱动。查资料、看图片、写日记记忆、设定时提醒都可以直接对我说。'),
+      h('div', { class: 'e-title' }, '您好，我是 KBOT。'),
+      h('div', { class: 'e-sub' }, '智能核心由 DeepSeek Harness 驱动。查资料、看图片、记日记和记忆、设定时提醒，都可以直接吩咐我。'),
       h('div', { class: 'e-chips' }, EXAMPLES.map(t => h('button', { class: 'chip', 'data-a': 'example', 'data-send': t }, t))),
     ]);
   }
   function guideEl() {
     const st = A.dshState || {};
     const connecting = st.status === 'connecting';
+    const signedIn = A.accountState?.status === 'credential-stored';
+    const pending = loginPending(A.accountState);
     const ws = st.workspacePath || (A.S.dsh && A.S.dsh.workspace) || '~/KBOT';
     return h('div', { class: 'guide' }, [
-      h('div', { class: 'e-face' + (connecting ? '' : ' sad') }, [h('i'), h('i')]),
-      h('div', { class: 'e-title' }, connecting ? '正在连接 DeepSeek Harness…' : '尚未连接 DeepSeek Harness'),
+      h('div', { class: 'e-title' }, connecting ? '正在准备智能核心…' : signedIn ? '正在检查模型连接' : '登录后，随时为您效劳。'),
       h('div', { class: 'e-sub' }, connecting
-        ? '正在探测本机运行中的 DSH 实例；若未检测到外部实例，将自动后台启动并挂载养成目录。'
-        : (st.error || '请确认本机已安装 DeepSeek Harness 并完成模型登录，或在「智能核心」设置中检查配置。')),
-      h('div', { class: 'providers' }, ['DeepSeek Harness', '双模自动连接', '记忆养成', '小米 MiMo 语音'].map(n => h('span', {}, n))),
+        ? 'KBOT 正在启动自带的智能核心，您无需另外安装软件。'
+        : (st.error || accountDescription(A.accountState))),
       h('div', { style: 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap' }, [
-        !connecting ? h('button', { class: 'btn', 'data-a': 'dsh-retry' }, '重新连接') : null,
-        h('button', { class: 'btn primary', 'data-a': 'cfg' }, '智能核心设置'),
+        st.connected && !signedIn ? h('button', { class: 'btn primary', 'data-a': 'account-login', disabled: pending || A.accountState?.busy || !A.native }, pending ? '等待浏览器授权…' : '登录 DeepSeek') : null,
+        !connecting && (!st.connected || signedIn) ? h('button', { class: 'btn primary', 'data-a': 'dsh-retry' }, '重新连接') : null,
+        pending ? h('button', { class: 'btn', 'data-a': 'account-cancel' }, '取消登录') : null,
+        h('button', { class: 'btn', 'data-a': 'cfg' }, '账号与高级设置'),
       ].filter(Boolean)),
       h('div', { class: 'e-tip' }, `默认养成目录：${ws}`),
     ]);
   }
+  A.on('account:state', () => {
+    if (C.cur && !C.generating && (!C.cur.messages.length || box.querySelector('.guide'))) C.render();
+  });
 
   function userEl(m) {
     const el = h('div', { class: 'msg user', 'data-id': m.id });
@@ -454,6 +460,8 @@
         h('span', {}, m.error || '回复中断，已保留已输出的内容'),
         h('span', { style: 'display:inline-flex;gap:6px;flex-shrink:0;align-items:center' }, [
           m.needModelConfig ? h('button', { class: 'btn sm primary', 'data-a': 'dsh-console' }, '配置模型') : null,
+          m.accountAction === 'sign-in' ? h('button', { class: 'btn sm primary', 'data-a': 'account-login' }, '登录 DeepSeek') : null,
+          m.accountAction === 'top-up' ? h('button', { class: 'btn sm primary', 'data-a': 'account-top-up' }, '充值额度') : null,
           h('button', { class: 'btn sm', 'data-a': 'retry' }, '重试'),
         ].filter(Boolean)),
       ]));
@@ -502,14 +510,22 @@
     box.append(msgEl(m));
     if (near || m.role === 'user') toBottom();
   };
+  // 每次重画一条消息都广播出去，召唤态的字幕跟着它走
   C.paint = m => {
+    A.emit('chat:msg', m);
     const el = box.querySelector(`[data-id="${m.id}"]`); if (!el) return;
     const near = nearBottom(); el.replaceWith(msgEl(m)); if (near) toBottom();
   };
   C.paintText = m => {
     const el = elOf(m.id), md = el && el.querySelector(':scope > .md');
     if (!md) return C.paint(m);
+    A.emit('chat:msg', m);
     const near = nearBottom(); md.innerHTML = renderText(m); if (near) toBottom();
+  };
+  /** 滚到某条消息的开头（从召唤态的“查看全文”进来时用）。 */
+  C.reveal = id => {
+    const el = elOf(id); if (!el) return;
+    box.scrollTo({ top: Math.max(0, el.offsetTop - box.offsetTop - 8), behavior: 'auto' });
   };
   C.dropChips = () => { C.cur.messages.forEach(m => { if (m.chips) { m.chips = null; const e = elOf(m.id); const c = e && e.querySelector('.chips'); if (c) c.remove(); } }); };
 
@@ -633,7 +649,9 @@
     const a = t.dataset.a, mEl = t.closest('.msg'), m = mEl && find(mEl.dataset.id);
     if (a === 'copy' && m) { A.copy(m.text || ''); A.toast('已复制'); }
     else if (a === 'speak' && m && m.text) {
-      A.voice?.speakText?.(m.text, { force: true }).catch(err => A.toast(String(err), 4000));
+      // 正在朗读时再点一次就是停
+      if (A.voice?.speaking) A.voice.stop();
+      else A.voice?.speakText?.(m.text, { force: true }).catch(err => A.toast(String(err), 4000));
     }
     else if (a === 'code-copy') {
       A.copy(t.closest('.code').querySelector('pre').textContent);
@@ -685,6 +703,9 @@
     else if (a === 'cfg') A.openSettings && A.openSettings('agent');
     else if (a === 'dsh-retry') A.agent?.reconnect?.();
     else if (a === 'dsh-console') A.agent?.openConsole?.();
+    else if (a === 'account-login') A.account?.signIn?.();
+    else if (a === 'account-cancel') A.account?.cancelSignIn?.();
+    else if (a === 'account-top-up') A.account?.openTopUp?.();
     else if (a === 'pro' && m) {
       const act = m.actions && m.actions[+t.dataset.i]; if (!act) return;
       m.done = act.label; C.paint(m);

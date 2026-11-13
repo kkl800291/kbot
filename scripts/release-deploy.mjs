@@ -176,6 +176,10 @@ if (!dryRun && (!deploySsh || !deployDir)) {
 console.log(`准备发布 KBOT v${version}`);
 console.log(`目标更新地址: ${baseUrl}/latest.json`);
 
+if (!skipTests || !skipBuild) {
+  runStep('准备随包智能核心', process.execPath, ['scripts/prepare-dsh-runtime.mjs']);
+}
+
 if (!skipTests) {
   runStep('运行前端单元测试', 'npm', ['test']);
   runStep('运行 Rust 单元测试', 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml', '--lib']);

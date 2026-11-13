@@ -20,15 +20,15 @@ export async function installInteractionDiagnostics(A: any) {
   window.addEventListener('unhandledrejection', () => { failures++; });
   const report = () => {
     if (writing) return;
-    const pet = document.querySelector<HTMLElement>('#pet')!, panel = document.querySelector<HTMLElement>('#panel')!;
+    const top = document.querySelector<HTMLElement>('#topContent')!, panel = document.querySelector<HTMLElement>('#panel')!;
     writing = true;
     command('write_interaction_trace', { snapshot: {
       cursorEvents, lastCursor, lastCursorAge: lastCursorAt ? Date.now() - lastCursorAt : null, failures, events,
-      petBounds: pet.getBoundingClientRect().toJSON(), petPointerEvents: getComputedStyle(pet).pointerEvents,
-      pointerActive: !!A.petPointerActive, pressed: A.robot.pressed, held: A.robot.held,
-      petInteractive: pet.classList.contains('interactive'), petDragging: pet.classList.contains('dragging'), petInert: pet.inert,
+      topState: A.top?.state?.(), topBounds: top.getBoundingClientRect().toJSON(), topPointerEvents: getComputedStyle(top).pointerEvents,
       panelOpen: A.panel.isOpen(), panelHidden: panel.hidden, panelInert: panel.inert,
-      menuOpen: !!A.menu?.isOpen?.(), robotHover: A.robot.hover,
+      energy: A.energy?.stats?.(), appearance: A.energy?.sim?.S?.appearance, departure: A.energy?.sim?.S?.departure,
+      blurBounds: document.querySelector('#halo')!.getBoundingClientRect().toJSON(),
+      menuOpen: !!A.menu?.isOpen?.(),
       documentFocused: document.hasFocus(), documentVisible: !document.hidden,
     } }).catch(() => {}).finally(() => { writing = false; });
   };

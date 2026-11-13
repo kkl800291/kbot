@@ -3,9 +3,15 @@ import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyPackages } from './copy-packages.mjs';
+import { prepareRuntime } from './prepare-dsh-runtime.mjs';
 
 const started = Date.now();
 const args = process.argv.slice(2);
+if (['dev', 'build', 'bundle'].includes(args[0])) {
+  const index = args.indexOf('--target');
+  const target = index >= 0 ? args[index + 1] : args.find(arg => arg.startsWith('--target='))?.slice('--target='.length);
+  await prepareRuntime(target);
+}
 const cli = fileURLToPath(new URL('../node_modules/@tauri-apps/cli/tauri.js', import.meta.url));
 const child = spawn(process.execPath, [cli, ...process.argv.slice(2)], {
   stdio: 'inherit',

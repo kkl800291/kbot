@@ -83,8 +83,8 @@ export function installUpdater(A: any) {
 
     const noteSummary = summarizeUpdateNotes(state.notes, 110);
     const text = noteSummary
-      ? `我检测到新版本 **v${ver}** 啦（当前 v${state.currentVersion}）～\n${noteSummary}`
-      : `我检测到新版本 **v${ver}** 啦（当前 v${state.currentVersion}），可以直接一键更新并自动重启，不用重新手动拖安装包～`;
+      ? `新版本 **v${ver}** 已发布（当前 v${state.currentVersion}）。\n${noteSummary}`
+      : `新版本 **v${ver}** 已发布（当前 v${state.currentVersion}）。可以一键更新并自动重启，无需手动安装。`;
 
     const actions: any[] = [
       state.downloadUrl
@@ -196,6 +196,21 @@ export function installUpdater(A: any) {
     }
   }
 
+  // 更新进行中：屏幕顶部出一条带进度带的常驻条，文字是此刻在做什么，右边是整体百分比。
+  // 召唤态和对话窗口里看不到常驻条，更新开始时先把它们收起来（反正装完就要重启）
+  function showProgress() {
+    const p = state.progress;
+    if (!p || !A.top) return;
+    const percent = typeof p.percent === 'number' ? Math.max(0, Math.min(100, Math.round(p.percent))) : 0;
+    const patch = { label: (p.message || '正在更新').replace(/…$/, ''), aux: percent + '%', progress: percent / 100 };
+    if (A.top.act?.()?.source === 'updater') A.top.updateAct(patch, 'updater');
+    else {
+      A.summon?.close?.();
+      A.panel?.close?.();
+      A.top.startAct({ kind: 'task', source: 'updater', ...patch });
+    }
+  }
+
   async function installUpdate() {
     if (!native) {
       A.toast?.('请在 macOS 桌面应用中使用一键更新', 3500);
@@ -216,10 +231,10 @@ export function installUpdater(A: any) {
     state.progress = {
       stage: 'preparing',
       percent: 0,
-      message: '正在准备下载更新包…',
+      message: '正在准备下载新版本…',
     };
     emitState();
-    A.toast?.(`正在后台下载并安装 KBOT v${state.latestVersion || ''}，完成后将自动重启…`, 4500);
+    showProgress();
 
     try {
       await A.flush?.();
@@ -238,6 +253,7 @@ export function installUpdater(A: any) {
       state.error = err?.message || String(err);
       state.progress = null;
       emitState();
+      A.top?.endAct?.('task');
       A.toast?.(`自动更新失败：${state.error}`, 5500);
       return false;
     }
@@ -273,6 +289,7 @@ export function installUpdater(A: any) {
           message: String(payload.message || ''),
         };
         emitState();
+        if (state.status === 'installing') showProgress();
       });
     }
 

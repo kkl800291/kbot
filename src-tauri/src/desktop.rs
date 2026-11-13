@@ -88,9 +88,13 @@ pub fn release_focus(window: tauri::WebviewWindow, desktop: State<Desktop>) -> R
     }
     window.set_focusable(false).map_err(|e| e.to_string())
 }
+/// 通知到点时按需读一次键鼠空闲秒数，用户正在操作就等一等再出现。
 #[tauri::command]
-pub fn set_on_top(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
-    window.set_always_on_top(on).map_err(|e| e.to_string())
+pub fn idle_seconds() -> f64 {
+    #[cfg(target_os = "macos")]
+    return mac::idle();
+    #[cfg(not(target_os = "macos"))]
+    0.0
 }
 #[tauri::command]
 pub fn hide_companion(
@@ -105,19 +109,7 @@ pub fn hide_companion(
 }
 
 pub fn fit_monitor(window: &tauri::WebviewWindow, cursor: bool) -> tauri::Result<()> {
-    let monitor = if cursor {
-        let pos = window.cursor_position()?;
-        window.monitor_from_point(pos.x, pos.y)?
-    } else {
-        window.primary_monitor()?
-    };
-    if let Some(m) = monitor {
-        // Work area excludes menu bar, Dock and the camera housing.
-        let work = m.work_area();
-        window.set_position(work.position)?;
-        window.set_size(work.size)?;
-    }
-    Ok(())
+    crate::backdrop::place(window, cursor)
 }
 #[tauri::command]
 pub fn move_to_cursor(window: tauri::WebviewWindow) -> Result<(), String> {
@@ -261,6 +253,7 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
         let mut last_check = Instant::now();
         let mut was_resumed = false;
         let mut monitor_check = Instant::now();
+        let mut placed_for: Option<(i32, i32)> = None;
         let mut last_tick = Instant::now();
         loop {
             std::thread::sleep(Duration::from_millis(33));
@@ -346,7 +339,7 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
                     );
                 });
             }
-            // A disconnected monitor must never leave the only character stranded.
+            // 显示器拔掉或分辨率变化后，透明宿主重新铺满当前（或主）显示器。
             if monitor_check.elapsed() > Duration::from_secs(5) {
                 monitor_check = Instant::now();
                 if let Ok(monitors) = w.available_monitors() {
@@ -361,9 +354,15 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
                     if !origin_valid {
                         let _ = fit_monitor(&w, false);
                     } else if let Ok(Some(m)) = w.current_monitor() {
-                        if w.inner_size().ok() != Some(m.work_area().size) {
-                            let _ = w.set_position(m.work_area().position);
-                            let _ = w.set_size(m.work_area().size);
+                        // 系统不让放到目标位置时只试一次，避免每 5 秒挪一次窗口
+                        let target = crate::backdrop::monitor_origin(&m);
+                        let resized = w.outer_size().map(|size| size != *m.size()).unwrap_or(false);
+                        if (origin.x, origin.y) == target && !resized {
+                            placed_for = None;
+                        } else if placed_for != Some(target) {
+                            placed_for = Some(target);
+                            let _ = crate::backdrop::place_on(&w, &m);
+                            let _ = w.emit("desktop-action", "relayout");
                         }
                     }
                 }
