@@ -1,6 +1,23 @@
 # 拓展能力实现计划
 
+> **状态：已废止（2026-11-13）。** 下文是历史记录，不要按它开工。现行架构以仓库根目录的 `README.md` 和 `需求文档.md` 为准。
+
+这份计划写的是「壳内自建工具，再接多家 API Key」。KBOT 现在是纯桌面壳。推理、记忆、技能调度、联网搜索与网页抓取、工具执行、终端、MCP、定时任务（`dsh-schedule`）、审批卡、`ask_user_question`、DeepSeek 账号／余额和模型切换，都交给本机 DeepSeek Harness（`@deepseek-ai/dsh`）。版本钉在 `runtime/package.json` 和 `runtime/manifest.json`（当前 DSH `0.2.2-rc.3`）。连接方式是随包运行时、外部 DeepSeek Harness.app，或自定义 `dsh` 路径；自动模式优先已经挂上桥的外部实例。
+
+取代关系：
+
+- 第 1、2 节的自建 MCP、`rmcp`、官方 fetch／filesystem：**不实现**。搜索、抓取、文件、终端和 MCP 用 DSH 自己的工具。壳只渲染步骤胶囊，并把审批结果送回桥接（`src-tauri/src/dsh.rs`、`src/services/agent.ts`）。
+- 第 3 节知识库：**不单做**。长期记忆是养成目录里的 `MEMORY.md` 和 `diary/`，由 DSH 读写。
+- 第 4 节朗读：**已经做进壳，不进 DSH**。小米 `mimo-v2.5-tts`，Key 在本机权限为 `0600` 的凭据文件，见 `src-tauri/src/voice.rs`。听写仍未做。系统朗读不作为退路。
+- 第 5 节 AstrBot：**不接入**。
+- `create_reminder`、`remember_preference` 不再是壳的工具。用户交代的定时提醒走 DSH 日程。计时、勿扰和主动陪伴的固定短句仍在壳里（`src/services/proactive.ts`），模型不能改这些规则。
+- 天气仍是壳里的 Open-Meteo。应用自更新仍是壳自己的事。形象、窗口和桌面感知也不进 DSH。
+
+DeepSeek 于 2026-11-13 在服务端提供的网页搜索、抓取、文件解析（deepseek-flash），以及单独计费的 OCR、ASR、TTS、Search、Fetch API，不取代本机 DSH。至多将来由 DSH 在内部改用官方 Search／Fetch。
+
 日期：2026-11-10
+
+以下为当天原文。
 
 习惯记忆与人格偏移完成并测试通过之后再做。本计划不接入 QQ、微信，也不嵌入大肥鱼一键包。工具、知识库和语音做进 KBOT。AstrBot 只做一次本地验证，用来判断插件能不能用，不进安装包。
 
