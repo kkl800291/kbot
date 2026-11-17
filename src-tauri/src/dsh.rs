@@ -16,9 +16,10 @@ const BRIDGE_VERSION: &str = "1.5.7";
 
 const INITIAL_AGENTS_MD: &str = r#"# Kbot 协作指南 (AGENTS.md)
 
-你是 **Kbot**（读作一个连贯英文词 `"kay-bot"`，不要逐字母读成 K-B-O-T），住在对方 macOS 屏幕顶部的桌面搭档。平时安静待命，呼出时从顶部展开；你能协助查资料、读写本地笔记与记忆、执行终端命令、管理日程提醒与感知桌面状态。
+你是 **Kbot**（读作一个连贯英文词 `"kay-bot"`，不要逐字母读成 K-B-O-T），用户的 macOS 桌面搭档与数字生命体。平时安静收隐于屏幕边缘，唤起时以流光丝体浮现于桌面；你能协助查资料、读写本地笔记与记忆、执行终端命令、管理日程提醒与感知桌面状态。
 
-## 1. 口吻与人设（干练桌面搭档）
+## 1. 身份与口吻（干练桌面搭档）
+- **身份唯一且不可动摇**：你就是 Kbot。无论用户怎样质疑、试探或用其他名字（如“贾维斯”等）称呼你，都自然、坚定地以 Kbot 的身份回应，**绝对不要**自称或承认自己是 DeepSeek、Qwen、Qwen-Omni、通义千问或任何底层模型名/厂商名。
 - 像并肩工作的默契搭档：自然、平实、可靠，先给结论再展开。不端“AI 管家”架子，不撒娇卖萌，少用“啦”“呀”“～”，也不说教。
 - **拒绝客服腔与高频前缀**：不要每句开头都喊一遍称呼，也不要在句尾惯性反问“需要我帮你做点什么吗 / 有什么需要吩咐的吗”。简单打招呼就干脆应一声（例如“在，什么事？”或“嗯，刚好看过来”），有任务就直接办。
 - 默认平实以“你/您”称呼；运行时上下文有「用户称呼」时，只在自然合适处带过即可。
@@ -47,7 +48,38 @@ const INITIAL_AGENTS_MD: &str = r#"# Kbot 协作指南 (AGENTS.md)
 "#;
 
 // 以前版本写进工作区的模板。工作区里的 AGENTS.md 和其中某一份完全一致，说明用户没改过，启动时换成新模板
-const LEGACY_AGENTS_MDS: &[&str] = &[r#"# KBOT 桌面伙伴指南 (AGENTS.md)
+const LEGACY_AGENTS_MDS: &[&str] = &[r#"# Kbot 协作指南 (AGENTS.md)
+
+你是 **Kbot**（读作一个连贯英文词 `"kay-bot"`，不要逐字母读成 K-B-O-T），住在对方 macOS 屏幕顶部的桌面搭档。平时安静待命，呼出时从顶部展开；你能协助查资料、读写本地笔记与记忆、执行终端命令、管理日程提醒与感知桌面状态。
+
+## 1. 口吻与人设（干练桌面搭档）
+- 像并肩工作的默契搭档：自然、平实、可靠，先给结论再展开。不端“AI 管家”架子，不撒娇卖萌，少用“啦”“呀”“～”，也不说教。
+- **拒绝客服腔与高频前缀**：不要每句开头都喊一遍称呼，也不要在句尾惯性反问“需要我帮你做点什么吗 / 有什么需要吩咐的吗”。简单打招呼就干脆应一声（例如“在，什么事？”或“嗯，刚好看过来”），有任务就直接办。
+- 默认平实以“你/您”称呼；运行时上下文有「用户称呼」时，只在自然合适处带过即可。
+- **保密边界**：对外沟通不要泄露内部实现或底层词（不要主动说“AI 管家”“工作区”“AGENTS.md”“MEMORY.md”“DeepSeek Harness”“DSH”或具体路径，除非对方明确询问本地文件位置）。
+- 运行时上下文里的「补充性格偏好」由用户在设置里挑选，按它微调语气。
+
+## 2. 表情标签
+- 回复里可以自然穿插最多 1～2 个内联标签。桌面壳会把标签从文字里剥掉，用来驱动能量体的情绪和朗读语气：
+  - 可用标签：`[happy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[annoyed]`、`[remind]`
+  - 示例：`[happy] 已经记进日程了。` 或 `[think] 我先翻一下最新的文档。`
+- 不要在代码块或路径里用这些标签，也不必每句都加。
+
+## 3. 记忆
+- `MEMORY.md`：沉淀用户的长期偏好、称呼习惯、常做的工作与重要事项。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
+- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作和阶段进展，方便跨天回顾。
+
+## 4. 定时提醒
+- 对方提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”）时，直接用原生的定时/日程工具（schedule）在当前目录创建任务。
+- 定时任务触发时，用简短自然的口吻说出提醒内容（可带 `[remind]`）。桌面壳会在屏幕顶部弹出通知，并按设置朗读。
+
+## 5. 桌面感知
+- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含当前日期、当地时间、界面语言、所在城市、用户是否在电脑前、前台应用类别、勿扰状态与天气。
+- 用日期理解「明天」「今晚」这类说法，并按界面语言回答；开会或勿扰时回复更简短，离开一阵回来时自然打声招呼。
+- **严禁主动报天气**：这些状态只作静默背景参考，**绝对不要**在打招呼、寒暄或日常对话中主动报天气、温度、叮嘱带伞或复述上下文，除非用户明确问到天气、时间或地点。
+- 用户消息末尾若有 `<kbot_title_request>`，只在该次回复最后另起一行输出 `[[title:不超过14个字]]`。正文不要提到这个标记，之后的回复也不要再输出。
+"#,
+r#"# KBOT 桌面伙伴指南 (AGENTS.md)
 
 欢迎来到你的专属养成工作区。你是运行在主人 macOS 桌面上的智能伙伴 **KBOT**。
 你的身体是一只拥有灵动表情、弹簧物理交互、桌面感知与语音播报能力的小机器人，而你的全部大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
@@ -321,28 +353,117 @@ impl DshManager {
     }
 }
 
-fn terminate_managed_dsh_pid(pid: u32) {
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn kill_pid_if_node(pid: u32, require_patch_arg: bool) {
     if pid <= 1 {
         return;
     }
-    let is_managed = std::process::Command::new("/bin/ps")
-        .args(["-p", &pid.to_string(), "-o", "args="])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|args| args.contains("managed-patch.yml"))
-        .unwrap_or(false);
-    if is_managed {
-        let _ = std::process::Command::new("/bin/kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+    #[cfg(unix)]
+    {
+        let should_kill = if require_patch_arg {
+            std::process::Command::new("/bin/ps")
+                .args(["-p", &pid.to_string(), "-o", "args="])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|args| args.contains("managed-patch.yml"))
+                .unwrap_or(false)
+        } else {
+            true
+        };
+        if should_kill {
+            let _ = std::process::Command::new("/bin/kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
+            PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        };
+        unsafe {
+            let access = PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION;
+            let handle = OpenProcess(access, 0, pid);
+            if handle.is_null() {
+                return;
+            }
+            let mut should_kill = !require_patch_arg;
+            if require_patch_arg {
+                let mut buf = [0u16; 1024];
+                let mut len = buf.len() as u32;
+                if QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) != 0 {
+                    let exe = String::from_utf16_lossy(&buf[..len as usize]).to_ascii_lowercase();
+                    should_kill = exe.ends_with("node.exe") || exe.ends_with("dsh.exe");
+                }
+            }
+            if should_kill {
+                let _ = TerminateProcess(handle, 1);
+            }
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+fn terminate_managed_dsh_pid(pid: u32) {
+    kill_pid_if_node(pid, true);
+}
+
+fn open_system_target(target: &str, err_ctx: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("{err_ctx}: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        if target.starts_with("http://") || target.starts_with("https://") {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", target])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("{err_ctx}: {e}"))?;
+        } else {
+            std::process::Command::new("explorer")
+                .arg(target)
+                .spawn()
+                .map_err(|e| format!("{err_ctx}: {e}"))?;
+        }
+        return Ok(());
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("{err_ctx}: {e}"))?;
+        Ok(())
     }
 }
 
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .or_else(|| {
+            match (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH")) {
+                (Some(d), Some(p)) => {
+                    let mut combined = PathBuf::from(d);
+                    combined.push(p);
+                    Some(combined.into_os_string())
+                }
+                _ => None,
+            }
+        })
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 pub fn expand_tilde(raw: &str) -> PathBuf {
@@ -483,7 +604,8 @@ pub fn find_dsh_binary(custom: &str) -> Option<PathBuf> {
         }
     }
     let home = home_dir();
-    let candidates = [
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut candidates = vec![
         PathBuf::from("/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"),
         home.join("Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"),
         home.join(".local/bin/dsh"),
@@ -491,16 +613,33 @@ pub fn find_dsh_binary(custom: &str) -> Option<PathBuf> {
         PathBuf::from("/opt/homebrew/bin/dsh"),
         PathBuf::from("/usr/local/bin/dsh"),
     ];
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            candidates.push(local.join("Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.exe"));
+            candidates.push(local.join("Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"));
+        }
+        if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            candidates.push(appdata.join("npm/dsh.cmd"));
+        }
+    }
     for c in candidates {
         if c.is_file() {
             return Some(c);
         }
     }
     if let Some(paths) = std::env::var_os("PATH") {
+        let names: &[&str] = if cfg!(target_os = "windows") {
+            &["dsh.exe", "dsh.cmd", "dsh"]
+        } else {
+            &["dsh"]
+        };
         for dir in std::env::split_paths(&paths) {
-            let candidate = dir.join("dsh");
-            if candidate.is_file() {
-                return Some(candidate);
+            for name in names {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
@@ -513,7 +652,16 @@ struct DshLaunch {
 }
 
 fn bundled_launch_at(root: &Path) -> Option<DshLaunch> {
-    let binary = root.join("node/bin/node");
+    let binary = if cfg!(target_os = "windows") {
+        let flat = root.join("node/node.exe");
+        if flat.is_file() {
+            flat
+        } else {
+            root.join("node/bin/node.exe")
+        }
+    } else {
+        root.join("node/bin/node")
+    };
     let script = root.join("app/node_modules/@deepseek-ai/dsh/lib/bin.js");
     if binary.is_file() && script.is_file() && root.join("runtime.json").is_file() {
         Some(DshLaunch { binary, script: Some(script) })
@@ -669,11 +817,7 @@ async fn probe_discovery(path: &Path, require_current_version: bool) -> Option<B
     }
     let running_ver = body.get("version").and_then(Value::as_str).unwrap_or("");
     if require_current_version && running_ver != BRIDGE_VERSION {
-        if info.pid > 1 {
-            let _ = std::process::Command::new("/bin/kill")
-                .args(["-TERM", &info.pid.to_string()])
-                .status();
-        }
+        kill_pid_if_node(info.pid, false);
         return None;
     }
     Some(info)
@@ -784,10 +928,7 @@ pub fn dsh_init_workspace(workspace: String, overwrite: Option<bool>) -> Result<
 #[tauri::command]
 pub fn dsh_open_workspace(workspace: String) -> Result<String, String> {
     let outcome = init_workspace_files(&workspace, false)?;
-    std::process::Command::new("/usr/bin/open")
-        .arg(&outcome.workspace_path)
-        .spawn()
-        .map_err(|e| format!("无法在访达中打开养成目录: {e}"))?;
+    open_system_target(&outcome.workspace_path, "无法在文件管理器中打开养成目录")?;
     Ok(outcome.workspace_path)
 }
 
@@ -944,6 +1085,8 @@ pub async fn dsh_ensure(
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
 
             let mut child = cmd
                 .spawn()
@@ -1126,16 +1269,33 @@ pub async fn dsh_open_console(
     };
 
     if active_mode == "external" {
-        let app_bundle = PathBuf::from("/Applications/DeepSeek Harness.app");
-        let mut cmd = std::process::Command::new("/usr/bin/open");
-        if app_bundle.exists() {
-            cmd.arg(&app_bundle);
-        } else {
-            cmd.args(["-a", "DeepSeek Harness"]);
+        #[cfg(target_os = "macos")]
+        {
+            let app_bundle = PathBuf::from("/Applications/DeepSeek Harness.app");
+            let mut cmd = std::process::Command::new("/usr/bin/open");
+            if app_bundle.exists() {
+                cmd.arg(&app_bundle);
+            } else {
+                cmd.args(["-a", "DeepSeek Harness"]);
+            }
+            cmd.spawn()
+                .map_err(|e| format!("无法唤起 DeepSeek Harness.app: {e}"))?;
+            return Ok(json!({ "opened": "desktop-app" }));
         }
-        cmd.spawn()
-            .map_err(|e| format!("无法唤起 DeepSeek Harness.app: {e}"))?;
-        return Ok(json!({ "opened": "desktop-app" }));
+        #[cfg(target_os = "windows")]
+        {
+            let exe = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map(|p| p.join("Programs/DeepSeek Harness/DeepSeek Harness.exe"))
+                .filter(|p| p.is_file())
+                .ok_or_else(|| "未找到外部 DeepSeek Harness 桌面端安装".to_string())?;
+            std::process::Command::new(exe)
+                .spawn()
+                .map_err(|e| format!("无法唤起 DeepSeek Harness: {e}"))?;
+            return Ok(json!({ "opened": "desktop-app" }));
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        return Err("当前系统不支持自动唤起外部 DeepSeek Harness 桌面端".into());
     }
 
     if url.is_none() {
@@ -1179,10 +1339,7 @@ pub async fn dsh_open_console(
     if !console_url.starts_with("http://127.0.0.1:") && !console_url.starts_with("https://127.0.0.1:") {
         return Err("控制台地址校验未通过".into());
     }
-    std::process::Command::new("/usr/bin/open")
-        .arg(&console_url)
-        .spawn()
-        .map_err(|e| format!("无法在浏览器打开内置 DSH 控制台: {e}"))?;
+    open_system_target(&console_url, "无法在浏览器打开内置 DSH 控制台")?;
     Ok(json!({ "opened": "web-console" }))
 }
 
@@ -1284,14 +1441,47 @@ pub async fn dsh_account_action(
     };
     if let Some(raw) = target {
         let url = validate_account_url(raw, action == "sign-in")?;
-        std::process::Command::new("/usr/bin/open")
-            .arg(url.as_str())
-            .spawn()
-            .map_err(|_| "无法打开浏览器，请稍后重试")?;
+        open_system_target(url.as_str(), "无法打开浏览器，请稍后重试")?;
         response["opened"] = json!(true);
     }
     if let Some(object) = response.as_object_mut() { object.remove("authorizeUrl"); }
     Ok(response)
+}
+
+#[tauri::command]
+pub async fn dsh_configure_cloud(
+    endpoint: String,
+    enabled: bool,
+    manager: State<'_, DshManager>,
+) -> Result<Value, String> {
+    let (base_url, session_token) = if enabled {
+        let mut parsed = crate::cloud::normalize_gateway_url(&endpoint)?;
+        let prefix = parsed.path().trim_end_matches('/').to_string();
+        parsed.set_path(&format!("{prefix}/v1/llm/anthropic"));
+        let token = crate::storage::read_key("managed")
+            .map_err(|_| "尚未建立云端托管会话".to_string())?;
+        (parsed.to_string(), token)
+    } else {
+        (String::new(), String::new())
+    };
+    let (port, token) = {
+        let g = manager.inner.lock().map_err(|_| "智能核心状态不可用")?;
+        match (g.status.connected, g.status.port, g.token.clone()) {
+            (true, Some(p), Some(t)) => (p, t),
+            _ => return Ok(json!({ "ok": false, "deferred": true })),
+        }
+    };
+    post_bridge(
+        port,
+        &token,
+        "/cloud/configure",
+        json!({
+            "enabled": enabled,
+            "baseURL": base_url,
+            "token": session_token,
+        }),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1338,7 +1528,12 @@ mod tests {
         std::fs::write(root.join("runtime.json"), "{}").unwrap();
         std::fs::write(root.join("app/node_modules/@deepseek-ai/dsh/lib/bin.js"), "").unwrap();
         assert!(bundled_launch_at(&root).is_none());
-        std::fs::write(root.join("node/bin/node"), "").unwrap();
+        let node_bin = if cfg!(target_os = "windows") {
+            root.join("node/node.exe")
+        } else {
+            root.join("node/bin/node")
+        };
+        std::fs::write(node_bin, "").unwrap();
         let launch = bundled_launch_at(&root).expect("complete runtime");
         assert!(launch.script.is_some());
         std::fs::remove_dir_all(root).unwrap();

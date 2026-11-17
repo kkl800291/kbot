@@ -1,7 +1,7 @@
-//! Xiaomi MiMo TTS (`mimo-v2.5-tts`) with local `0600` credential vault storage.
-//! User text is sent as structured request data, one short sentence segment per
-//! request; the next segment is synthesized while the current one plays from a
-//! private temp WAV via `afplay`.
+//! Alibaba Cloud DashScope Qwen3-TTS (`qwen3-tts-flash` / `qwen3-tts-instruct-flash`)
+//! sharing the unified DashScope credential (`realtime`, with legacy `tts` fallback).
+//! User text is sent as short sentence segments; the next segment is synthesized
+//! while the current one plays from a private temp audio file via `afplay`.
 
 use crate::storage::read_key;
 use base64::Engine;
@@ -9,49 +9,79 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::Write,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::Child,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Duration,
 };
+#[cfg(not(target_os = "windows"))]
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+};
 
 #[cfg(target_os = "macos")]
 use objc::{class, msg_send, sel, sel_impl};
 
 const MAX_CHARS: usize = 4_000;
-/// 预置音色：切成约 60 字的小段边合成边播，几秒就能开口；音色固定，段间只有轻微的语气差别。
-const SEGMENT_CHARS: usize = 60;
-/// “音色设计”模型每次请求都按描述重新生成一个声音，切段就等于换一个人说话。
-/// 所以尽量整篇一次合成（自动朗读最多 200 字，正好一段），代价是开口前要等更久。
-const DESIGN_SEGMENT_CHARS: usize = 400;
-// MiMo 不支持低延迟流式：约 60 字的一段实测要合成 7～8 秒，一整段 270 字要 20～32 秒；400 字的一段留足 60 秒。
-const SEGMENT_TIMEOUT: Duration = Duration::from_secs(60);
-const DEFAULT_MIMO_BASE: &str = "https://api.xiaomimimo.com/v1";
-const DEFAULT_MIMO_MODEL: &str = "mimo-v2.5-tts";
-const DEFAULT_MIMO_VOICE: &str = "冰糖";
+/// 预置音色：切成约 120 字的小段边合成边播，首句几百毫秒级即可开口。
+const SEGMENT_CHARS: usize = 120;
+const INSTRUCT_SEGMENT_CHARS: usize = 320;
+const SEGMENT_TIMEOUT: Duration = Duration::from_secs(35);
+const DEFAULT_QWEN_TTS_BASE: &str = "https://dashscope.aliyuncs.com/api/v1";
+const DEFAULT_QWEN_TTS_MODEL: &str = "qwen3-tts-flash";
+const DEFAULT_QWEN_TTS_VOICE: &str = "Cherry";
+#[cfg(target_os = "macos")]
 const DICTATION_MESSAGE: &str = "听写使用 macOS 本机语音识别。声音不会发给对话模型，识别结果只写入输入框，不会自动发送。";
+#[cfg(not(target_os = "macos"))]
+const DICTATION_MESSAGE: &str = "听写使用本机麦克风采集并转为文字。声音不会发给对话模型，识别结果只写入输入框，不会自动发送。";
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
 
-struct ActivePlayback {
-    child: Child,
-    temp_file: Option<PathBuf>,
+enum ActivePlayback {
+    Process {
+        child: Child,
+        temp_file: Option<PathBuf>,
+    },
+    #[cfg(target_os = "windows")]
+    WinMemory {
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    },
 }
 
 impl ActivePlayback {
     fn cleanup_file(&mut self) {
-        if let Some(path) = self.temp_file.take() {
-            let _ = fs::remove_file(path);
+        #[allow(irrefutable_let_patterns)]
+        if let ActivePlayback::Process { temp_file, .. } = self {
+            if let Some(path) = temp_file.take() {
+                let _ = fs::remove_file(path);
+            }
         }
     }
 
     fn kill_and_clean(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.cleanup_file();
+        match self {
+            ActivePlayback::Process { child, .. } => {
+                let _ = child.kill();
+                let _ = child.wait();
+                self.cleanup_file();
+            }
+            #[cfg(target_os = "windows")]
+            ActivePlayback::WinMemory { stop, .. } => {
+                stop.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    fn is_running(&mut self) -> bool {
+        match self {
+            ActivePlayback::Process { child, .. } => matches!(child.try_wait(), Ok(None)),
+            #[cfg(target_os = "windows")]
+            ActivePlayback::WinMemory { finished, .. } => !finished.load(Ordering::Acquire),
+        }
     }
 }
 
@@ -101,7 +131,7 @@ impl Speech {
             return Playback::Cancelled;
         }
         let playing = match guard.as_mut() {
-            Some(active) => matches!(active.child.try_wait(), Ok(None)),
+            Some(active) => active.is_running(),
             None => false,
         };
         if playing {
@@ -116,9 +146,11 @@ impl Speech {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MimoTtsConfig {
+pub struct QwenTtsConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub managed: bool,
     #[serde(default)]
     pub base: String,
     #[serde(default)]
@@ -148,21 +180,22 @@ pub struct DictationStatus {
 pub async fn voice_speak(
     speech: tauri::State<'_, Speech>,
     text: String,
-    mimo: Option<MimoTtsConfig>,
+    tts: Option<QwenTtsConfig>,
+    mimo: Option<QwenTtsConfig>,
     emotion: Option<String>,
 ) -> Result<SpeakOutcome, String> {
     validate_speech_text(&text)?;
-    let cfg = mimo
+    let cfg = tts
+        .or(mimo)
         .filter(|cfg| cfg.enabled)
-        .ok_or_else(|| "尚未配置 MiMo 语音，请到设置中保存 API Key".to_string())?;
+        .ok_or_else(|| "尚未配置千问语音服务，请先登录或到设置 → 语音中配置 API Key".to_string())?;
     let max = segment_chars(&cfg.model);
-    let synth = MimoSynth::new(cfg, emotion)?;
+    let synth = QwenSynth::new(cfg, emotion)?;
     let speech = speech.inner().clone();
     let generation = speech.begin();
-    speak_segments(&speech, generation, &synth, split_segments(&text, max))
-    .await?;
+    speak_segments(&speech, generation, &synth, split_segments(&text, max)).await?;
     Ok(SpeakOutcome {
-        provider: "mimo".into(),
+        provider: "qwen".into(),
     })
 }
 
@@ -179,10 +212,10 @@ pub async fn voice_stop(speech: tauri::State<'_, Speech>) -> Result<(), String> 
 async fn speak_segments(
     speech: &Speech,
     generation: u64,
-    synth: &MimoSynth,
+    synth: &QwenSynth,
     segments: Vec<String>,
 ) -> Result<(), String> {
-    let spawn = |text: String| tauri::async_runtime::spawn(synth.clone().wav(text));
+    let spawn = |text: String| tauri::async_runtime::spawn(synth.clone().audio(text));
     let mut queue = segments.into_iter();
     let mut next = queue.next().map(spawn);
     while let Some(task) = next.take() {
@@ -237,8 +270,8 @@ pub(crate) async fn play_segment(speech: &Speech, generation: u64, wav: Vec<u8>)
 }
 
 pub(crate) fn segment_chars(model: &str) -> usize {
-    if model.trim() == "mimo-v2.5-tts-voicedesign" {
-        DESIGN_SEGMENT_CHARS
+    if model.trim().contains("instruct") {
+        INSTRUCT_SEGMENT_CHARS
     } else {
         SEGMENT_CHARS
     }
@@ -335,25 +368,67 @@ pub fn voice_permission_status() -> DictationStatus {
     permission_status()
 }
 
-pub(crate) fn mimo_endpoint(raw_base: &str) -> Result<String, String> {
-    let base = if raw_base.trim().is_empty() {
-        DEFAULT_MIMO_BASE
+pub(crate) fn qwen_tts_endpoint(raw_base: &str) -> Result<String, String> {
+    let raw = raw_base.trim();
+    let base = if raw.is_empty() || raw.contains("xiaomimimo.com") {
+        DEFAULT_QWEN_TTS_BASE
     } else {
-        raw_base.trim()
+        raw
     };
-    let parsed = url::Url::parse(base).map_err(|_| "MiMo API 地址格式无效")?;
-    let host = parsed.host_str().ok_or("MiMo API 地址缺少主机名")?;
+    let mut parsed = url::Url::parse(base).map_err(|_| "千问语音 API 地址格式无效")?;
+    let host = parsed.host_str().ok_or("千问语音 API 地址缺少主机名")?;
     let local = matches!(host, "127.0.0.1" | "localhost" | "::1");
+    if parsed.scheme() == "wss" {
+        parsed.set_scheme("https").map_err(|_| "千问语音 API 地址协议无效")?;
+    } else if parsed.scheme() == "ws" && local {
+        parsed.set_scheme("http").map_err(|_| "千问语音 API 地址协议无效")?;
+    }
     if parsed.scheme() != "https" && !(local && parsed.scheme() == "http") {
-        return Err("MiMo API 地址必须使用 HTTPS（本机调试除外）".into());
+        return Err("千问语音 API 地址必须使用 HTTPS（本机调试除外）".into());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some() {
-        return Err("MiMo API 地址不能包含凭据或查询参数".into());
+        return Err("千问语音 API 地址不能包含凭据或查询参数".into());
     }
-    Ok(format!("{}/chat/completions", base.trim_end_matches('/')))
+    let path = parsed.path().trim_end_matches('/');
+    if path.ends_with("/services/aigc/multimodal-generation/generation") {
+        return Ok(parsed.to_string());
+    }
+    if path.is_empty()
+        || path == "/api-ws/v1/realtime"
+        || path == "/api/v1"
+        || path == "/compatible-mode/v1"
+    {
+        parsed.set_path("/api/v1/services/aigc/multimodal-generation/generation");
+    } else {
+        parsed.set_path(&format!("{path}/services/aigc/multimodal-generation/generation"));
+    }
+    Ok(parsed.to_string())
 }
 
-pub(crate) fn mimo_style_prompt(style: &str, emotion: Option<&str>) -> String {
+pub(crate) fn normalize_qwen_tts_model(raw: &str) -> &str {
+    let m = raw.trim();
+    if m.is_empty() || m.starts_with("mimo") {
+        DEFAULT_QWEN_TTS_MODEL
+    } else {
+        m
+    }
+}
+
+pub(crate) fn normalize_qwen_tts_voice(raw: &str) -> &str {
+    let v = raw.trim();
+    if v.is_empty()
+        || matches!(
+            v,
+            "冰糖" | "茉莉" | "苏打" | "白桦" | "mimo_default" | "Mia" | "Chloe" | "Milo" | "Dean"
+        )
+    {
+        DEFAULT_QWEN_TTS_VOICE
+    } else {
+        v
+    }
+}
+
+pub(crate) fn qwen_style_prompt(style: &str, emotion: Option<&str>) -> String {
     let base = if style.trim().is_empty() {
         "自然干练的桌面搭档口吻，吐字清晰，节奏从容；英文名 Kbot 连读作一个词，不要逐字母拼读。"
     } else {
@@ -376,58 +451,127 @@ pub(crate) fn mimo_style_prompt(style: &str, emotion: Option<&str>) -> String {
     }
 }
 
-pub(crate) fn mimo_request_body(text: &str, cfg: &MimoTtsConfig, emotion: Option<&str>) -> Value {
-    let model = if cfg.model.trim().is_empty() {
-        DEFAULT_MIMO_MODEL
-    } else {
-        cfg.model.trim()
-    };
-    let voice = if cfg.voice.trim().is_empty() {
-        DEFAULT_MIMO_VOICE
-    } else {
-        cfg.voice.trim()
-    };
-    let style = mimo_style_prompt(&cfg.style, emotion);
-    let audio = if model == "mimo-v2.5-tts-voicedesign" {
-        json!({ "format": "wav" })
-    } else {
-        json!({ "format": "wav", "voice": voice })
-    };
+pub(crate) fn qwen_tts_request_body(
+    text: &str,
+    cfg: &QwenTtsConfig,
+    emotion: Option<&str>,
+) -> Value {
+    let model = normalize_qwen_tts_model(&cfg.model);
+    let voice = normalize_qwen_tts_voice(&cfg.voice);
+    let mut input = json!({
+        "text": text,
+        "voice": voice,
+        "language_type": "Auto",
+    });
+    if model.contains("instruct") {
+        input["instructions"] = json!(qwen_style_prompt(&cfg.style, emotion));
+        return json!({
+            "model": model,
+            "input": input,
+            "parameters": {
+                "optimize_instructions": true
+            }
+        });
+    }
     json!({
         "model": model,
-        "messages": [
-            { "role": "user", "content": style },
-            { "role": "assistant", "content": text }
-        ],
-        "audio": audio,
-        "stream": false
+        "input": input
     })
 }
 
-pub(crate) fn decode_mimo_response(data: &Value) -> Result<Vec<u8>, String> {
-    let encoded = data["choices"]
-        .get(0)
-        .and_then(|c| c["message"]["audio"]["data"].as_str())
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "MiMo 语音服务未返回音频数据".to_string())?;
-    base64::engine::general_purpose::STANDARD
-        .decode(encoded.trim())
-        .map_err(|_| "MiMo 音频数据解码失败".to_string())
+pub(crate) enum QwenAudioPayload {
+    Bytes(Vec<u8>),
+    Url(String),
+}
+
+pub(crate) fn decode_qwen_tts_response(data: &Value) -> Result<QwenAudioPayload, String> {
+    if let Some(encoded) = data["output"]["audio"]["data"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| "千问语音音频数据解码失败".to_string())?;
+        return Ok(QwenAudioPayload::Bytes(bytes));
+    }
+    if let Some(url) = data["output"]["audio"]["url"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(QwenAudioPayload::Url(url.to_string()));
+    }
+    let message = data["message"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    Err(message
+        .map(|m| format!("千问语音合成失败：{m}"))
+        .unwrap_or_else(|| "千问语音服务未返回音频数据".to_string()))
+}
+
+fn read_tts_auth_key(managed: bool) -> Result<String, String> {
+    if managed {
+        let key = read_key("managed")
+            .map_err(|_| "尚未建立云端托管会话，请先免费领取体验额度或登录账号".to_string())?;
+        let trimmed = key.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("云端托管会话无效，请重新连接或切换自带 API Key".into());
+        }
+        return Ok(trimmed);
+    }
+    if let Ok(key) = read_key("realtime") {
+        let trimmed = key.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+    if let Ok(key) = read_key("tts") {
+        let trimmed = key.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+    Err("尚未配置千问语音 API Key，请先领取体验额度或到设置 → 语音中填写".into())
+}
+
+pub(crate) fn format_qwen_http_error(code: u16, raw_body: &str) -> String {
+    let detail = serde_json::from_str::<Value>(raw_body)
+        .ok()
+        .and_then(|v| {
+            let err_code = v["code"].as_str().map(str::trim).filter(|s| !s.is_empty());
+            let err_msg = v["message"].as_str().map(str::trim).filter(|s| !s.is_empty());
+            match (err_code, err_msg) {
+                (Some(c), Some(m)) => Some(format!("{c}: {m}")),
+                (None, Some(m)) => Some(m.to_string()),
+                (Some(c), None) => Some(c.to_string()),
+                (None, None) => None,
+            }
+        });
+    match (code, detail) {
+        (401 | 403, Some(d)) => format!("千问语音 API Key 无效或尚未开通权限（{d}）"),
+        (401 | 403, None) => "千问语音 API Key 无效或尚未开通权限".into(),
+        (402, _) => "千问语音账户额度不足，请充值或检查配额".into(),
+        (429, _) => "千问语音请求过于频繁，请稍后重试".into(),
+        (_, Some(d)) => format!("千问语音服务暂不可用（HTTP {code} · {d}）"),
+        (_, None) => format!("千问语音服务暂不可用（HTTP {code}）"),
+    }
 }
 
 #[derive(Clone)]
-struct MimoSynth {
+struct QwenSynth {
     endpoint: String,
     key: String,
     client: reqwest::Client,
-    cfg: MimoTtsConfig,
+    cfg: QwenTtsConfig,
     emotion: Option<String>,
 }
 
-impl MimoSynth {
-    fn new(cfg: MimoTtsConfig, emotion: Option<String>) -> Result<Self, String> {
-        let endpoint = mimo_endpoint(&cfg.base)?;
-        let key = read_key("tts")?.trim().to_string();
+impl QwenSynth {
+    fn new(cfg: QwenTtsConfig, emotion: Option<String>) -> Result<Self, String> {
+        let endpoint = qwen_tts_endpoint(&cfg.base)?;
+        let key = read_tts_auth_key(cfg.managed)?;
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(6))
             .timeout(SEGMENT_TIMEOUT)
@@ -442,84 +586,147 @@ impl MimoSynth {
         })
     }
 
-    async fn wav(self, text: String) -> Result<Vec<u8>, String> {
-        let body = mimo_request_body(&text, &self.cfg, self.emotion.as_deref());
+    async fn post_tts(&self, body: &Value) -> Result<Value, (u16, String)> {
         let response = self
             .client
             .post(&self.endpoint)
-            .header("api-key", &self.key)
             .bearer_auth(&self.key)
-            .json(&body)
+            .json(body)
             .send()
             .await
-            .map_err(network_error)?;
+            .map_err(|err| (0, network_error(err)))?;
         let status = response.status();
+        let raw_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            return Err(match status.as_u16() {
-                401 | 403 => "MiMo API Key 无效或无语音合成权限".into(),
-                402 => "MiMo 账户余额或 Token Plan 额度不足".into(),
-                421 => "MiMo 服务地域或接入点不匹配，请检查 API 地址".into(),
-                429 => "MiMo 语音请求过于频繁，请稍后重试".into(),
-                code => format!("MiMo 语音服务暂不可用（HTTP {code}）"),
-            });
+            let code = status.as_u16();
+            return Err((code, format_qwen_http_error(code, &raw_text)));
         }
-        let payload: Value = response.json().await.map_err(|err| {
-            if err.is_timeout() {
-                network_error(err)
-            } else {
-                "MiMo 语音返回格式无效".to_string()
+        serde_json::from_str::<Value>(&raw_text)
+            .map_err(|_| (0, "千问语音返回格式无效".to_string()))
+    }
+
+    async fn audio(self, text: String) -> Result<Vec<u8>, String> {
+        let body = qwen_tts_request_body(&text, &self.cfg, self.emotion.as_deref());
+        let payload = match self.post_tts(&body).await {
+            Ok(v) => v,
+            Err((404, _))
+                if normalize_qwen_tts_model(&self.cfg.model) != DEFAULT_QWEN_TTS_MODEL =>
+            {
+                let mut fallback_cfg = self.cfg.clone();
+                fallback_cfg.model = DEFAULT_QWEN_TTS_MODEL.to_string();
+                let fallback_body =
+                    qwen_tts_request_body(&text, &fallback_cfg, self.emotion.as_deref());
+                self.post_tts(&fallback_body)
+                    .await
+                    .map_err(|(_, msg)| msg)?
             }
-        })?;
-        decode_mimo_response(&payload)
+            Err((_, msg)) => return Err(msg),
+        };
+        match decode_qwen_tts_response(&payload)? {
+            QwenAudioPayload::Bytes(bytes) => Ok(bytes),
+            QwenAudioPayload::Url(url) => {
+                let parsed = url::Url::parse(&url).map_err(|_| "千问语音音频链接无效".to_string())?;
+                if !matches!(parsed.scheme(), "https" | "http") {
+                    return Err("千问语音音频链接协议无效".into());
+                }
+                let audio_resp = self
+                    .client
+                    .get(parsed)
+                    .send()
+                    .await
+                    .map_err(network_error)?;
+                if !audio_resp.status().is_success() {
+                    return Err(format!(
+                        "下载千问语音音频失败（HTTP {}）",
+                        audio_resp.status().as_u16()
+                    ));
+                }
+                let bytes = audio_resp
+                    .bytes()
+                    .await
+                    .map_err(|_| "读取千问语音音频数据失败".to_string())?;
+                Ok(bytes.to_vec())
+            }
+        }
     }
 }
 
 fn network_error(err: reqwest::Error) -> String {
     if err.is_timeout() {
-        format!("MiMo 语音合成超时（{} 秒）", SEGMENT_TIMEOUT.as_secs())
+        format!("千问语音合成超时（{} 秒）", SEGMENT_TIMEOUT.as_secs())
     } else {
-        "MiMo 语音连接失败，请检查网络".to_string()
+        "千问语音连接失败，请检查网络".to_string()
+    }
+}
+
+fn audio_extension(bytes: &[u8]) -> &'static str {
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+        "wav"
+    } else if bytes.starts_with(b"ID3") || (bytes.len() >= 2 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) {
+        "mp3"
+    } else {
+        "wav"
     }
 }
 
 /// `Ok(false)` when the utterance was stopped or replaced before playback could start.
-fn play_wav_bytes(speech: &Speech, generation: u64, wav_bytes: &[u8]) -> Result<bool, String> {
-    if wav_bytes.len() < 44 {
-        return Err("MiMo 返回的音频文件过短".into());
+fn play_wav_bytes(speech: &Speech, generation: u64, audio_bytes: &[u8]) -> Result<bool, String> {
+    if audio_bytes.len() < 44 {
+        return Err("千问语音返回的音频文件过短".into());
     }
-    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("kbot-mimo-{}-{seq}.wav", std::process::id()));
+    #[cfg(target_os = "windows")]
     {
-        let mut file = fs::File::create(&path).map_err(|_| "无法写入临时语音文件")?;
-        #[cfg(unix)]
+        use std::sync::atomic::AtomicBool;
+        let stop = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        crate::win_audio::play_audio_bytes(
+            audio_bytes.to_vec(),
+            Arc::clone(&stop),
+            Arc::clone(&finished),
+        )?;
+        return install_active(
+            speech,
+            generation,
+            ActivePlayback::WinMemory { stop, finished },
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let ext = audio_extension(audio_bytes);
+        let path = std::env::temp_dir().join(format!("kbot-qwen-tts-{}-{seq}.{ext}", std::process::id()));
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
+            let mut file = fs::File::create(&path).map_err(|_| "无法写入临时语音文件")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
+            }
+            file.write_all(audio_bytes)
+                .map_err(|_| "无法写入临时语音文件")?;
         }
-        file.write_all(wav_bytes)
-            .map_err(|_| "无法写入临时语音文件")?;
+        let child = match Command::new("/usr/bin/afplay")
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => {
+                let _ = fs::remove_file(&path);
+                return Err("无法启动音频播放组件".into());
+            }
+        };
+        install_active(
+            speech,
+            generation,
+            ActivePlayback::Process {
+                child,
+                temp_file: Some(path),
+            },
+        )
     }
-    let child = match Command::new("/usr/bin/afplay")
-        .arg(&path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => {
-            let _ = fs::remove_file(&path);
-            return Err("无法启动 macOS 音频播放（afplay）".into());
-        }
-    };
-    install_active(
-        speech,
-        generation,
-        ActivePlayback {
-            child,
-            temp_file: Some(path),
-        },
-    )
 }
 
 fn validate_speech_text(text: &str) -> Result<(), String> {
@@ -555,10 +762,7 @@ fn install_active(
 
 fn reap(slot: &mut Option<ActivePlayback>) {
     let done = match slot.as_mut() {
-        Some(active) => match active.child.try_wait() {
-            Ok(Some(_)) | Err(_) => true,
-            Ok(None) => false,
-        },
+        Some(active) => !active.is_running(),
         None => false,
     };
     if done {
@@ -570,7 +774,7 @@ fn reap(slot: &mut Option<ActivePlayback>) {
 
 pub(crate) fn permission_status() -> DictationStatus {
     DictationStatus {
-        implemented: cfg!(target_os = "macos"),
+        implemented: cfg!(any(target_os = "macos", target_os = "windows")),
         microphone: microphone_state(),
         speech_recognition: speech_state(),
         message: DICTATION_MESSAGE.into(),
@@ -608,7 +812,12 @@ pub(crate) fn microphone_state() -> String {
     .unwrap_or_else(|| "unknown".into())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub(crate) fn microphone_state() -> String {
+    crate::win_audio::input_device_state()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 pub(crate) fn microphone_state() -> String {
     "unsupported".into()
 }
@@ -624,7 +833,12 @@ pub(crate) fn speech_state() -> String {
     .unwrap_or_else(|| "unknown".into())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub(crate) fn speech_state() -> String {
+    "authorized".into()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 pub(crate) fn speech_state() -> String {
     "unsupported".into()
 }
@@ -683,60 +897,95 @@ mod tests {
     }
 
     #[test]
-    fn mimo_request_and_response_match_documented_schema() {
+    fn qwen_tts_request_and_response_match_documented_schema() {
         assert_eq!(
-            mimo_endpoint("").unwrap(),
-            "https://api.xiaomimimo.com/v1/chat/completions"
+            qwen_tts_endpoint("").unwrap(),
+            "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
         );
         assert_eq!(
-            mimo_endpoint("https://token-plan-cn.xiaomimimo.com/v1/").unwrap(),
-            "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+            qwen_tts_endpoint("https://api.xiaomimimo.com/v1").unwrap(),
+            "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
         );
-        assert!(mimo_endpoint("http://api.xiaomimimo.com/v1").is_err());
-        assert!(mimo_endpoint("https://api.xiaomimimo.com/v1?api_key=leak").is_err());
+        assert_eq!(
+            qwen_tts_endpoint("wss://dashscope.aliyuncs.com/api-ws/v1/realtime").unwrap(),
+            "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        );
+        assert_eq!(
+            qwen_tts_endpoint("https://gateway.example.com/qwen").unwrap(),
+            "https://gateway.example.com/qwen/services/aigc/multimodal-generation/generation"
+        );
+        assert_eq!(
+            qwen_tts_endpoint("https://dashscope.aliyuncs.com/compatible-mode/v1").unwrap(),
+            "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        );
+        assert!(format_qwen_http_error(404, r#"{"code":"ModelNotFound","message":"no model"}"#)
+            .contains("ModelNotFound: no model"));
+        assert!(qwen_tts_endpoint("http://dashscope.aliyuncs.com/api/v1").is_err());
+        assert!(qwen_tts_endpoint("https://dashscope.aliyuncs.com/api/v1?api_key=leak").is_err());
 
-        let cfg = MimoTtsConfig {
+        let cfg = QwenTtsConfig {
             enabled: true,
-            base: "https://api.xiaomimimo.com/v1".into(),
-            model: "mimo-v2.5-tts".into(),
-            voice: "冰糖".into(),
-            style: "元气可爱".into(),
+            managed: false,
+            base: "https://dashscope.aliyuncs.com/api/v1".into(),
+            model: "qwen3-tts-flash".into(),
+            voice: "Cherry".into(),
+            style: "沉稳自然".into(),
         };
-        let body = mimo_request_body("早安呀！", &cfg, Some("happy"));
-        assert_eq!(body["model"], "mimo-v2.5-tts");
-        assert_eq!(body["audio"]["voice"], "冰糖");
-        assert_eq!(body["audio"]["format"], "wav");
-        assert_eq!(body["messages"][1]["role"], "assistant");
-        assert_eq!(body["messages"][1]["content"], "早安呀！");
-        assert!(body["messages"][0]["content"]
+        let body = qwen_tts_request_body("早安呀！", &cfg, Some("happy"));
+        assert_eq!(body["model"], "qwen3-tts-flash");
+        assert_eq!(body["input"]["voice"], "Cherry");
+        assert_eq!(body["input"]["text"], "早安呀！");
+        assert_eq!(body["input"]["language_type"], "Auto");
+        assert!(body["input"]["instructions"].is_null());
+
+        let instruct_cfg = QwenTtsConfig {
+            model: "qwen3-tts-instruct-flash".into(),
+            voice: "冰糖".into(),
+            ..cfg
+        };
+        let instruct_body = qwen_tts_request_body("早安呀！", &instruct_cfg, Some("happy"));
+        assert_eq!(instruct_body["model"], "qwen3-tts-instruct-flash");
+        assert_eq!(instruct_body["input"]["voice"], "Cherry");
+        assert!(instruct_body["input"]["instructions"]
             .as_str()
             .unwrap()
             .contains("笑意"));
+        assert_eq!(instruct_body["parameters"]["optimize_instructions"], true);
 
         let wav = b"RIFF$\x00\x00\x00WAVEfmt ";
         let encoded = base64::engine::general_purpose::STANDARD.encode(wav);
-        let decoded = decode_mimo_response(&json!({
-            "choices": [{ "message": { "audio": { "data": encoded } } }]
+        match decode_qwen_tts_response(&json!({
+            "output": { "audio": { "data": encoded } }
         }))
-        .unwrap();
-        assert_eq!(decoded, wav);
-        assert!(decode_mimo_response(&json!({ "choices": [] })).is_err());
+        .unwrap()
+        {
+            QwenAudioPayload::Bytes(bytes) => assert_eq!(bytes, wav),
+            QwenAudioPayload::Url(_) => panic!("expected bytes"),
+        }
+        match decode_qwen_tts_response(&json!({
+            "output": { "audio": { "data": "", "url": "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav" } }
+        }))
+        .unwrap()
+        {
+            QwenAudioPayload::Url(url) => assert!(url.ends_with("test.wav")),
+            QwenAudioPayload::Bytes(_) => panic!("expected url"),
+        }
+        assert!(decode_qwen_tts_response(&json!({ "output": {} })).is_err());
     }
 
     #[test]
     fn long_text_is_split_into_short_sentence_segments() {
         let text = "好的，先生。我已经检查了你今天的日程安排，上午十点有一个产品评审会议，下午两点需要和设计团队对齐新版本的交互细节。另外，傍晚可能下雨！记得带伞。";
         let segments = split_segments(text, SEGMENT_CHARS);
-        assert!(segments.len() > 1);
+        assert_eq!(split_segments(text, SEGMENT_CHARS), vec![text]);
         assert!(segments.iter().all(|s| s.chars().count() <= SEGMENT_CHARS));
         assert_eq!(segments.concat(), text);
 
-        // 音色设计模型每段都会换一个声音：自动朗读的长度整篇一次合成，更长的只在句末切开
-        let design = segment_chars("mimo-v2.5-tts-voicedesign");
-        assert_eq!(segment_chars("mimo-v2.5-tts"), SEGMENT_CHARS);
-        assert_eq!(split_segments(text, design), vec![text]);
+        let instruct = segment_chars("qwen3-tts-instruct-flash");
+        assert_eq!(segment_chars("qwen3-tts-flash"), SEGMENT_CHARS);
+        assert_eq!(split_segments(text, instruct), vec![text]);
         let long = text.repeat(8);
-        let segments = split_segments(&long, design);
+        let segments = split_segments(&long, instruct);
         assert!(segments.len() > 1);
         assert!(segments.iter().all(|s| s.ends_with('。') || s.ends_with('！')));
         assert_eq!(segments.concat(), long);
@@ -774,7 +1023,7 @@ mod tests {
         assert_eq!(speech_label(1), "denied");
         assert_eq!(speech_label(3), "authorized");
         let status = permission_status();
-        assert_eq!(status.implemented, cfg!(target_os = "macos"));
+        assert_eq!(status.implemented, cfg!(any(target_os = "macos", target_os = "windows")));
         assert!(status.message.contains("不会发给对话模型"));
         assert!(!status.message.is_empty());
         assert!(matches!(

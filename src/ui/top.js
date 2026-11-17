@@ -19,7 +19,9 @@ import {
   const summonEl = $('#summon'), capEl = $('#sCap'), capBar = $('#sCapBar'), titleEl = $('#sTitle');
   const tallBtn = $('#sTall'), newBtn = $('#sNew'), scrollEl = $('#sScroll'), threadEl = $('#sThread');
   const noteSlot = $('#sNoteSlot'), interimEl = $('#sInterim');
-  const sMic = $('#sMic'), sInput = $('#sInput'), sBtn = $('#sBtn');
+  const sField = $('.s-field', summonEl), sMic = $('#sMic'), sInput = $('#sInput'), sCall = $('#sCall'), sBtn = $('#sBtn');
+  const sCallHud = $('#sCallHud'), sCallPhase = $('#sCallPhase'), sCallSub = $('#sCallSub'), sCallDock = $('#sCallDock');
+  const cMute = $('#cMute'), cHangup = $('#cHangup'), cToText = $('#cToText');
   const panel = $('#panel'), input = $('#input');
   const standbyEl = $('#standby');
   const PALETTES = ['molten', 'aurora', 'iri'];
@@ -30,7 +32,7 @@ import {
 
   // cap：召唤态对话区高度；tall：是否展开更多阅读空间；surface：进行中的回复最后是在召唤态还是窗口里看的
   const T = { state: 'hidden', act: null, chatMode: 'listen', note: null, safeTop: 0, notch: 0, area: 0, layout: null, moving: false, cap: 0, tall: false, surface: 'summon', chatOffset: { x: 0, y: 0 } };
-  const V = { mode: 'off', phase: 'off', wanted: false, manualTyping: false, prompting: false, dictTimer: 0, resumeTimer: 0, rtTurn: null, bridging: null };
+  const V = { mode: 'off', phase: 'off', inCall: false, wanted: false, manualTyping: false, prompting: false, dictTimer: 0, resumeTimer: 0, rtTurn: null, bridging: null };
   const notes = createNoteQueue();
   const energy = A.energy = createEnergy(energyEl, {
     palette: PALETTES.includes(A.S.palette) ? A.S.palette : 'molten', reduced: !!A.S.reduced,
@@ -56,8 +58,7 @@ import {
     const r = stage.getBoundingClientRect();
     const args = {
       x: r.left + halo.x, y: r.top + halo.y, w: halo.w, h: Math.max(1, halo.h), feather: halo.feather, radius: halo.radius || 0, visible, standby: !!halo.standby,
-      // 待命空间的衬底整体淡入淡出，和网页那层暮色同一个节奏
-      duration: immediate || (lastStandby && !halo.standby) ? 0 : A.S.reduced ? 0.15 : halo.standby ? (visible ? 0.5 : 0.58) : fade ? 0.3 : 0.44, spring: false,
+      duration: immediate || (lastStandby && !halo.standby) ? 0 : A.S.reduced ? 0.15 : halo.standby ? (visible ? 0.34 : 0.28) : fade ? 0.3 : 0.44, spring: false,
     };
     lastStandby = !!halo.standby;
     command('set_backdrop', { backdrop: args }).catch(err => {
@@ -69,7 +70,7 @@ import {
     // 淡出结束后把系统模糊视图真正藏起来，不再参与合成
     if (!visible) hideTimer = setTimeout(() => {
       if (T.state === 'hidden' && nativeBackdrop) command('set_backdrop', { backdrop: { ...args, duration: 0 } }).catch(() => {});
-    }, halo.standby ? (A.S.reduced ? 180 : 640) : 460);
+    }, halo.standby ? (A.S.reduced ? 180 : 320) : 460);
   }
 
   /** 待命空间里球背后那一小片压深的暮色对准球的位置。衬底本身是整体淡入淡出的，不从哪里铺开。 */
@@ -103,6 +104,30 @@ import {
   // 变形途中，内容不跟着底板的大小重排：旧内容按原来的大小留在原地淡出，新内容一开始就是最终的大小，都靠顶居中
   const pin = (el, w, h) => Object.assign(el.style, { left: '50%', marginLeft: -w / 2 + 'px', width: w + 'px', height: h + 'px' });
   const unpin = el => { if (el) Object.assign(el.style, { left: '', marginLeft: '', width: '', height: '' }); };
+  const summonCapLimit = () => {
+    const cap = T.tall ? Math.round(innerHeight * 0.62) : Math.round(innerHeight * 0.42);
+    return Math.max(150, Math.min(T.tall ? 580 : 400, cap, Math.max(150, innerHeight - 210)));
+  };
+  function summonEnergyBox() {
+    const vw = innerWidth, vh = innerHeight;
+    if (V.inCall) {
+      const hudTop = sCallHud && !sCallHud.hidden ? sCallHud.getBoundingClientRect().top : 0;
+      const anchorTop = hudTop > 120 ? hudTop : Math.round(vh * 0.56);
+      const roomAbove = Math.max(96, anchorTop - 28);
+      const h = Math.min(250, Math.round(roomAbove - 12));
+      const w = Math.min(620, vw - 64);
+      const y = Math.max(18, anchorTop - h - 26);
+      return [(vw - w) / 2, y, w, h];
+    }
+    const capH = T.cap > 0 ? Math.min(T.cap, summonCapLimit()) : 0;
+    const stackH = capH > 0 ? capH + 12 + 48 : 48;
+    const stackTop = Math.max(28, (vh - stackH) / 2);
+    const roomAbove = Math.max(64, stackTop - 16);
+    const h = Math.min(230, roomAbove);
+    const w = Math.min(620, vw - 64);
+    const y = Math.max(10, stackTop - h - (capH > 0 ? 6 : 14));
+    return [(vw - w) / 2, y, w, h];
+  }
   function setState(st) {
     if (A.hidden && st !== 'hidden') return;
     const prev = T.state;
@@ -127,9 +152,8 @@ import {
     } else unpin(inn);
     stage.classList.toggle('morph', swap);
     if (st === 'summon') {
-      capEl.style.transition = `height ${tr}`; capEl.style.height = Math.min(T.cap, L.summon.captionMax) + 'px';
-      summonEl.style.transition = prev === 'summon' ? `opacity .3s ease, padding-top ${tr}, visibility 0s` : '';
-      summonEl.style.setProperty('--summon-top', L.summon.inputY + 'px');
+      capEl.style.transition = `height ${tr}`; capEl.style.height = Math.min(T.cap, summonCapLimit()) + 'px';
+      summonEl.style.transition = '';
       summonEl.classList.toggle('tall', !!L.summon.tall);
     } else summonEl.style.transition = '';
     const halo = visible ? L.halo : T.layout?.halo;
@@ -173,16 +197,30 @@ import {
 
   function placeEnergy(L, { immediate = false } = {}) {
     const r = stage.getBoundingClientRect(), at = energyPlacement(L, { x: r.left, y: r.top });
+    const box = T.state === 'summon' ? summonEnergyBox() : at.box;
     if (energy.setBand) {
-      energy.setBox(at.box, { immediate });
+      energy.setBox(box, { immediate });
       energy.setBand(at.band);
     }
     // 能量体还没有进度带接口时，任务条仍把整个身体铺成底边的带子
-    else energy.setBox(at.band || at.box, { immediate });
+    else energy.setBox(at.band || box, { immediate });
     if (energy.setEdge) {
       if (T.state === 'summon') energy.setEdge(null, { immediate });
-      else if (T.state === 'chat' && L?.halo) energy.setEdge([r.left + L.halo.x, r.top + L.halo.y, L.halo.w, L.halo.h, L.halo.radius || 24], { immediate });
-      else energy.setEdge(false, { immediate });
+      else if (T.state === 'chat' && L?.halo) {
+        energy.setEdge([r.left + L.halo.x, r.top + L.halo.y, L.halo.w, L.halo.h, L.halo.radius || 24], { immediate });
+      } else energy.setEdge(false, { immediate });
+    }
+    if (energy.setFieldEdge) {
+      const edgeTarget = V.inCall ? sCallDock : sField;
+      if (T.state === 'summon' && edgeTarget) {
+        energy.setFieldEdge(() => {
+          if (T.state !== 'summon') return null;
+          const el = V.inCall ? sCallDock : sField;
+          if (!el) return null;
+          const b = el.getBoundingClientRect();
+          return b.width > 2 && b.height > 2 ? [b.left, b.top, b.width, b.height, V.inCall ? 27 : 24] : null;
+        }, { immediate });
+      } else energy.setFieldEdge(false, { immediate });
     }
   }
 
@@ -461,8 +499,10 @@ import {
     renderNoteSlot();
     renderInterim();
     const C = A.chat, msgs = C?.cur?.messages || [];
-    const hasConv = msgs.length > 0 || !!S.note || !!S.interim.trim();
+    const hasConv = !V.inCall && (msgs.length > 0 || !!S.note || !!S.interim.trim());
     summonEl.classList.toggle('has-conv', hasConv);
+    standbyEl.classList.toggle('has-conv', hasConv);
+    energy.setDeliver?.(hasConv);
 
     if (titleEl) {
       if (C?.generating || V.phase === 'thinking') titleEl.textContent = 'KBOT 思考中…';
@@ -481,10 +521,10 @@ import {
 
     let capH = 0;
     if (hasConv) {
-      const L = currentLayout('summon');
+      const capMax = summonCapLimit();
       const barH = capBar.offsetHeight || 32;
       const rawH = Math.ceil(barH + scrollEl.scrollHeight);
-      capH = Math.min(L.summon.captionMax, Math.max(92, rawH));
+      capH = Math.min(capMax, Math.max(92, rawH));
       if (C?.generating || V.phase === 'thinking' || V.phase === 'speaking') {
         capH = S.hold = Math.max(capH, S.hold);
       } else {
@@ -528,6 +568,24 @@ import {
     });
   }
 
+  function setCallSub(text, role = 'assistant') {
+    if (!sCallSub) return;
+    const prevHidden = sCallSub.hidden;
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!V.inCall || !clean) {
+      sCallSub.hidden = true;
+      sCallSub.textContent = '';
+      sCallSub.classList.remove('user');
+    } else {
+      sCallSub.hidden = false;
+      sCallSub.classList.toggle('user', role === 'user');
+      sCallSub.textContent = clean;
+    }
+    if (V.inCall && T.state === 'summon' && (prevHidden !== sCallSub.hidden || clean)) {
+      requestAnimationFrame(() => { if (T.state === 'summon' && V.inCall && T.layout) placeEnergy(T.layout); });
+    }
+  }
+
   function setVoiceUi(phase, level = 0) {
     V.phase = phase;
     if (summonEl) {
@@ -536,16 +594,27 @@ import {
     }
     energy.setVoiceActive(phase === 'listening' || phase === 'connecting');
     if (sMic) {
-      const active = phase !== 'off' && phase !== 'muted';
-      const tip = phase === 'speaking' ? '正在说话，点击打断'
-        : phase === 'listening' ? '正在倾听，点击静音'
-          : phase === 'connecting' ? '正在连接语音…'
-            : phase === 'thinking' ? '正在思考…'
-              : phase === 'muted' ? '语音已静音，点击继续说话'
-                : '点击开启语音交流';
-      sMic.setAttribute('aria-pressed', String(active));
+      const dictActive = V.mode === 'dictate' && phase === 'listening';
+      const tip = dictActive ? '正在听写，点击停止' : '语音输入（说话转文字）';
+      sMic.setAttribute('aria-pressed', String(dictActive));
       sMic.title = tip;
       sMic.setAttribute('aria-label', tip);
+    }
+    if (sCallPhase) {
+      sCallPhase.textContent = phase === 'connecting' ? '正在接通语音通话…'
+        : phase === 'listening' ? '正在倾听，随时开口说话…'
+          : phase === 'thinking' ? '正在思考…'
+            : phase === 'speaking' ? '正在回复（可随时插话）'
+              : phase === 'muted' ? '麦克风已静音'
+                : '语音通话已暂停';
+    }
+    if (cMute) {
+      const muted = phase === 'muted' || phase === 'off';
+      cMute.dataset.muted = muted ? '1' : '0';
+      cMute.setAttribute('aria-pressed', String(!muted));
+      cMute.innerHTML = A.icon(muted ? 'micOff' : 'mic', 16);
+      cMute.title = muted ? '取消静音' : '静音';
+      cMute.setAttribute('aria-label', muted ? '取消静音' : '静音');
     }
   }
 
@@ -556,6 +625,14 @@ import {
     V.resumeTimer = 0;
   }
 
+  function setVoiceCallUi(on) {
+    V.inCall = Boolean(on);
+    summonEl?.classList.toggle('voice-call', V.inCall);
+    if (sCallHud) sCallHud.hidden = !V.inCall;
+    if (!V.inCall) setCallSub('');
+    else requestAnimationFrame(() => { if (T.state === 'summon' && V.inCall && T.layout) placeEnergy(T.layout); });
+  }
+
   function stopSummonVoice() {
     clearVoiceTimers();
     V.wanted = false;
@@ -563,6 +640,7 @@ import {
     V.mode = 'off';
     V.rtTurn = null;
     V.bridging = null;
+    setVoiceCallUi(false);
     A.voice?.setRealtimeBridging?.(false);
     A.voice?.stopDictation?.().catch?.(() => {});
     A.voice?.stopRealtime?.().catch?.(() => {});
@@ -627,6 +705,7 @@ import {
     const instructions = buildRealtimeInstructions({
       personaHint: personaHint(A.S.persona),
       nickname: addressName(A.S.nickname),
+      recentTurns: (A.chat?.cur?.messages || []).slice(-6),
     });
     try {
       await A.voice.startRealtime({
@@ -690,10 +769,13 @@ import {
             turn.userText += text;
             const live = turn.userText.trim();
             if (live) {
-              S.interim = live;
-              renderInterim();
-              scheduleSummonSync(true);
-              if (!sInput.value) sInput.placeholder = `正在听：${live}`;
+              if (V.inCall) setCallSub(live, 'user');
+              else {
+                S.interim = live;
+                renderInterim();
+                scheduleSummonSync(true);
+                if (!sInput.value) sInput.placeholder = `正在听：${live}`;
+              }
             }
             S.active = Date.now();
             return;
@@ -702,6 +784,7 @@ import {
           S.interim = '';
           renderInterim();
           syncField();
+          if (V.inCall && spoken) setCallSub(spoken, 'user');
           if (!spoken) { scheduleSummonSync(); return; }
           const conv = A.chat.cur;
           const um = { id: A.uid(), role: 'user', text: spoken, images: [], time: Date.now() };
@@ -752,6 +835,7 @@ import {
           const parsed = extractDshBridgeDirective(turn.rawText);
           turn.assistantMsg.text = parsed.cleanText;
           A.chat.paintText(turn.assistantMsg);
+          if (V.inCall && parsed.cleanText) setCallSub(parsed.cleanText, 'assistant');
         },
         onToolCall({ callId, name, arguments: rawArgs }) {
           if (T.state !== 'summon') return;
@@ -793,9 +877,12 @@ import {
             A.voice?.stopRealtime?.().catch?.(() => {});
             startNativeVoiceSession();
           } else if (T.state === 'summon') {
-            V.mode = 'off';
-            setVoiceUi('off');
-            syncField();
+            if (V.inCall) exitVoiceCall({ closeSummon: false });
+            else {
+              V.mode = 'off';
+              setVoiceUi('off');
+              syncField();
+            }
           }
         },
         onEnd() {
@@ -805,9 +892,12 @@ import {
             A.voice?.setRealtimeBridging?.(false);
             T.chatMode = 'listen';
             syncMode();
-            setVoiceUi('off');
-            syncField();
-            armAuto();
+            if (V.inCall) exitVoiceCall({ closeSummon: false });
+            else {
+              setVoiceUi('off');
+              syncField();
+              armAuto();
+            }
           }
         },
       });
@@ -818,9 +908,12 @@ import {
       if (!noMic && A.S.voice?.realtimeMode === 'auto' && A.S.model !== 'none' && T.state === 'summon') {
         startNativeVoiceSession();
       } else {
-        V.mode = 'off';
-        setVoiceUi('off');
-        syncField();
+        if (V.inCall) exitVoiceCall({ closeSummon: false });
+        else {
+          V.mode = 'off';
+          setVoiceUi('off');
+          syncField();
+        }
       }
     }
   }
@@ -861,15 +954,21 @@ import {
         },
         onPartial(text) {
           if (T.state !== 'summon' || V.manualTyping) return;
-          sInput.value = text;
+          if (V.inCall) {
+            if (text.trim()) setCallSub(text.trim(), 'user');
+          } else {
+            sInput.value = text;
+          }
           S.active = Date.now();
           energy.kick();
           clearTimeout(V.dictTimer);
-          if (text.trim()) {
+          if (V.inCall && text.trim()) {
             V.dictTimer = setTimeout(() => {
-              if (T.state === 'summon' && !V.manualTyping && sInput.value.trim() && !A.chat.generating) {
+              const spoken = text.trim();
+              if (T.state === 'summon' && V.inCall && spoken && !A.chat.generating) {
                 A.voice?.stopDictation?.().catch?.(() => {});
-                send();
+                setVoiceUi('thinking');
+                A.chat.send(spoken, []);
               }
             }, 1150);
           }
@@ -878,9 +977,18 @@ import {
           clearTimeout(V.dictTimer);
           if (T.state !== 'summon' || V.manualTyping) return;
           const spoken = String(text || '').trim();
-          if (spoken && !A.chat.generating) {
-            sInput.value = spoken;
-            send();
+          if (V.inCall) {
+            if (spoken && !A.chat.generating) {
+              setCallSub(spoken, 'user');
+              setVoiceUi('thinking');
+              A.chat.send(spoken, []);
+            }
+            return;
+          }
+          if (spoken) {
+            const prefix = sInput.value.trim();
+            sInput.value = prefix ? `${prefix} ${spoken}` : spoken;
+            sInput.focus();
           }
         },
         onError(message) {
@@ -888,9 +996,13 @@ import {
           const silenceOnly = !sInput.value.trim() && String(message || '').includes('没有听到声音');
           if (!silenceOnly && message) A.toast?.(message, 4500);
           if (T.state === 'summon') {
-            setVoiceUi('off');
-            syncField();
-            armAuto();
+            if (V.inCall && silenceOnly && V.wanted) {
+              scheduleNativeResume();
+            } else {
+              setVoiceUi('off');
+              syncField();
+              armAuto();
+            }
           }
         },
         onEnd() {
@@ -898,6 +1010,7 @@ import {
           if (T.state === 'summon' && V.mode === 'dsh-native') {
             if (A.chat.generating) setVoiceUi('thinking');
             else if (A.voice?.speaking) setVoiceUi('speaking');
+            else if (V.inCall && V.wanted && !V.manualTyping) scheduleNativeResume();
             else if (V.phase !== 'muted') setVoiceUi('off');
             syncField();
             armAuto();
@@ -925,12 +1038,95 @@ import {
     if (!force && location.search.includes('visualPreview')) return;
     const backend = resolveSummonVoiceBackend(A.S);
     if (!force && (backend === 'off' || A.isDnd?.())) return;
-    if (backend === 'qwen-realtime' || (force && A.S.voice?.realtimeHasKey && A.S.voice?.realtimeMode !== 'dsh-native')) {
+    setVoiceCallUi(true);
+    syncSummonCard();
+    setState('summon');
+    const rtReady = Boolean(A.cloud?.voiceManaged?.() || A.S.voice?.realtimeHasKey);
+    if (backend === 'qwen-realtime' || (force && rtReady && A.S.voice?.realtimeMode !== 'dsh-native')) {
       startRealtimeSession();
     } else if (A.S.model !== 'none') {
       startNativeVoiceSession();
-    } else if (force) {
-      A.toast?.('请先在设置中连接智能核心或开启实时语音服务', 4000);
+    } else {
+      setVoiceCallUi(false);
+      syncSummonCard();
+      setState('summon');
+      if (force) A.toast?.('请先领取体验额度或连接智能核心/百炼语音后再通话', 4000);
+    }
+  }
+
+  function startVoiceCall() {
+    if (!A.native) { A.toast?.('请在桌面应用中使用语音通话'); return; }
+    if (T.state !== 'summon') {
+      A.summon.open({ enterCall: true });
+      return;
+    }
+    if (A.voice?.dictating) A.voice.stopDictation().catch(() => {});
+    startSummonVoice({ force: true });
+  }
+
+  function exitVoiceCall({ closeSummon = false } = {}) {
+    stopSummonVoice();
+    if (closeSummon) {
+      A.summon.close();
+      return;
+    }
+    syncField();
+    syncSummonCard();
+    setState('summon');
+    focusSummon();
+  }
+
+  async function toggleTextDictation() {
+    if (!A.native) { A.toast?.('请在桌面应用中使用语音输入'); return; }
+    if (A.voice?.dictating || V.mode === 'dictate') {
+      V.mode = 'off';
+      clearVoiceTimers();
+      await A.voice?.stopDictation?.().catch(() => {});
+      setVoiceUi('off');
+      syncField();
+      return;
+    }
+    V.mode = 'dictate';
+    V.manualTyping = false;
+    setVoiceUi('connecting');
+    syncField();
+    try {
+      await A.voice.startDictation({
+        onLevel(lvl) {
+          if (T.state === 'summon') summonEl.style.setProperty('--voice-level', String(lvl));
+        },
+        onPartial(text) {
+          if (T.state === 'summon' && V.mode === 'dictate' && !V.manualTyping && text.trim()) {
+            sInput.placeholder = `听写中：${text.trim()}`;
+          }
+        },
+        onFinal(text) {
+          const spoken = String(text || '').trim();
+          if (spoken) {
+            const cur = sInput.value.trim();
+            sInput.value = cur ? `${cur} ${spoken}` : spoken;
+            S.active = Date.now();
+            energy.kick();
+          }
+        },
+        onError(msg) {
+          const silenceOnly = !sInput.value.trim() && String(msg || '').includes('没有听到声音');
+          if (!silenceOnly && msg) A.toast?.(msg, 4000);
+          if (V.mode === 'dictate') { V.mode = 'off'; setVoiceUi('off'); syncField(); }
+        },
+        onEnd() {
+          if (V.mode === 'dictate') { V.mode = 'off'; setVoiceUi('off'); syncField(); focusSummon(); }
+        },
+      });
+      if (T.state === 'summon' && V.mode === 'dictate' && A.voice?.dictating) {
+        setVoiceUi('listening');
+        syncField();
+      }
+    } catch (err) {
+      V.mode = 'off';
+      setVoiceUi('off');
+      syncField();
+      A.toast?.(String(err?.message || err || '无法启动语音输入'), 4000);
     }
   }
 
@@ -941,12 +1137,9 @@ import {
     const canChat = V.mode === 'qwen-realtime' || !off;
     sInput.readOnly = !canChat;
     const ph = !canChat ? off
-      : V.phase === 'connecting' ? '正在连接语音交流…'
-        : V.phase === 'listening' ? '正在倾听，直接说或打字…'
-          : V.phase === 'thinking' ? '正在思考…'
-            : V.phase === 'speaking' ? '正在回复…（可直接开口打断）'
-              : V.phase === 'muted' ? '已静音，可直接打字或点击左侧麦克风说话'
-                : A.S.voice?.summonVoice === false ? '打字吩咐，或点左侧麦克风说话' : '直接说，或者打字…';
+      : V.mode === 'dictate' && V.phase === 'listening' ? '正在听写，说完转入输入框…'
+        : V.phase === 'connecting' ? '正在连接语音…'
+          : A.S.voice?.summonVoice ? '打字，或按快捷键直接语音通话…' : '打字吩咐（点右侧电话进入纯语音通话）';
     sInput.placeholder = ph;
     // 右侧按钮：生成中是“停止生成”，朗读/说话中是“停止说话”，其余是“在窗口中继续”
     const tip = gen ? '停止生成' : speaking ? '停止说话（Esc）' : '在窗口中继续（⌘↩）';
@@ -959,7 +1152,8 @@ import {
   function send() {
     const C = A.chat, text = sInput.value.trim();
     if (!text) return;
-    if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
+    // 文字输入统一交给完整的 DSH 智能核心，避免同一对话在 Qwen-Omni 与 DSH 间切换造成身份和记忆割裂；仅在未配置 DSH 时退回实时语音文本通道
+    if (A.S.model === 'none' && V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
       sInput.value = '';
       const conv = C.cur;
       const um = { id: A.uid(), role: 'user', text, images: [], time: Date.now() };
@@ -989,6 +1183,10 @@ import {
       return;
     }
     if (C.generating || A.S.model === 'none') return;
+    if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
+      V.rtTurn = null;
+      if (A.voice.realtimeSpeaking) A.voice.stop?.().catch?.(() => {});
+    }
     sInput.value = '';
     C.send(text, []);
     const m = C.cur.messages.at(-1);
@@ -1025,6 +1223,7 @@ import {
     renderInterim();
     S.hold = 0;
     S.replied = false;
+    standbyEl.classList.remove('has-conv');
     clearTimeout(capTimer);
     capTimer = setTimeout(() => { if (T.state !== 'summon') { capEl.style.transition = 'none'; capEl.style.height = T.cap + 'px'; } }, 400);
   }
@@ -1062,25 +1261,21 @@ import {
   sInput.addEventListener('input', () => { S.active = Date.now(); energy.kick(); });
   input.addEventListener('input', () => { if (T.state === 'chat') energy.kick(); });
   if (sMic) {
-    sMic.addEventListener('click', async () => {
-      if (!A.native) { A.toast?.('请在桌面应用中使用语音交流'); return; }
-      if (V.phase === 'connecting') {
-        stopSummonVoice();
-        setVoiceUi('muted');
-        syncField();
-        armAuto();
-        return;
-      }
+    sMic.addEventListener('click', () => {
+      void toggleTextDictation();
+    });
+  }
+  if (sCall) {
+    sCall.addEventListener('click', () => {
+      startVoiceCall();
+    });
+  }
+  if (cMute) {
+    cMute.addEventListener('click', async () => {
       if (V.phase === 'speaking' || A.voice?.speaking) {
-        await A.voice.stop?.();
+        await A.voice?.stop?.();
         if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
-          T.chatMode = 'listen';
-          syncMode();
           setVoiceUi(A.voice.realtimeMuted ? 'muted' : 'listening');
-          syncField();
-        } else if (V.mode === 'dsh-native') {
-          V.manualTyping = false;
-          startNativeVoiceSession();
         }
         return;
       }
@@ -1089,7 +1284,6 @@ import {
         await A.voice.setRealtimeMuted(nextMuted);
         V.wanted = !nextMuted;
         setVoiceUi(nextMuted ? 'muted' : 'listening');
-        syncField();
         armAuto();
         return;
       }
@@ -1098,14 +1292,17 @@ import {
         clearVoiceTimers();
         await A.voice.stopDictation().catch(() => {});
         setVoiceUi('muted');
-        syncField();
-        armAuto();
-        return;
+      } else {
+        V.wanted = true;
+        startNativeVoiceSession();
       }
-      V.manualTyping = false;
-      V.wanted = true;
-      startSummonVoice({ force: true });
     });
+  }
+  if (cHangup) {
+    cHangup.addEventListener('click', () => exitVoiceCall({ closeSummon: true }));
+  }
+  if (cToText) {
+    cToText.addEventListener('click', () => exitVoiceCall({ closeSummon: false }));
   }
   sBtn.addEventListener('click', () => {
     const gen = A.chat.generating, speaking = !!A.voice?.speaking || V.phase === 'speaking';
@@ -1181,6 +1378,10 @@ import {
     }
     if (T.state === 'summon') {
       if (S.msg) { S.replied = true; S.active = Date.now(); armAuto(); }
+      if (V.mode === 'qwen-realtime' && !V.bridging) {
+        setVoiceUi(A.voice?.realtimeActive ? (A.voice?.realtimeMuted ? 'muted' : 'listening') : 'off');
+        syncField();
+      }
       if (V.mode === 'dsh-native' && V.wanted && !V.manualTyping && !A.isDnd?.()) {
         setTimeout(() => {
           if (T.state !== 'summon' || V.mode !== 'dsh-native' || !V.wanted || V.manualTyping || A.chat?.generating) return;
@@ -1189,10 +1390,15 @@ import {
             syncField();
             return;
           }
-          if (S.msg?.text?.trim() && A.S.voice?.hasKey && A.S.voice?.enabled) {
+          if (V.inCall && S.msg?.text?.trim()) setCallSub(S.msg.text, 'assistant');
+          if (S.msg?.text?.trim() && (A.cloud?.voiceManaged?.() || A.S.voice?.realtimeHasKey || A.S.voice?.hasKey) && A.S.voice?.enabled) {
             setVoiceUi('speaking');
             syncField();
-            A.voice.speakAuto(S.msg.text, { emotion: 'happy' });
+            void A.voice.speakAuto(S.msg.text, { emotion: 'happy' }).then(out => {
+              if (!out && T.state === 'summon' && V.mode === 'dsh-native' && V.wanted && !V.manualTyping && !A.chat?.generating) {
+                scheduleNativeResume();
+              }
+            });
           } else {
             scheduleNativeResume();
           }
@@ -1203,7 +1409,7 @@ import {
   A.on('dsh:state', syncField);
   A.on('set:model', syncField);
   A.on('set:voice', () => {
-    if (T.state === 'summon' && A.S.voice?.summonVoice === false && V.mode !== 'off') {
+    if (T.state === 'summon' && !V.inCall && A.S.voice?.summonVoice === false && V.mode !== 'off' && V.mode !== 'dictate') {
       stopSummonVoice();
       syncField();
     }
@@ -1259,10 +1465,14 @@ import {
       armAuto();
       clearTimeout(focusTimer);
       focusTimer = setTimeout(focusSummon, 60);
-      if (was !== 'summon') startSummonVoice();
+      if (was !== 'summon') {
+        if (opts.enterCall) startSummonVoice({ force: true });
+        else startSummonVoice();
+      }
       if (was === 'chat') A.emit('panel', false);
       if (was !== 'summon') A.emit('summon', true);
     },
+    startCall: startVoiceCall,
     close() {
       if (T.state !== 'summon') return;
       T.surface = 'summon';
@@ -1438,6 +1648,7 @@ import {
     const b = e.target.closest('[data-p]');
     if (!b) return;
     ({
+      call: () => startVoiceCall(),
       history: () => A.chat.toggleHistory(),
       new: () => A.chat.newConv(true),
       expand: toggleExpand,
@@ -1504,13 +1715,27 @@ import {
   let hoverT = 0, leaveT = 0, overContent = false;
   function cursor(x, y) {
     T.cx = x; T.cy = y;
+    const stageRect = stage.getBoundingClientRect();
+    const vx = x + stageRect.left, vy = y + stageRect.top;
+    energy.setPointer?.(vx, vy);
     // 先在舞台坐标里判断视线范围，再把指针换到固定画布的视口坐标。
     const L = T.layout, off = L?.energyOffset;
-    const gaze = L && !A.hidden ? gazeAt(T.state, L.box, x - off.x, y - off.y) : null;
-    const origin = gaze ? stage.getBoundingClientRect() : null;
-    energy.lookAt(gaze ? x + origin.left : null, gaze ? y + origin.top : null);
+    const gaze = T.state === 'summon' && !A.hidden
+      ? gazeAt('summon', summonEnergyBox(), vx, vy)
+      : (L && !A.hidden ? gazeAt(T.state, L.box, x - off.x, y - off.y) : null);
+    energy.lookAt(gaze ? vx : null, gaze ? vy : null);
     if (A.hidden || !A.S.onboarding) return;
-    const over = T.state !== 'hidden' && inRect(T.layout?.content, x, y);
+    let over = false;
+    if (T.state === 'summon') {
+      const hitEl = el => {
+        if (!el) return false;
+        const b = el.getBoundingClientRect();
+        return b.width > 0 && b.height > 0 && vx >= b.left && vx <= b.right && vy >= b.top && vy <= b.bottom;
+      };
+      over = hitEl(sField) || hitEl(capEl) || hitEl(sCallDock);
+    } else {
+      over = T.state !== 'hidden' && inRect(T.layout?.content, x, y);
+    }
     if (over !== overContent) {
       overContent = over;
       if (T.state === 'note') { if (over) clearTimeout(noteTimer); else armNote(true); }

@@ -90,31 +90,31 @@ html.theme-dark {
   /* 强调色是珍珠白，上面配深灰的字 */
   --accent-fg: #1c1d22;
   --accent-shadow: 0 2px 12px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  /* 用户消息：一片更亮的乳白玻璃，和召唤态的输入胶囊是同一种材质 */
-  --user-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.11));
+  /* 用户消息：一片轻透的冷光烟灰玻璃，不抢正文和上方光体的视觉 */
+  --user-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.07));
   --user-fg: var(--text);
-  --panel-rgb: 40, 42, 50;
-  /* 半透，但后面是一整片白色窗口时也不能被冲成中灰：常驻条和通知七成半，对话窗口是用来读字的，近九成 */
-  --panel-a: 0.74;
-  --panel-line: rgba(255, 255, 255, 0.2);
-  --panel-rim: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --panel-rgb: 22, 24, 31;
+  /* 半透，但后面是一整片白色窗口时也不能被冲成中灰：常驻条和通知七成二，对话窗口近八成八保留光学纵深 */
+  --panel-a: 0.72;
+  --panel-line: rgba(255, 255, 255, 0.14);
+  --panel-rim: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   --panel-shadow: 0 0 0 0 transparent;
-  --panel-raised: rgba(255, 255, 255, 0.08);
-  --panel-raised-line: rgba(255, 255, 255, 0.14);
-  --panel-raised-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --panel-fill: rgba(255, 255, 255, 0.07);
-  --panel-fill-2: rgba(255, 255, 255, 0.12);
-  --panel-fill-3: rgba(255, 255, 255, 0.19);
-  --btn-bg: rgba(255, 255, 255, 0.12);
-  --btn-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --seg-on: rgba(255, 255, 255, 0.2);
-  --seg-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.26);
-  --hud: rgba(38, 40, 48, 0.94);
-  --shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 28px 72px -12px rgba(0, 0, 0, 0.5), 0 8px 22px -6px rgba(0, 0, 0, 0.28);
-  --lift: 0 0 0 0.5px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --field-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 4px 16px -6px rgba(0, 0, 0, 0.36);
-  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.04) 46%, rgba(255, 255, 255, 0) 100%);
-  --card-shadow: 0 16px 44px -8px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.16);
+  --panel-raised: rgba(255, 255, 255, 0.065);
+  --panel-raised-line: rgba(255, 255, 255, 0.12);
+  --panel-raised-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --panel-fill: rgba(255, 255, 255, 0.06);
+  --panel-fill-2: rgba(255, 255, 255, 0.11);
+  --panel-fill-3: rgba(255, 255, 255, 0.18);
+  --btn-bg: rgba(255, 255, 255, 0.11);
+  --btn-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --seg-on: rgba(255, 255, 255, 0.18);
+  --seg-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 2px 8px rgba(0, 0, 0, 0.26);
+  --hud: rgba(24, 26, 34, 0.92);
+  --shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 28px 72px -12px rgba(0, 0, 0, 0.52), 0 8px 22px -6px rgba(0, 0, 0, 0.28);
+  --lift: 0 0 0 0.5px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --field-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 4px 16px -6px rgba(0, 0, 0, 0.36);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.02) 44%, rgba(255, 255, 255, 0) 100%);
+  --card-shadow: 0 18px 48px -10px rgba(0, 0, 0, 0.45), 0 2px 10px rgba(0, 0, 0, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -161,20 +161,23 @@ button:focus:not(:focus-visible) { outline: none; }
 .e-band { position: absolute; border-radius: 2px; background: rgba(255, 255, 255, 0.18); }
 .e-band-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), #fff); box-shadow: 0 0 10px rgba(255, 255, 255, 0.75); transition: width 0.35s var(--ease); }
 html.reduced .e-band-fill { transition: none; }
-/* 待命空间的衬底：桌面只是“静下来”——轻轻失焦、罩一层淡淡的烟灰，还看得见后面是什么。
-   整片一起淡入、一起淡出，不从哪里铺开或收回。光是叠加上去的，落在很亮的窗口上会看不清，所以球和输入框背后那一小片再压深一点 */
+/* 待命空间的衬底：铺满全屏（原生层为 macOS 26 Liquid Glass，网页层负责把中间对话区域温柔压暗，四边保持清透让流光显现）。 */
 #standby {
-  /* 始终垫在舞台下面：收起时球是在这层暮色前面化开的，不会突然被它罩住 */
   position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0; visibility: hidden; color: rgba(255, 255, 255, .82);
-  background: radial-gradient(ellipse 30% 44% at var(--focus-x, 50%) var(--focus-y, 34%), rgba(16, 18, 24, .34), transparent 100%), linear-gradient(180deg, rgba(30, 32, 40, .26), rgba(20, 22, 28, .38));
-  transition: opacity .48s cubic-bezier(.65, 0, .35, 1) .1s, visibility 0s linear .58s;
+  background: radial-gradient(ellipse 60% 52% at 50% 50%, rgba(8, 10, 16, .52) 0%, rgba(10, 12, 20, .30) 48%, rgba(12, 14, 22, .08) 80%, transparent 100%);
+  transition: opacity .36s cubic-bezier(.65, 0, .35, 1), visibility 0s linear .36s;
 }
-#standby.css-backdrop { -webkit-backdrop-filter: blur(5px) saturate(.96); backdrop-filter: blur(5px) saturate(.96); }
-#standby.vis { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .5s cubic-bezier(.33, 1, .68, 1); }
+#standby.has-conv {
+  background: radial-gradient(ellipse 70% 66% at 50% 50%, rgba(8, 10, 16, .64) 0%, rgba(10, 12, 20, .40) 52%, rgba(12, 14, 22, .12) 84%, transparent 100%);
+}
+#standby.css-backdrop { -webkit-backdrop-filter: blur(20px) saturate(1.35) brightness(0.92); backdrop-filter: blur(20px) saturate(1.35) brightness(0.92); }
+.native-host #standby.css-backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
+#standby.vis { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .42s cubic-bezier(.33, 1, .68, 1); }
 html.reduced #standby, html.reduced #standby.vis { transition-duration: .15s; transition-delay: 0s; }
 #stage[data-s="summon"] { z-index: 12; }
 #topContent { position: absolute; z-index: 2; left: 350px; top: 8px; width: 300px; height: 0; pointer-events: auto; }
-#stage[data-s="hidden"] #topContent { pointer-events: none; }
+#stage[data-s="hidden"] #topContent,
+#stage[data-s="summon"] #topContent { pointer-events: none; }
 
 /* 底板：一块烟灰玻璃。半透的中性深灰、顶部受光的高光、发丝细的白边；投影也画在它身上，变形时跟着走 */
 @property --r { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -187,13 +190,13 @@ html.reduced #standby, html.reduced #standby.vis { transition-duration: .15s; tr
 }
 #halo.vis { opacity: 1; }
 #stage[data-s="chat"] #halo {
-  /* 阅读区保持接近实色的深灰，浅色桌面不能把白字下面的底板冲成中灰。 */
-  --panel-a: 0.97;
-  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 140px);
-  --panel-line: rgba(255, 255, 255, 0.12);
-  --panel-rim: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* 保留深邃光学玻璃通透感，同时确保浅色背景下白字清晰可读 */
+  --panel-a: 0.88;
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 140px);
+  --panel-line: rgba(255, 255, 255, 0.11);
+  --panel-rim: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-.css-backdrop #halo { -webkit-backdrop-filter: blur(28px) saturate(1.2) contrast(.72) brightness(.8); backdrop-filter: blur(28px) saturate(1.2) contrast(.72) brightness(.8); }
+.css-backdrop #halo { -webkit-backdrop-filter: blur(32px) saturate(1.25) contrast(.82) brightness(.78); backdrop-filter: blur(32px) saturate(1.25) contrast(.82) brightness(.78); }
 /* 原生衬底创建失败：看不到后面的窗口，底色压实 */
 .native-host .css-backdrop #halo { --panel-a: .96; -webkit-backdrop-filter: none; backdrop-filter: none; }
 html.theme-light { --card-shadow: 0 12px 34px rgba(8, 10, 16, .2), 0 1px 4px rgba(8, 10, 16, .08); }
@@ -239,74 +242,55 @@ html.reduced #topContent > * { transition-delay: 0s !important; transition-durat
 .t-note .n-acts { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .t-note .n-acts:empty { display: none; }
 
-/* ---------- 召唤态：上方是主角光纹生命体，下方是完整对话浮层与固定底栏输入 ---------- */
-#summon { --summon-top: 416px; display: flex; flex-direction: column; align-items: center; padding-top: var(--summon-top); color: #fff; --text: rgba(255, 255, 255, .95); --text-2: rgba(255, 255, 255, .74); --text-3: rgba(255, 255, 255, .52); --ink: #e8ecf4; }
-#summon::after {
-  content: ''; position: absolute; z-index: 0; width: min(520px, calc(100% - 48px)); top: var(--summon-top); bottom: 30px; border-radius: 24px; pointer-events: none;
-  /* 没有对话内容时是一枚简洁的光学玻璃胶囊；展开对话后转成通透深烟灰阅读浮层 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, .25), rgba(255, 255, 255, .13));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3), inset 0 1px 0 rgba(255, 255, 255, .3), 0 10px 30px rgba(0, 0, 0, .16);
-  transition: width .28s cubic-bezier(.4, 0, .2, 1), top .44s cubic-bezier(.4, 0, .2, 1), box-shadow .22s var(--ease), background .26s var(--ease);
+/* ---------- 召唤态：全屏四边光学丝膜唤醒 + Liquid Glass 居中浮光对话 ---------- */
+#summon {
+  position: fixed; inset: 0; width: 100vw; height: 100vh !important; margin: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 28px 0;
+  pointer-events: none; color: #fff;
+  --text: rgba(255, 255, 255, .95); --text-2: rgba(255, 255, 255, .74); --text-3: rgba(255, 255, 255, .52); --ink: #e8ecf4;
 }
-#summon.has-conv::after {
-  width: min(660px, calc(100% - 48px));
-  background: linear-gradient(180deg, rgba(36, 39, 49, .86), rgba(22, 24, 31, .92));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .24), 0 18px 48px rgba(0, 0, 0, .36);
+#summon::after { display: none; }
+/* 对话内容在屏幕中央压暗的玻璃场中直接浮现 */
+.s-cap {
+  position: relative; z-index: 1; flex: none; pointer-events: auto;
+  width: min(680px, calc(100vw - 48px)); height: 0; max-height: calc(100vh - 148px); overflow: hidden;
+  border-radius: 26px; margin-bottom: 0;
+  transition: margin-bottom .28s var(--ease);
 }
-.css-backdrop:not(.native-host) #summon.has-conv::after {
-  -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
+#summon.has-conv .s-cap {
+  margin-bottom: 12px;
+  background: linear-gradient(180deg, rgba(16, 19, 28, .62), rgba(11, 13, 21, .74));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .14), inset 0 1px 0 rgba(255, 255, 255, .10), 0 24px 60px -12px rgba(0, 0, 0, .44);
+  -webkit-backdrop-filter: blur(26px) saturate(1.22); backdrop-filter: blur(26px) saturate(1.22);
 }
-html.reduced #summon::after, html.reduced .s-field { transition-duration: .12s; }
-/* 聚焦或语音激活时柔和提亮，待命空间里只有光本身的白与呼吸感 */
-#summon:not(.has-conv):has(#sInput:focus)::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .29), rgba(255, 255, 255, .15));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255, 255, 255, .4), 0 10px 34px rgba(0, 0, 0, .2), 0 0 28px -8px rgba(255, 255, 255, .5);
-}
-#summon.has-conv:has(#sInput:focus)::after {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .34), inset 0 1px 0 rgba(255, 255, 255, .28), 0 18px 50px rgba(0, 0, 0, .4), 0 0 28px -10px rgba(255, 255, 255, .35);
-}
-#summon[data-voice="connecting"]::after {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .42), inset 0 1px 0 rgba(255, 255, 255, .36), 0 10px 32px rgba(0, 0, 0, .18), 0 0 26px -8px rgba(160, 215, 255, .36);
-}
-#summon:not(.has-conv)[data-voice="listening"]::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(210, 242, 255, .15));
-}
-#summon[data-voice="listening"]::after {
-  box-shadow: inset 0 0 0 1px rgba(175, 232, 255, .58), inset 0 1px 0 rgba(255, 255, 255, .42), 0 12px 36px rgba(0, 0, 0, .24), 0 0 36px -6px rgba(120, 222, 255, .48);
-}
-#summon[data-voice="thinking"]::after {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 36px rgba(0, 0, 0, .22), 0 0 30px -8px rgba(185, 200, 255, .4);
-}
-#summon:not(.has-conv)[data-voice="speaking"]::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 234, 198, .15));
-}
-#summon[data-voice="speaking"]::after {
-  box-shadow: inset 0 0 0 1px rgba(255, 225, 175, .56), inset 0 1px 0 rgba(255, 255, 255, .42), 0 12px 36px rgba(0, 0, 0, .24), 0 0 36px -6px rgba(255, 214, 150, .5);
-}
-/* 对话内容在上方可滚动区域完整展示，输入框稳稳固定在卡片最底下 */
-.s-cap { position: relative; z-index: 1; flex: none; width: min(660px, calc(100% - 48px)); height: 0; overflow: hidden; border-radius: 24px 24px 0 0; }
 .s-cap-in { display: flex; flex-direction: column; width: 100%; height: 100%; text-align: left; }
 .s-cap-bar {
   flex: none; height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 2px 16px 0 20px; border-bottom: 0.5px solid rgba(255, 255, 255, .1);
+  padding: 6px 18px 0 22px;
 }
-.s-cap-title { font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.s-cap-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.s-cap-title { font-size: 11.5px; font-weight: 500; color: rgba(255, 255, 255, .58); letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-cap-tools { display: flex; align-items: center; gap: 6px; flex: none; opacity: .72; transition: opacity .16s ease; }
+.s-cap:hover .s-cap-tools, .s-cap-tools:focus-within { opacity: 1; }
 .s-cap-btn {
   height: 22px; min-width: 22px; padding: 0 6px; border: 0; border-radius: 11px;
-  background: rgba(255, 255, 255, .08); color: var(--text-2); font-size: 11.5px; font-weight: 500;
+  background: rgba(255, 255, 255, .09); color: var(--text-2); font-size: 11px; font-weight: 500;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .14s, color .14s;
 }
 .s-cap-btn.text { padding: 0 9px; }
 .s-cap-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .18); color: #fff; }
-.s-cap-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .2); color: #fff; }
+.s-cap-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .20); color: #fff; }
 .s-cap-btn[hidden] { display: none; }
-.s-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 20px 12px; user-select: text; }
+.s-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 22px 16px; user-select: text; }
 .s-scroll::-webkit-scrollbar { width: 8px; }
 .s-scroll::-webkit-scrollbar-thumb { background: var(--fill-3); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
 .s-thread { display: flex; flex-direction: column; gap: 14px; }
 .s-thread .msg { margin: 0; }
-.s-thread .msg.user .m-bubble { padding: 7px 13px; font-size: 13.5px; }
+.s-thread .msg.user .m-bubble {
+  padding: 7px 13px; font-size: 13.5px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .08));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .16), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
 .s-thread .md { font-size: 14px; line-height: 1.65; }
 .s-thread .md.streaming:empty::after { content: '正在思考…'; font-size: 13px; color: var(--text-3); }
 .s-thread .trace { margin-bottom: 10px; }
@@ -314,20 +298,39 @@ html.reduced #summon::after, html.reduced .s-field { transition-duration: .12s; 
 .s-note-slot { margin-top: 12px; }
 .s-interim {
   margin-top: 10px; padding: 6px 12px; border-radius: 12px;
-  background: rgba(255, 255, 255, .11); color: var(--text-2); font-size: 13px; line-height: 1.5;
+  background: rgba(255, 255, 255, .09); color: var(--text-2); font-size: 13px; line-height: 1.5;
   font-style: italic; word-break: break-word;
 }
 
 .s-field {
-  position: relative; z-index: 1; flex: none; width: min(520px, calc(100% - 48px)); height: 48px;
-  transition: width .28s cubic-bezier(.4, 0, .2, 1), box-shadow .22s var(--ease);
+  position: relative; z-index: 1; flex: none; pointer-events: auto;
+  width: min(500px, calc(100vw - 48px)); height: 48px; border-radius: 24px;
+  background: linear-gradient(180deg, rgba(22, 25, 34, .48), rgba(14, 16, 24, .60));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .18), inset 0 1px 0 rgba(255, 255, 255, .16), 0 22px 54px -12px rgba(0, 0, 0, .42);
+  -webkit-backdrop-filter: blur(26px) saturate(1.22); backdrop-filter: blur(26px) saturate(1.22);
+  transition: width .28s cubic-bezier(.4, 0, .2, 1), box-shadow .22s var(--ease), background .24s var(--ease);
 }
-#summon.has-conv .s-field {
-  width: min(660px, calc(100% - 48px));
-  border-radius: 0 0 24px 24px;
-  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, .14);
+html.reduced .s-field { transition-duration: .12s; }
+#summon.has-conv .s-field { width: min(680px, calc(100vw - 48px)); }
+#summon:has(#sInput:focus) .s-field {
+  background: linear-gradient(180deg, rgba(26, 29, 40, .56), rgba(16, 18, 28, .66));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .28), inset 0 1px 0 rgba(255, 255, 255, .22), 0 22px 56px -12px rgba(0, 0, 0, .45), 0 0 26px -10px rgba(220, 232, 255, .18);
 }
-#sInput { display: block; width: 100%; height: 100%; padding: 0 48px 0 54px; border: 0; outline: none; background: transparent; color: #fff; caret-color: #fff; font: 16px var(--font); user-select: text; }
+#summon[data-voice="connecting"] .s-field {
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .24), inset 0 1px 0 rgba(255, 255, 255, .20), 0 20px 50px -12px rgba(0, 0, 0, .40), 0 0 22px -10px rgba(195, 218, 245, .18);
+}
+#summon[data-voice="listening"] .s-field {
+  background: linear-gradient(180deg, rgba(20, 28, 38, .54), rgba(14, 18, 28, .64));
+  box-shadow: inset 0 0 0 0.5px rgba(185, 222, 245, .32), inset 0 1px 0 rgba(255, 255, 255, .22), 0 22px 54px -12px rgba(0, 0, 0, .42), 0 0 24px -10px rgba(168, 215, 240, .20);
+}
+#summon[data-voice="thinking"] .s-field {
+  box-shadow: inset 0 0 0 0.5px rgba(205, 216, 245, .26), inset 0 1px 0 rgba(255, 255, 255, .20), 0 22px 54px -12px rgba(0, 0, 0, .42), 0 0 22px -10px rgba(185, 200, 235, .18);
+}
+#summon[data-voice="speaking"] .s-field {
+  background: linear-gradient(180deg, rgba(30, 26, 22, .54), rgba(18, 16, 15, .64));
+  box-shadow: inset 0 0 0 0.5px rgba(242, 218, 186, .30), inset 0 1px 0 rgba(255, 255, 255, .22), 0 22px 54px -12px rgba(0, 0, 0, .42), 0 0 24px -10px rgba(240, 212, 175, .20);
+}
+#sInput { display: block; width: 100%; height: 100%; padding: 0 80px 0 54px; border: 0; outline: none; background: transparent; color: #fff; caret-color: #fff; font: 16px var(--font); user-select: text; }
 #sInput:focus-visible { outline: none; }
 #sInput::placeholder { color: rgba(255, 255, 255, .56); }
 .s-mic {
@@ -388,6 +391,13 @@ html.reduced #summon[data-voice="listening"] .s-mic,
 html.reduced #summon[data-voice="listening"] .s-mic .s-wave i,
 html.reduced #summon[data-voice="thinking"] .s-mic,
 html.reduced #summon[data-voice="connecting"] .s-mic { animation: none; }
+.s-call {
+  position: absolute; right: 44px; top: 10px; width: 28px; height: 28px; border: 0; border-radius: 14px; padding: 0;
+  display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .08); color: var(--text-2); transition: background .14s, color .14s, transform .12s;
+}
+.s-call:hover { background: rgba(126, 224, 255, .20); color: #fff; }
+.s-call:active { transform: scale(.94); }
+.s-call:focus-visible { outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5); }
 .s-btn {
   position: absolute; right: 10px; top: 10px; width: 28px; height: 28px; border: 0; border-radius: 14px; padding: 0;
   display: flex; align-items: center; justify-content: center; background: transparent; color: var(--text-3); transition: background .12s, color .12s;
@@ -395,6 +405,76 @@ html.reduced #summon[data-voice="connecting"] .s-mic { animation: none; }
 .s-btn:hover { background: var(--fill-2); color: var(--text); }
 .s-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5); }
 .s-btn.stop { color: var(--text-2); background: var(--fill); }
+
+/* 纯语音通话模式（打电话）：隐藏文字对话框与输入条，只保留生命体、轻量状态/字幕与通话控制栏 */
+#summon.voice-call { padding-top: clamp(190px, 28vh, 270px); }
+#summon.voice-call .s-cap { display: none !important; }
+#summon.voice-call .s-field { display: none; }
+.s-call-hud[hidden] { display: none !important; }
+#summon.voice-call .s-call-hud {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  margin-top: 0; pointer-events: none; position: relative; z-index: 2;
+}
+.s-call-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 14px; border-radius: 999px;
+  background: rgba(14, 17, 25, .42);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .14);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  font-size: 12.5px; color: rgba(255, 255, 255, .86); letter-spacing: .02em;
+}
+.s-call-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(175, 215, 245, .75); transition: background .2s, box-shadow .2s; }
+.s-call-wave { display: none; align-items: center; gap: 2.5px; height: 14px; }
+.s-call-wave i {
+  display: block; width: 2.5px; height: 13px; border-radius: 2px; background: currentColor;
+  transform-origin: center; transform: scaleY(calc(0.28 + var(--voice-level, 0) * 0.72));
+  transition: transform .07s linear;
+}
+.s-call-wave i:nth-child(1) { transform: scaleY(calc(0.24 + var(--voice-level, 0) * 0.56)); }
+.s-call-wave i:nth-child(2) { transform: scaleY(calc(0.36 + var(--voice-level, 0) * 0.90)); }
+.s-call-wave i:nth-child(3) { transform: scaleY(calc(0.30 + var(--voice-level, 0) * 0.78)); }
+.s-call-wave i:nth-child(4) { transform: scaleY(calc(0.22 + var(--voice-level, 0) * 0.48)); }
+#summon[data-voice="listening"] .s-call-dot,
+#summon[data-voice="speaking"] .s-call-dot { display: none; }
+#summon[data-voice="listening"] .s-call-wave { display: inline-flex; color: #7ee0ff; }
+#summon[data-voice="listening"] .s-call-wave i { animation: waveBreath 1.2s ease-in-out infinite; }
+#summon[data-voice="listening"] .s-call-wave i:nth-child(2) { animation-delay: .14s; }
+#summon[data-voice="listening"] .s-call-wave i:nth-child(3) { animation-delay: .28s; }
+#summon[data-voice="listening"] .s-call-wave i:nth-child(4) { animation-delay: .42s; }
+#summon[data-voice="speaking"] .s-call-wave { display: inline-flex; color: #ffd696; }
+#summon[data-voice="thinking"] .s-call-dot { background: #b9c8ff; box-shadow: 0 0 10px rgba(185, 200, 255, .65); animation: pulse 1.2s ease-in-out infinite; }
+#summon[data-voice="muted"] .s-call-dot { background: rgba(255, 255, 255, .38); box-shadow: none; }
+.s-call-sub[hidden] { display: none; }
+.s-call-sub {
+  max-width: min(520px, calc(100vw - 64px));
+  padding: 8px 16px; border-radius: 16px; text-align: center;
+  background: rgba(12, 15, 22, .38);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .10);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  font-size: 14px; line-height: 1.55; color: rgba(255, 255, 255, .90);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-word;
+}
+.s-call-sub.user { color: rgba(190, 232, 255, .90); font-size: 13px; }
+.s-call-dock {
+  pointer-events: auto; display: inline-flex; align-items: center; gap: 12px;
+  height: 54px; padding: 0 12px; border-radius: 27px;
+  background: linear-gradient(180deg, rgba(22, 25, 34, .54), rgba(14, 16, 24, .68));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, .18), inset 0 1px 0 rgba(255, 255, 255, .14), 0 22px 54px -12px rgba(0, 0, 0, .46);
+  -webkit-backdrop-filter: blur(26px) saturate(1.22); backdrop-filter: blur(26px) saturate(1.22);
+}
+.s-cbtn {
+  width: 38px; height: 38px; border: 0; border-radius: 19px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .11); color: rgba(255, 255, 255, .88);
+  cursor: pointer; transition: background .16s, color .16s, transform .1s, box-shadow .16s;
+}
+.s-cbtn:hover { background: rgba(255, 255, 255, .20); color: #fff; }
+.s-cbtn:active { transform: scale(.94); }
+.s-cbtn[aria-pressed="true"] { background: rgba(255, 255, 255, .18); color: #fff; }
+.s-cbtn[data-muted="1"] { background: rgba(255, 195, 110, .20); color: #ffd9a0; }
+.s-cbtn.hangup { background: rgba(224, 78, 72, .86); color: #fff; width: 46px; box-shadow: 0 6px 18px rgba(224, 78, 72, .32); }
+.s-cbtn.hangup:hover { background: rgba(236, 92, 84, .98); }
 
 /* ---------- 倒计时环（对话里的提醒卡片用） ---------- */
 .ring { position: relative; width: 56px; height: 56px; flex: none; }
@@ -434,13 +514,12 @@ html.theme-dark .btn:hover { filter: brightness(1.15); }
 #panel .p-head { border-bottom: 0; padding: 0 10px 0 60px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 #panel.expanded .p-head { cursor: default; }
 #panel .p-head::before {
-  content: ''; position: absolute; left: 10px; top: 7px; width: 40px; height: 40px; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, rgba(var(--glow-rgb), 0.16), rgba(255, 255, 255, 0.05) 58%, transparent 72%);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14);
+  content: ''; position: absolute; left: 8px; top: 5px; width: 44px; height: 44px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(226, 232, 255, 0.14), rgba(226, 232, 255, 0.03) 56%, transparent 74%);
   transition: opacity .35s var(--ease), transform .4s var(--ease);
 }
 #panel:has(.p-sub.busy) .p-head::before {
-  background: radial-gradient(circle, rgba(var(--glow-rgb), 0.32), rgba(255, 255, 255, 0.08) 60%, transparent 74%);
+  background: radial-gradient(circle, rgba(226, 232, 255, 0.24), rgba(226, 232, 255, 0.06) 58%, transparent 76%);
   animation: pulse 1.8s ease-in-out infinite;
 }
 #panel .p-head::after {
@@ -469,16 +548,13 @@ html.theme-dark .btn:hover { filter: brightness(1.15); }
   border-bottom: 0.5px solid var(--line);
 }
 .p-title { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
-.p-title::before {
-  content: ''; position: absolute; left: -33px; top: 13px; width: 6px; height: 6px; border-radius: 50%;
-  background: var(--green); box-shadow: 0 0 8px var(--green); pointer-events: none;
-}
+.p-title::before { display: none; }
 .p-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; line-height: 16px; }
 .p-name em { font-style: normal; font-weight: 400; font-size: 11px; color: var(--text-3); margin-left: 4px; }
-.p-sub { display: flex; align-items: center; gap: 6px; margin: 0; height: 14px; font-size: 11px; line-height: 14px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.p-sub::before { display: none; }
-#panel:has(.p-sub.busy) .p-title::before { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1s ease-in-out infinite; }
-#panel:has(.p-sub.off) .p-title::before { background: var(--text-3); box-shadow: none; }
+.p-sub { display: flex; align-items: center; gap: 5px; margin: 0; height: 14px; font-size: 11px; line-height: 14px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-sub::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex: none; background: var(--green); box-shadow: 0 0 6px var(--green); }
+#panel:has(.p-sub.busy) .p-sub::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1s ease-in-out infinite; }
+#panel:has(.p-sub.off) .p-sub::before { background: var(--text-3); box-shadow: none; }
 .p-tools { display: flex; gap: 2px; }
 .ib {
   width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-2);

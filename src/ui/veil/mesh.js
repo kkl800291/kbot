@@ -57,12 +57,12 @@ export function sampleEdge(points, n) {
   return out;
 }
 
-/** 虹彩：柔和的彩虹色。 */
+/** 虹彩：极浅的珍珠棱镜微光。 */
 function rainbow(out, h) {
   const a = h * TAU;
-  out[0] = 0.76 + 0.24 * Math.cos(a);
-  out[1] = 0.76 + 0.24 * Math.cos(a - 2.094);
-  out[2] = 0.76 + 0.24 * Math.cos(a - 4.189);
+  out[0] = 0.85 + 0.15 * Math.cos(a);
+  out[1] = 0.85 + 0.15 * Math.cos(a - 2.094);
+  out[2] = 0.85 + 0.15 * Math.cos(a - 4.189);
 }
 
 /**
@@ -186,9 +186,13 @@ export function createMesh(pose, { detail = 1 } = {}) {
     const back = z => orb * smooth(0.2, -0.75, z);
     // 球的边缘上丝叠得最密，会亮成一圈白边，压一压
     const limb = z => 1 - 0.54 * orb * (1 - Math.min(1, Math.abs(z) * 2.2));
-    // 清晰度：平铺时看左右位置（两翼是虚的），卷成球时看前后（背面是虚的）
-    const dof = (x, z) => ((1 - orb) * (DOF ? smooth(dl0, dl1, x) * (1 - smooth(dr0, dr1, x)) : 1) + orb * (1 - 0.9 * smooth(0.25, -0.6, z)))
-      * D.focus * (fronts ? smooth(0, 1, (D.focusX - x) / 420) : 1);
+    // 清晰度：未完全收拢前两翼自然化进薄雾，收拢后背面虚化出前后空间感
+    const closed = smooth(0.45, 0.94, orb);
+    const dof = (x, z) => {
+      const wing = DOF ? smooth(dl0, dl1, x) * (1 - smooth(dr0, dr1, x)) : 1;
+      const depth = 1 - 0.92 * smooth(0.25, -0.6, z);
+      return ((1 - closed) * wing + closed * depth) * D.focus * (fronts ? smooth(0, 1, (D.focusX - x) / 420) : 1);
+    };
     const revealing = D.revealX < 1e8, hiding = D.hideX > -1e8;
     const tri = d => Math.max(0, 1 - Math.abs(d) / 190);
     const reveal = x => (revealing ? smooth(-0.3, 0.7, (D.revealX - x) / 260) * (1 + D.sweep * tri(D.revealX - 110 - x)) : 1)
@@ -257,7 +261,7 @@ export function createMesh(pose, { detail = 1 } = {}) {
             const boost = lit(x, y), lift = fade[k] * (0.8 + 0.2 * boost) * (1 + 0.45 * pulse[k]) * reveal(x) * (1 - 0.5 * back(z));
             fillV[fv++] = ox + x * sc; fillV[fv++] = oy + y * sc; fillV[fv++] = t; fillV[fv++] = v;
             fillV[fv++] = col[0]; fillV[fv++] = col[1]; fillV[fv++] = col[2];
-            fillV[fv++] = Math.min(0.9, film * veil[k] * sd * lift);
+            fillV[fv++] = Math.min(0.84, film * 0.82 * veil[k] * sd * lift);
             fillV[fv++] = iri[k]; fillV[fv++] = focus[k] * dof(x0, z); fillV[fv++] = wide[k] * sc;
             fillV[fv++] = (S.rimA || 0) * lift * gate * D.hem; fillV[fv++] = (S.rimB || 0) * lift * gate * D.hem;
           }
@@ -290,11 +294,12 @@ export function createMesh(pose, { detail = 1 } = {}) {
           let r = col[0], g = col[1], b = col[2];
           if (iri[k] > 0.01) {
             rainbow(rb, 0.58 + 0.3 * Math.sin(t * 9 + v * 3) + 0.3 * Math.abs(v * 2 - 1));
-            const w = iri[k] * 0.5;
+            const w = iri[k] * 0.28;
             r += (rb[0] - r) * w; g += (rb[1] - g) * w; b += (rb[2] - b) * w;
           }
           const z = zA[k] + (zB[k] - zA[k]) * v;
-          let inten = gain * fade[k] * boost * (Ln.edge ? hem[k] : thread[k]) * (1 + pk * pulse[k]) * reveal(px[k]) * (1 - 0.6 * back(z)) * limb(z);
+          const caustic = 0.8 + 0.3 * Math.pow(dens[k] / 1.4, 1.3);
+          let inten = gain * fade[k] * boost * caustic * (Ln.edge ? hem[k] : thread[k]) * (1 + pk * pulse[k]) * reveal(px[k]) * (1 - 0.65 * back(z)) * limb(z);
           if (glint > 0) { const d = (t - gph - Math.floor(t - gph) - 0.5) / 0.09, q = 1 - d * d; if (q > 0) inten *= 1 + glint * q * q; }
           const fk = focus[k] * dof(A0[k * 2] + (B0[k * 2] - A0[k * 2]) * v, z), X = ox + px[k] * sc, Y = oy + py[k] * sc;
           lineV[lv++] = X; lineV[lv++] = Y; lineV[lv++] = -ty; lineV[lv++] = tx; lineV[lv++] = -1; lineV[lv++] = half;

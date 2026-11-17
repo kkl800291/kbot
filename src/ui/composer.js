@@ -254,9 +254,9 @@ import { formatReasoningEffortLabel } from '../services/agent';
         A.voice?.stop?.();
       }
       A.save(); A.emit('set:voice', A.S.voice); C.refreshComposer();
-      const mimoReady = A.S.voice.hasKey;
+      const ttsReady = Boolean(A.cloud?.voiceManaged?.() || A.S.voice.realtimeHasKey || A.S.voice.hasKey);
       A.toast(next
-        ? (mimoReady ? '已开启回复自动朗读' : '已开启回复自动朗读（请先在设置 → 语音中配置语音密钥）')
+        ? (ttsReady ? '已开启回复自动朗读' : '已开启回复自动朗读（请先在设置 → 语音中领取体验额度或配置百炼密钥）')
         : '已关闭回复自动朗读');
     });
   }

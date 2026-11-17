@@ -4,16 +4,29 @@
 
 #[cfg(target_os = "macos")]
 use objc::{sel, sel_impl};
+use serde::Deserialize;
 use serde_json::json;
+#[cfg(target_os = "macos")]
 use std::ffi::{CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "macos")]
 use crate::voice::{microphone_state, speech_label, speech_state};
 
 const EVENT: &str = "voice-dictation";
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub struct DictationConfig {
+    #[serde(default)]
+    pub managed: bool,
+    #[serde(default)]
+    pub base: String,
+}
 
 /// Compute normalized microphone/audio RMS level in `0.0..=1.0`.
 pub(crate) fn compute_audio_level(samples: &[f32]) -> f32 {
@@ -52,6 +65,7 @@ pub(crate) fn dictation_permission_error(microphone: &str, speech: &str) -> Opti
     })
 }
 
+#[cfg(target_os = "macos")]
 struct Session {
     request: usize,
     engine: usize,
@@ -66,8 +80,27 @@ struct Session {
     keep: Box<dyn Send>,
 }
 
+#[cfg(target_os = "windows")]
+struct Session {
+    running: Arc<AtomicBool>,
+    mic: Option<crate::win_audio::WinMicSession>,
+    tx: tokio::sync::mpsc::UnboundedSender<WinDictationMsg>,
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+struct Session;
+
+#[cfg(target_os = "macos")]
 struct Keep<T>(T);
+#[cfg(target_os = "macos")]
 unsafe impl<T> Send for Keep<T> {}
+
+#[cfg(target_os = "windows")]
+enum WinDictationMsg {
+    Text(String),
+    Pong(Vec<u8>),
+    Close,
+}
 
 static STARTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_GEN: AtomicU64 = AtomicU64::new(0);
@@ -83,12 +116,15 @@ impl Drop for PromptGuard<'_> {
 }
 
 #[tauri::command]
-pub async fn voice_dictation_start(app: AppHandle) -> Result<(), String> {
+pub async fn voice_dictation_start(
+    app: AppHandle,
+    config: Option<DictationConfig>,
+) -> Result<(), String> {
     if STARTING.swap(true, Ordering::AcqRel) {
         return Err("听写正在启动。".into());
     }
     let start_gen = CANCEL_GEN.load(Ordering::Acquire);
-    let result = start_inner(app.clone(), start_gen).await;
+    let result = start_inner(app.clone(), config.unwrap_or_default(), start_gen).await;
     STARTING.store(false, Ordering::Release);
     if result.is_err() {
         let _ = stop_session().await;
@@ -106,14 +142,40 @@ pub async fn voice_dictation_stop(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-async fn start_inner(app: AppHandle, start_gen: u64) -> Result<(), String> {
-    #[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn spawn_level_emitter(app: AppHandle, running: Arc<AtomicBool>, level_bits: Arc<AtomicU32>) {
+    tauri::async_runtime::spawn(async move {
+        let mut sent_nonzero = false;
+        while running.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(45)).await;
+            if !running.load(Ordering::Relaxed) {
+                break;
+            }
+            let level = f32::from_bits(level_bits.swap(0, Ordering::Relaxed));
+            if level > 0.005 {
+                sent_nonzero = true;
+                let _ = app.emit(EVENT, json!({ "phase": "level", "level": level }));
+            } else if sent_nonzero {
+                sent_nonzero = false;
+                let _ = app.emit(EVENT, json!({ "phase": "level", "level": 0.0 }));
+            }
+        }
+    });
+}
+
+async fn start_inner(
+    app: AppHandle,
+    config: DictationConfig,
+    start_gen: u64,
+) -> Result<(), String> {
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (app, start_gen);
-        return Err("听写只在 macOS 上可用。文字输入不受影响。".into());
+        let _ = (app, config, start_gen);
+        return Err("听写只在 macOS 与 Windows 上可用。文字输入不受影响。".into());
     }
     #[cfg(target_os = "macos")]
     {
+        let _ = config;
         ensure_granted(&app).await?;
         if CANCEL_GEN.load(Ordering::Acquire) != start_gen {
             return Err("听写已取消。".into());
@@ -134,32 +196,292 @@ async fn start_inner(app: AppHandle, start_gen: u64) -> Result<(), String> {
         }
         let level_running = Arc::clone(&session.running);
         let level_bits = Arc::clone(&session.level_bits);
-        let level_app = app.clone();
         *SESSION.lock().map_err(|_| "听写状态不可用")? = Some(session);
-        tauri::async_runtime::spawn(async move {
-            let mut sent_nonzero = false;
-            while level_running.load(Ordering::Relaxed) {
-                tokio::time::sleep(Duration::from_millis(45)).await;
-                if !level_running.load(Ordering::Relaxed) {
+        spawn_level_emitter(app, level_running, level_bits);
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        start_windows_dictation(app, config, start_gen).await
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn start_windows_dictation(
+    app: AppHandle,
+    config: DictationConfig,
+    start_gen: u64,
+) -> Result<(), String> {
+    use crate::realtime::{
+        connect_ws, encode_ws_frame, next_seq, random_bytes, read_realtime_auth_key,
+        realtime_endpoint, try_decode_ws_frame,
+    };
+    use base64::Engine;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::mpsc;
+
+    let api_key = read_realtime_auth_key(config.managed)?;
+    let endpoint = realtime_endpoint(&config.base, "qwen3-asr-flash-realtime")?;
+    if CANCEL_GEN.load(Ordering::Acquire) != start_gen {
+        return Err("听写已取消。".into());
+    }
+    let _ = stop_session().await;
+
+    let (stream, leftover) = connect_ws(&endpoint, &api_key).await?;
+    if CANCEL_GEN.load(Ordering::Acquire) != start_gen {
+        return Err("听写已取消。".into());
+    }
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let running = Arc::new(AtomicBool::new(true));
+    let muted = Arc::new(AtomicBool::new(false));
+    let bridging = Arc::new(AtomicBool::new(false));
+    let level_bits = Arc::new(AtomicU32::new(0));
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WinDictationMsg>();
+    let (pcm_tx, mut pcm_rx) = mpsc::channel::<Vec<u8>>(32);
+
+    let mic_running = Arc::clone(&running);
+    let mic_level = Arc::clone(&level_bits);
+    let mic = match tauri::async_runtime::spawn_blocking(move || {
+        crate::win_audio::WinMicSession::start(
+            mic_running,
+            muted,
+            bridging,
+            mic_level,
+            None,
+            pcm_tx,
+        )
+    })
+    .await
+    {
+        Ok(Ok(m)) => m,
+        Ok(Err(err)) => {
+            running.store(false, Ordering::Release);
+            return Err(err);
+        }
+        Err(_) => {
+            running.store(false, Ordering::Release);
+            return Err("无法初始化麦克风采集".into());
+        }
+    };
+
+    if CANCEL_GEN.load(Ordering::Acquire) != start_gen {
+        running.store(false, Ordering::Release);
+        let _ = tauri::async_runtime::spawn_blocking(move || mic.shutdown()).await;
+        return Err("听写已取消。".into());
+    }
+
+    let init_payload = json!({
+        "event_id": format!("kbot-asr-{}", next_seq()),
+        "type": "session.update",
+        "session": {
+            "turn_detection": { "type": "server_vad" },
+            "input_audio_format": "pcm"
+        }
+    });
+    let _ = out_tx.send(WinDictationMsg::Text(init_payload.to_string()));
+
+    *SESSION.lock().map_err(|_| "听写状态不可用")? = Some(Session {
+        running: Arc::clone(&running),
+        mic: Some(mic),
+        tx: out_tx.clone(),
+    });
+    spawn_level_emitter(app.clone(), Arc::clone(&running), Arc::clone(&level_bits));
+
+    // WebSocket writer loop
+    let writer_running = Arc::clone(&running);
+    tauri::async_runtime::spawn(async move {
+        while let Some(msg) = out_rx.recv().await {
+            match msg {
+                WinDictationMsg::Text(text) => {
+                    let frame = encode_ws_frame(0x01, text.as_bytes(), random_bytes::<4>());
+                    if writer.write_all(&frame).await.is_err() {
+                        break;
+                    }
+                }
+                WinDictationMsg::Pong(data) => {
+                    let frame = encode_ws_frame(0x0A, &data, random_bytes::<4>());
+                    if writer.write_all(&frame).await.is_err() {
+                        break;
+                    }
+                }
+                WinDictationMsg::Close => {
+                    let frame = encode_ws_frame(0x08, &[], random_bytes::<4>());
+                    let _ = writer.write_all(&frame).await;
+                    let _ = writer.flush().await;
                     break;
                 }
-                let level = f32::from_bits(level_bits.swap(0, Ordering::Relaxed));
-                if level > 0.005 {
-                    sent_nonzero = true;
-                    let _ = level_app.emit(EVENT, json!({ "phase": "level", "level": level }));
-                } else if sent_nonzero {
-                    sent_nonzero = false;
-                    let _ = level_app.emit(EVENT, json!({ "phase": "level", "level": 0.0 }));
+            }
+            if !writer_running.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+    });
+
+    // Mic audio uploader (~100ms per packet @ 16kHz PCM16)
+    let mic_tx = out_tx.clone();
+    let mic_loop_running = Arc::clone(&running);
+    tauri::async_runtime::spawn(async move {
+        let mut batch = Vec::with_capacity(6400);
+        while mic_loop_running.load(Ordering::Relaxed) {
+            match tokio::time::timeout(Duration::from_millis(120), pcm_rx.recv()).await {
+                Ok(Some(chunk)) => batch.extend_from_slice(&chunk),
+                Ok(None) => break,
+                Err(_) => {}
+            }
+            while batch.len() < 3200 {
+                match pcm_rx.try_recv() {
+                    Ok(more) => batch.extend_from_slice(&more),
+                    Err(_) => break,
                 }
             }
-        });
-        Ok(())
+            if batch.len() >= 1600 {
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&batch);
+                batch.clear();
+                let ev = json!({
+                    "event_id": format!("kbot-asr-aud-{}", next_seq()),
+                    "type": "input_audio_buffer.append",
+                    "audio": encoded
+                });
+                if mic_tx.send(WinDictationMsg::Text(ev.to_string())).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    // WebSocket reader loop -> partial/final/error events
+    let rd_running = Arc::clone(&running);
+    let rd_tx = out_tx;
+    tauri::async_runtime::spawn(async move {
+        let mut buf = leftover;
+        let mut frag_buf: Vec<u8> = Vec::new();
+        let mut frag_is_text = false;
+        let mut tmp = [0u8; 4096];
+        let mut partial_acc = String::new();
+
+        'outer: while rd_running.load(Ordering::Relaxed) {
+            loop {
+                match try_decode_ws_frame(&mut buf) {
+                    Ok(Some(frame)) => match frame.opcode {
+                        0x01 | 0x02 => {
+                            let is_text = frame.opcode == 0x01;
+                            if frame.fin {
+                                if is_text {
+                                    if let Ok(txt) = String::from_utf8(frame.payload) {
+                                        handle_win_asr_event(
+                                            &txt,
+                                            &app,
+                                            &rd_running,
+                                            &mut partial_acc,
+                                        );
+                                    }
+                                }
+                            } else {
+                                frag_buf = frame.payload;
+                                frag_is_text = is_text;
+                            }
+                        }
+                        0x00 => {
+                            if frag_is_text {
+                                frag_buf.extend_from_slice(&frame.payload);
+                                if frame.fin {
+                                    let finished = std::mem::take(&mut frag_buf);
+                                    frag_is_text = false;
+                                    if let Ok(txt) = String::from_utf8(finished) {
+                                        handle_win_asr_event(
+                                            &txt,
+                                            &app,
+                                            &rd_running,
+                                            &mut partial_acc,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        0x09 => {
+                            let _ = rd_tx.send(WinDictationMsg::Pong(frame.payload));
+                        }
+                        0x08 => break 'outer,
+                        _ => {}
+                    },
+                    Ok(None) => break,
+                    Err(err) => {
+                        if rd_running.swap(false, Ordering::AcqRel) {
+                            let _ = app.emit(EVENT, json!({ "phase": "error", "message": err }));
+                        }
+                        break 'outer;
+                    }
+                }
+            }
+            match reader.read(&mut tmp).await {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                Err(_) => break,
+            }
+        }
+        if rd_running.swap(false, Ordering::AcqRel) {
+            let _ = app.emit(EVENT, json!({ "phase": "ended" }));
+        }
+        let _ = stop_session().await;
+    });
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn handle_win_asr_event(
+    raw: &str,
+    app: &AppHandle,
+    running: &Arc<AtomicBool>,
+    partial_acc: &mut String,
+) {
+    let Ok(ev) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return;
+    };
+    let kind = ev["type"].as_str().unwrap_or("");
+    match kind {
+        "conversation.item.input_audio_transcription.text" => {
+            let fixed = ev["text"].as_str().unwrap_or("");
+            let stash = ev["stash"].as_str().unwrap_or("");
+            let combined = format!("{fixed}{stash}");
+            if !combined.is_empty() {
+                *partial_acc = combined.clone();
+                let _ = app.emit(EVENT, json!({ "phase": "partial", "text": combined }));
+            }
+        }
+        "conversation.item.input_audio_transcription.delta" => {
+            let delta = ev["delta"].as_str().unwrap_or("");
+            if !delta.is_empty() {
+                partial_acc.push_str(delta);
+                let _ = app.emit(EVENT, json!({ "phase": "partial", "text": partial_acc.as_str() }));
+            }
+        }
+        "conversation.item.input_audio_transcription.completed" => {
+            let text = ev["transcript"].as_str().unwrap_or(partial_acc.as_str());
+            if running.swap(false, Ordering::AcqRel) {
+                let _ = app.emit(EVENT, json!({ "phase": "final", "text": text }));
+            }
+        }
+        "error" => {
+            let msg = ev["error"]["message"]
+                .as_str()
+                .or_else(|| ev["message"].as_str())
+                .unwrap_or("语音听写服务返回错误");
+            if running.swap(false, Ordering::AcqRel) {
+                let _ = app.emit(
+                    EVENT,
+                    json!({ "phase": "error", "message": crate::realtime::friendly_server_error(msg) }),
+                );
+            }
+        }
+        _ => {}
     }
 }
 
 async fn stop_session() -> bool {
     let session = SESSION.lock().ok().and_then(|mut guard| guard.take());
-    let Some(session) = session else { return false };
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let Some(mut session) = session else { return false };
     #[cfg(target_os = "macos")]
     {
         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -167,7 +489,15 @@ async fn stop_session() -> bool {
         })
         .await;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        session.running.store(false, Ordering::Release);
+        let _ = session.tx.send(WinDictationMsg::Close);
+        if let Some(mic) = session.mic.take() {
+            let _ = tauri::async_runtime::spawn_blocking(move || mic.shutdown()).await;
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         drop(session);
     }

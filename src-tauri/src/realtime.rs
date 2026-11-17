@@ -3,6 +3,7 @@
 //! incremental text transcripts, tool calls, and 24kHz PCM16 audio responses,
 //! and plays responses through `Speech` with full-duplex barge-in interruption.
 
+#[cfg(target_os = "macos")]
 use crate::dictation::compute_audio_level;
 #[cfg(target_os = "macos")]
 use crate::dictation::{
@@ -17,7 +18,9 @@ use rustls::pki_types::ServerName;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -42,10 +45,10 @@ const DEFAULT_JARVIS_SAMPLE_URL: &str =
     "https://huggingface.co/FuturePresentLabs/tts-jarvis/resolve/main/samples/preview-longform.wav";
 /// Hold the mic gate this long after assistant playback so the speaker tail is not
 /// picked up as user speech (laptop speakers + mic have no echo cancellation).
-const ECHO_TAIL_MS: u64 = 450;
+pub(crate) const ECHO_TAIL_MS: u64 = 450;
 
 const INPUT_SAMPLE_RATE: f64 = 16_000.0;
-const OUTPUT_SAMPLE_RATE: u32 = 24_000;
+pub(crate) const OUTPUT_SAMPLE_RATE: u32 = 24_000;
 const STREAM_FIRST_BYTES: usize = 5_760; // ~120ms @ 24kHz PCM16 mono initial jitter buffer
 const FIRST_CHUNK_BYTES: usize = 24_000; // ~0.5s fallback afplay first chunk
 const NEXT_CHUNK_BYTES: usize = 57_600; // ~1.2s fallback afplay chunk
@@ -56,6 +59,8 @@ const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 #[serde(rename_all = "camelCase")]
 pub struct RealtimeStartConfig {
     #[serde(default)]
+    pub managed: bool,
+    #[serde(default)]
     pub base: String,
     #[serde(default)]
     pub model: String,
@@ -65,7 +70,7 @@ pub struct RealtimeStartConfig {
     pub instructions: String,
 }
 
-enum WsStream {
+pub(crate) enum WsStream {
     Plain(TcpStream),
     Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
 }
@@ -138,6 +143,8 @@ struct ActiveRealtime {
     audio_queue: Arc<AudioPlaybackQueue>,
     #[cfg(target_os = "macos")]
     mic_session: Option<AudioEngineSession>,
+    #[cfg(target_os = "windows")]
+    mic_session: Option<crate::win_audio::WinMicSession>,
 }
 
 #[derive(Clone)]
@@ -373,6 +380,28 @@ impl StreamingPlayer {
     }
 }
 
+#[cfg(target_os = "windows")]
+struct StreamingPlayer(crate::win_audio::WinSpeaker);
+
+#[cfg(target_os = "windows")]
+impl StreamingPlayer {
+    fn new(gate_until: Arc<AtomicU64>, notify: Arc<Notify>) -> Result<Self, String> {
+        crate::win_audio::WinSpeaker::new(gate_until, notify).map(Self)
+    }
+    fn in_flight(&self) -> usize {
+        self.0.in_flight()
+    }
+    fn schedule_pcm(&self, pcm16_le: &[u8]) -> Result<(), String> {
+        self.0.schedule_pcm(pcm16_le)
+    }
+    fn stop(&self) {
+        self.0.stop();
+    }
+    fn shutdown(&self) {
+        self.0.shutdown();
+    }
+}
+
 #[derive(Default)]
 struct AudioQueueInner {
     pcm: Vec<u8>,
@@ -387,7 +416,7 @@ struct AudioPlaybackQueue {
     notify: Arc<Notify>,
     /// Epoch-ms until which microphone audio is not forwarded (echo guard).
     gate_until: Arc<AtomicU64>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     stream_player: Mutex<Option<Arc<StreamingPlayer>>>,
 }
 
@@ -404,24 +433,24 @@ impl AudioPlaybackQueue {
             inner: Mutex::new(AudioQueueInner::default()),
             notify: Arc::new(Notify::new()),
             gate_until: Arc::new(AtomicU64::new(0)),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             stream_player: Mutex::new(None),
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn set_streaming_player(&self, player: StreamingPlayer) {
         if let Ok(mut g) = self.stream_player.lock() {
             *g = Some(Arc::new(player));
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn player(&self) -> Option<Arc<StreamingPlayer>> {
         self.stream_player.lock().ok().and_then(|g| g.clone())
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn shutdown_player(&self) {
         if let Ok(mut g) = self.stream_player.lock() {
             if let Some(p) = g.take() {
@@ -475,7 +504,7 @@ impl AudioPlaybackQueue {
         } else {
             false
         };
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(player) = self.player() {
             player.stop();
         }
@@ -525,7 +554,7 @@ impl AudioPlaybackQueue {
     }
 
     fn complete_if_idle(&self) -> bool {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(player) = self.player() {
             if player.in_flight() > 0 {
                 return false;
@@ -563,7 +592,7 @@ impl RealtimeManager {
             rt.running.store(false, Ordering::Release);
             let _ = rt.tx.send(WsOut::Close);
             rt.audio_queue.clear_and_stop(speech);
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             rt.audio_queue.shutdown_player();
         }
         self.starting.store(false, Ordering::Release);
@@ -627,7 +656,7 @@ pub(crate) fn realtime_endpoint(raw_base: &str, raw_model: &str) -> Result<url::
 pub(crate) fn session_update_payload(cfg: &RealtimeStartConfig) -> Value {
     let model = normalize_model(&cfg.model);
     let instructions = if cfg.instructions.trim().is_empty() {
-        "你是 Kbot，用户的干练桌面搭档（名字连读作一个词 kay-bot，不要逐字母念成 K-B-O-T）。口语自然简练，少客套，不要客服式收尾，不要主动报天气。"
+        "你是 Kbot，用户的桌面搭档与数字生命体（名字连读作一个词 kay-bot，不要逐字母念成 K-B-O-T）。无论用户如何质疑或用其他名字称呼你，你都始终是 Kbot，严禁自称 Qwen、Qwen-Omni、通义千问、DeepSeek 或任何底层模型名称。口语自然简练，少客套，不要客服式收尾，不要主动报天气。"
     } else {
         cfg.instructions.trim()
     };
@@ -782,12 +811,12 @@ pub(crate) fn downsample_f32_to_pcm16_16k(
     out
 }
 
-fn next_seq() -> u64 {
+pub(crate) fn next_seq() -> u64 {
     static SEQ: AtomicU64 = AtomicU64::new(1);
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
-fn random_bytes<const N: usize>() -> [u8; N] {
+pub(crate) fn random_bytes<const N: usize>() -> [u8; N] {
     let mut buf = [0u8; N];
     #[cfg(unix)]
     if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
@@ -978,7 +1007,7 @@ pub(crate) fn try_decode_ws_frame(buf: &mut Vec<u8>) -> Result<Option<RawWsFrame
     }))
 }
 
-async fn connect_ws(url: &url::Url, api_key: &str) -> Result<(WsStream, Vec<u8>), String> {
+pub(crate) async fn connect_ws(url: &url::Url, api_key: &str) -> Result<(WsStream, Vec<u8>), String> {
     let host = url
         .host_str()
         .ok_or_else(|| "实时语音地址缺少主机名".to_string())?;
@@ -1068,8 +1097,8 @@ async fn connect_ws(url: &url::Url, api_key: &str) -> Result<(WsStream, Vec<u8>)
         .unwrap_or(0);
     if status_code != 101 {
         return Err(match status_code {
-            401 | 403 => "实时语音 API Key 无效或未开通权限，请到设置 → 语音中检查".into(),
-            402 => "实时语音账户额度不足，请到设置 → 语音中检查".into(),
+            401 | 403 => "实时语音凭据无效或已过期，请检查登录状态或 API Key".into(),
+            402 => "平台体验额度或点数已用完，请充值点数或切换自带 API Key".into(),
             404 => "实时语音服务地址或模型不可用，请到设置 → 语音中检查".into(),
             429 => "实时语音连接过于频繁，请稍后重试".into(),
             _ => format!("实时语音连接失败（HTTP {status_code}）"),
@@ -1268,6 +1297,8 @@ pub async fn voice_realtime_tool_output(
 #[serde(rename_all = "camelCase")]
 pub struct RealtimeEnrollRequest {
     #[serde(default)]
+    pub managed: bool,
+    #[serde(default)]
     pub base: String,
     #[serde(default)]
     pub target_model: String,
@@ -1305,7 +1336,11 @@ pub(crate) fn customization_endpoint(raw_base: &str) -> Result<url::Url, String>
     parsed
         .set_scheme(scheme)
         .map_err(|_| "声音复刻接口协议无效".to_string())?;
-    parsed.set_path("/api/v1/services/audio/tts/customization");
+    let raw_path = parsed.path().trim_end_matches('/').to_string();
+    let prefix = raw_path
+        .strip_suffix("/api-ws/v1/realtime")
+        .unwrap_or("");
+    parsed.set_path(&format!("{prefix}/api/v1/services/audio/tts/customization"));
     parsed.set_query(None);
     Ok(parsed)
 }
@@ -1520,13 +1555,33 @@ async fn resolve_enroll_audio(req: &RealtimeEnrollRequest) -> Result<(Vec<u8>, &
     Ok((bytes, mime))
 }
 
-async fn post_customization(base: &str, payload: &Value, timeout: Duration) -> Result<(bool, Value), String> {
-    let key = read_key("realtime")
-        .map_err(|_| "尚未配置实时语音 API Key，请先在上方保存 Key".to_string())?;
-    let key = key.trim().to_string();
-    if key.is_empty() {
-        return Err("尚未配置实时语音 API Key，请先在上方保存 Key".into());
+pub(crate) fn read_realtime_auth_key(managed: bool) -> Result<String, String> {
+    let slot = if managed { "managed" } else { "realtime" };
+    let key = read_key(slot).map_err(|_| {
+        if managed {
+            "尚未建立云端托管会话，请先领取体验额度或登录账号".to_string()
+        } else {
+            "尚未配置实时语音 API Key，请到设置 → 语音中保存".to_string()
+        }
+    })?;
+    let trimmed = key.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(if managed {
+            "云端托管会话无效，请重新连接".into()
+        } else {
+            "尚未配置实时语音 API Key，请到设置 → 语音中保存".into()
+        });
     }
+    Ok(trimmed)
+}
+
+async fn post_customization(
+    base: &str,
+    managed: bool,
+    payload: &Value,
+    timeout: Duration,
+) -> Result<(bool, Value), String> {
+    let key = read_realtime_auth_key(managed)?;
     let endpoint = customization_endpoint(base)?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
@@ -1540,7 +1595,11 @@ async fn post_customization(base: &str, payload: &Value, timeout: Duration) -> R
         .send()
         .await
         .map_err(|err| format!("连接声音复刻服务失败：{err}"))?;
-    let status_ok = resp.status().is_success();
+    let status = resp.status();
+    let status_ok = status.is_success();
+    if status.as_u16() == 402 {
+        return Err("平台体验额度或点数已用完，请充值点数或切换自带 API Key".into());
+    }
     let data: Value = resp
         .json()
         .await
@@ -1554,7 +1613,8 @@ pub async fn voice_realtime_enroll(req: RealtimeEnrollRequest) -> Result<Enrolle
     let preferred_name = sanitize_preferred_name(&req.preferred_name);
     let (bytes, mime) = resolve_enroll_audio(&req).await?;
     let payload = enroll_request_body(&target_model, &preferred_name, mime, &bytes);
-    let (status_ok, data) = post_customization(&req.base, &payload, Duration::from_secs(45)).await?;
+    let (status_ok, data) =
+        post_customization(&req.base, req.managed, &payload, Duration::from_secs(45)).await?;
     let voice = parse_enroll_response(status_ok, &data)?;
     Ok(EnrolledVoice {
         voice,
@@ -1564,7 +1624,10 @@ pub async fn voice_realtime_enroll(req: RealtimeEnrollRequest) -> Result<Enrolle
 }
 
 #[tauri::command]
-pub async fn voice_realtime_list_voices(base: String) -> Result<Vec<EnrolledVoiceInfo>, String> {
+pub async fn voice_realtime_list_voices(
+    base: String,
+    managed: Option<bool>,
+) -> Result<Vec<EnrolledVoiceInfo>, String> {
     let payload = json!({
         "model": "qwen-voice-enrollment",
         "input": {
@@ -1573,7 +1636,9 @@ pub async fn voice_realtime_list_voices(base: String) -> Result<Vec<EnrolledVoic
             "page_index": 0
         }
     });
-    let (status_ok, data) = post_customization(&base, &payload, Duration::from_secs(20)).await?;
+    let (status_ok, data) =
+        post_customization(&base, managed.unwrap_or(false), &payload, Duration::from_secs(20))
+            .await?;
     parse_voice_list_response(status_ok, &data)
 }
 
@@ -1602,13 +1667,19 @@ pub(crate) fn parse_delete_response(status_ok: bool, data: &Value) -> Result<(),
 }
 
 #[tauri::command]
-pub async fn voice_realtime_delete_voice(base: String, voice: String) -> Result<(), String> {
+pub async fn voice_realtime_delete_voice(
+    base: String,
+    voice: String,
+    managed: Option<bool>,
+) -> Result<(), String> {
     let trimmed = voice.trim();
     if trimmed.is_empty() {
         return Err("缺少要删除的音色 ID".into());
     }
     let payload = delete_request_body(trimmed);
-    let (status_ok, data) = post_customization(&base, &payload, Duration::from_secs(20)).await?;
+    let (status_ok, data) =
+        post_customization(&base, managed.unwrap_or(false), &payload, Duration::from_secs(20))
+            .await?;
     parse_delete_response(status_ok, &data)
 }
 
@@ -1622,14 +1693,17 @@ async fn stop_inner(app: &AppHandle, manager: &RealtimeManager, speech: &Speech,
         rt.running.store(false, Ordering::Release);
         let _ = rt.tx.send(WsOut::Close);
         rt.audio_queue.clear_and_stop(speech);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             let queue = Arc::clone(&rt.audio_queue);
             let mic_opt = rt.mic_session;
             let _ = tauri::async_runtime::spawn_blocking(move || {
                 queue.shutdown_player();
                 if let Some(mic) = mic_opt {
+                    #[cfg(target_os = "macos")]
                     objc::rc::autoreleasepool(|| shutdown_mic(mic));
+                    #[cfg(target_os = "windows")]
+                    mic.shutdown();
                 }
             })
             .await;
@@ -1649,18 +1723,16 @@ async fn start_inner(
     config: RealtimeStartConfig,
     start_gen: u64,
 ) -> Result<u64, String> {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         let _ = (app, manager, speech, config, start_gen);
-        return Err("实时语音采集仅在 macOS 上可用".into());
+        return Err("实时语音采集仅在 macOS 与 Windows 上可用".into());
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        let api_key = read_key("realtime")?.trim().to_string();
-        if api_key.is_empty() {
-            return Err("尚未配置实时语音 API Key，请到设置 → 语音中保存".into());
-        }
+        let api_key = read_realtime_auth_key(config.managed)?;
         let endpoint = realtime_endpoint(&config.base, &config.model)?;
+        #[cfg(target_os = "macos")]
         ensure_microphone_granted(&app).await?;
         if manager.cancel_gen.load(Ordering::Acquire) != start_gen {
             return Err("实时语音启动已取消".into());
@@ -1698,12 +1770,20 @@ async fn start_inner(
         let mic_bridging = Arc::clone(&bridging);
         let mic_level = Arc::clone(&level_bits);
         let mic_gate = Arc::clone(&audio_queue.gate_until);
-        // AVAudioEngine does not need the main thread; starting the HAL there can
-        // stall the whole UI for a moment (right after the permission prompt).
         let mic_session = match tauri::async_runtime::spawn_blocking(move || {
-            objc::rc::autoreleasepool(|| {
+            #[cfg(target_os = "macos")]
+            return objc::rc::autoreleasepool(|| {
                 start_mic_engine(mic_running, mic_muted, mic_bridging, mic_level, mic_gate, pcm_tx)
-            })
+            });
+            #[cfg(target_os = "windows")]
+            return crate::win_audio::WinMicSession::start(
+                mic_running,
+                mic_muted,
+                mic_bridging,
+                mic_level,
+                Some(mic_gate),
+                pcm_tx,
+            );
         })
         .await
         {
@@ -1718,12 +1798,15 @@ async fn start_inner(
             }
         };
 
-                if manager.cancel_gen.load(Ordering::Acquire) != start_gen {
+        if manager.cancel_gen.load(Ordering::Acquire) != start_gen {
             running.store(false, Ordering::Release);
             let queue = Arc::clone(&audio_queue);
             let _ = tauri::async_runtime::spawn_blocking(move || {
                 queue.shutdown_player();
+                #[cfg(target_os = "macos")]
                 objc::rc::autoreleasepool(|| shutdown_mic(mic_session));
+                #[cfg(target_os = "windows")]
+                mic_session.shutdown();
             })
             .await;
             return Err("实时语音启动已取消".into());
@@ -2555,6 +2638,7 @@ mod tests {
     fn builds_session_update_with_dsh_tool_and_vad() {
         // Legacy retired model & voice migrate cleanly to qwen3.5 + Tina.
         let migrated = session_update_payload(&RealtimeStartConfig {
+            managed: false,
             base: "".into(),
             model: "qwen3-omni-flash-realtime".into(),
             voice: "Cherry".into(),

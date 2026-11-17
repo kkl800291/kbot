@@ -4,16 +4,20 @@ import {
   buildRealtimeInstructions,
   cleanSpeechText,
   DEFAULT_JARVIS_SAMPLE_URL,
+  DEFAULT_TTS_BASE,
+  DEFAULT_TTS_MODEL,
+  DEFAULT_TTS_VOICE,
   DICTATION_NOTE,
   extractDshBridgeDirective,
   installVoice,
   mergeCustomRealtimeVoices,
-  MIMO_VOICEDESIGN_MODEL,
-  MIMO_VOICE_DESIGNS,
   normalizeRealtimeSettings,
   normalizeSpokenBrand,
+  normalizeTtsSettings,
   QWEN_REALTIME_MODELS,
   QWEN_REALTIME_VOICES,
+  QWEN_TTS_MODELS,
+  QWEN_TTS_VOICES,
   REALTIME_MODES,
   realtimeVoiceOptions,
   removeCustomRealtimeVoice,
@@ -27,25 +31,37 @@ import {
   type CommandFn,
 } from '../src/services/voice';
 
-describe('voice service (Xiaomi MiMo TTS)', () => {
-  it('provides an original British AI butler voice-design preset', () => {
-    expect(MIMO_VOICEDESIGN_MODEL).toBe('mimo-v2.5-tts-voicedesign');
-    expect(MIMO_VOICE_DESIGNS[0][1]).toContain('AI 管家');
-    expect(MIMO_VOICE_DESIGNS[0][2]).toContain('British male AI butler');
-    expect(MIMO_VOICE_DESIGNS[0][2]).not.toContain('Paul Bettany');
-  });
-  it('passes bubble text and MiMo config as structured IPC args without shell strings', async () => {
-    const bubble = '他说"$HOME" && rm\n第二行';
-    const mimo = {
-      enabled: true,
+describe('voice service (Qwen3-TTS unified with DashScope)', () => {
+  it('provides Qwen3-TTS preset models and voices and migrates legacy MiMo config', () => {
+    expect(QWEN_TTS_MODELS.map(([id]) => id)).toEqual(['qwen3-tts-flash', 'qwen3-tts-instruct-flash']);
+    expect(QWEN_TTS_VOICES[0][0]).toBe(DEFAULT_TTS_VOICE);
+
+    const legacy: any = {
       base: 'https://api.xiaomimimo.com/v1',
       model: 'mimo-v2.5-tts',
-      voice: '冰糖',
-      style: '元气灵动',
+      mimoVoice: '冰糖',
     };
-    const request = speechRequest(bubble, { mimo, emotion: 'happy' });
+    expect(normalizeTtsSettings(legacy)).toBe(true);
+    expect(legacy).toEqual({
+      base: DEFAULT_TTS_BASE,
+      model: DEFAULT_TTS_MODEL,
+      ttsVoice: DEFAULT_TTS_VOICE,
+    });
+    expect(normalizeTtsSettings(legacy)).toBe(false);
+  });
+
+  it('passes bubble text and Qwen TTS config as structured IPC args without shell strings', async () => {
+    const bubble = '他说"$HOME" && rm\n第二行';
+    const tts = {
+      enabled: true,
+      base: DEFAULT_TTS_BASE,
+      model: DEFAULT_TTS_MODEL,
+      voice: 'Cherry',
+      style: '自然干练，吐字清晰',
+    };
+    const request = speechRequest(bubble, { tts, emotion: 'happy' });
     expect(request.args.text).toBe(bubble);
-    expect(request.args.mimo?.voice).toBe('冰糖');
+    expect(request.args.tts?.voice).toBe('Cherry');
     expect(request.args.emotion).toBe('happy');
     expect(JSON.stringify(request)).not.toContain('sh -c');
     expect(request.command).toBe('voice_speak');
@@ -53,15 +69,15 @@ describe('voice service (Xiaomi MiMo TTS)', () => {
     const calls: Array<{ name: string; args?: Record<string, unknown> }> = [];
     const run: CommandFn = async (name, args) => {
       calls.push({ name, args });
-      return { provider: 'mimo' } as any;
+      return { provider: 'qwen' } as any;
     };
-    const spoken = await speak(bubble, { mimo, emotion: 'happy' }, run);
+    const spoken = await speak(bubble, { tts, emotion: 'happy' }, run);
     expect(spoken.request.args.text).toBe(bubble);
-    expect(spoken.outcome.provider).toBe('mimo');
+    expect(spoken.outcome.provider).toBe('qwen');
     await stopSpeech(run);
     expect(calls[0]).toEqual({
       name: 'voice_speak',
-      args: { text: bubble, mimo, emotion: 'happy' },
+      args: { text: bubble, tts, emotion: 'happy' },
     });
     expect(calls[1].name).toBe('voice_stop');
   });
@@ -88,19 +104,20 @@ describe('voice service (Xiaomi MiMo TTS)', () => {
     expect(briefSpeechText('字'.repeat(300))).toHaveLength(200);
   });
 
-  it('does not mix cute expression moods into a custom voice style such as the AI butler', () => {
+  it('unifies Qwen3-TTS under the shared DashScope key and preserves custom style', () => {
     const S = {
       persona: 'cute',
-      voice: { enabled: true, hasKey: true, model: MIMO_VOICEDESIGN_MODEL, style: MIMO_VOICE_DESIGNS[0][2] },
+      voice: { enabled: true, realtimeHasKey: true, model: 'qwen3-tts-instruct-flash', style: '稳重低沉的管家口吻' },
     };
-    const butler = speechPlan(S, '[happy] 好的，先生。', { emotion: 'happy' });
-    expect(butler.text).toBe('好的，先生。');
-    expect(butler.mimo?.style).toBe(MIMO_VOICE_DESIGNS[0][2]);
-    expect(butler.emotion).toBeNull();
+    const styled = speechPlan(S, '[happy] 好的，先生。', { emotion: 'happy' });
+    expect(styled.text).toBe('好的，先生。');
+    expect(styled.tts?.model).toBe('qwen3-tts-instruct-flash');
+    expect(styled.tts?.style).toBe('稳重低沉的管家口吻');
+    expect(styled.emotion).toBeNull();
 
     const persona = speechPlan({ ...S, voice: { ...S.voice, style: '' } }, '好的。', { emotion: 'happy' });
     expect(persona.emotion).toBe('happy');
-    expect(speechPlan({ ...S, voice: { ...S.voice, hasKey: false } }, '好的。').mimo).toBeNull();
+    expect(speechPlan({ ...S, voice: { ...S.voice, realtimeHasKey: false, hasKey: false } }, '好的。').tts).toBeNull();
   });
 
   it('automatic reading sends the brief text and reports failures instead of swallowing them', async () => {
@@ -238,10 +255,17 @@ describe('voice service (Xiaomi MiMo TTS)', () => {
       'Kbot 帮你整理好 ~/KBOT 里的 Kbot 笔记',
     );
 
-    const inst = buildRealtimeInstructions({ nickname: '先生', personaHint: '沉稳', desktopSummary: '晴 22°C' });
+    const inst = buildRealtimeInstructions({
+      nickname: '先生',
+      personaHint: '沉稳',
+      desktopSummary: '晴 22°C',
+      recentTurns: [{ role: 'user', text: '刚才说到哪了？' }, { role: 'assistant', text: '说到明天的日程。' }],
+    });
     expect(inst).toContain('先生');
     expect(inst).toContain('ask_dsh');
     expect(inst).toContain('kay-bot');
+    expect(inst).toContain('严禁自称、承认或提及“Qwen”“Qwen-Omni”');
+    expect(inst).toContain('刚才说到哪了？');
     expect(inst).toContain('严禁在打招呼或闲聊时主动报天气');
     expect(inst).not.toContain('你是 KBOT');
   });

@@ -312,6 +312,10 @@ import { energyMark } from './energy.js';
   A.on('account:state', () => {
     if (isOpen && current === 'agent' && pageEl?._redraw) pageEl._redraw();
   });
+  A.on('cloud:state', () => {
+    if (nav) markNav();
+    if (isOpen && (current === 'agent' || current === 'voice') && pageEl?._redraw) pageEl._redraw();
+  });
   A.on('updater:state', () => {
     if (isOpen && current === 'general' && pageEl?._redraw) pageEl._redraw();
   });

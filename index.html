@@ -40,11 +40,25 @@
           </div>
         </div>
         <div class="s-field">
-          <button type="button" class="s-mic" id="sMic" title="点击开启或静音语音交流" aria-label="语音交流" data-icon="mic" data-size="15">
+          <button type="button" class="s-mic" id="sMic" title="语音输入（说话转文字）" aria-label="语音输入" data-icon="mic" data-size="15">
             <span class="s-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           </button>
           <input id="sInput" type="text" autocomplete="off" spellcheck="false" aria-label="吩咐 KBOT">
+          <button type="button" class="s-call" id="sCall" title="语音通话（打电话）" aria-label="语音通话" data-icon="phone" data-size="14"></button>
           <button type="button" class="s-btn" id="sBtn" title="固定为对话小窗（⌘↩）" aria-label="在窗口中继续" data-icon="expand"></button>
+        </div>
+        <div class="s-call-hud" id="sCallHud" hidden>
+          <div class="s-call-status">
+            <span class="s-call-dot" aria-hidden="true"></span>
+            <span class="s-call-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span class="s-call-phase" id="sCallPhase">正在连接语音通话…</span>
+          </div>
+          <div class="s-call-sub" id="sCallSub" aria-live="polite" hidden></div>
+          <div class="s-call-dock" id="sCallDock">
+            <button type="button" class="s-cbtn" id="cMute" title="静音" aria-label="静音" data-icon="mic" data-size="16"></button>
+            <button type="button" class="s-cbtn hangup" id="cHangup" title="挂断通话" aria-label="挂断通话" data-icon="phoneOff" data-size="16"></button>
+            <button type="button" class="s-cbtn" id="cToText" title="切回文字对话" aria-label="切回文字对话" data-icon="chat" data-size="15"></button>
+          </div>
         </div>
       </section>
       <section id="panel" hidden inert aria-label="对话窗口">
@@ -54,6 +68,7 @@
             <div class="p-sub" id="pSub"></div>
           </div>
           <div class="p-tools">
+            <button class="ib" data-p="call" title="语音通话（打电话）" data-icon="phone"></button>
             <button class="ib" data-p="history" title="历史对话" data-icon="history"></button>
             <button class="ib" data-p="new" title="新对话" data-icon="plus"></button>
             <button class="ib" data-p="expand" title="放大" id="expandBtn" data-icon="expand"></button>

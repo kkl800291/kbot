@@ -1,5 +1,6 @@
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { resolveCloudEndpoint } from './services/cloud';
 import { command } from './services/runtime';
 import { diffSettings } from './services/settings-patch';
 import { installVoice } from './services/voice';
@@ -60,6 +61,7 @@ export async function bootSettingsWindow() {
   function accept(next: any, redraw = false) {
     const dshChanged = JSON.stringify(A.dshState) !== JSON.stringify(next.dshState);
     const accountChanged = JSON.stringify(A.accountState) !== JSON.stringify(next.accountState);
+    const cloudChanged = JSON.stringify(A.cloudState) !== JSON.stringify(next.cloudState);
     const updChanged = JSON.stringify(A.updateState) !== JSON.stringify(next.updateState);
     for (const root of roots) {
       if (root === 'S') merge(A.S, next.S);
@@ -67,6 +69,7 @@ export async function bootSettingsWindow() {
     }
     A.dshState = clone(next.dshState || null);
     A.accountState = clone(next.accountState || null);
+    A.cloudState = clone(next.cloudState || null);
     A.updateState = clone(next.updateState || null);
     A.hidden = next.hidden;
     A.chat.convs = clone(next.conversations || []);
@@ -75,6 +78,7 @@ export async function bootSettingsWindow() {
     else {
       if (dshChanged) A.emit('dsh:state', A.dshState);
       if (accountChanged) A.emit('account:state', A.accountState);
+      if (cloudChanged) A.emit('cloud:state', A.cloudState);
       if (updChanged) A.emit('updater:state', A.updateState);
     }
   }
@@ -118,10 +122,23 @@ export async function bootSettingsWindow() {
   A.birthdays = clone(state.birthdays || []);
   A.dshState = clone(state.dshState || null);
   A.accountState = clone(state.accountState || null);
+  A.cloudState = clone(state.cloudState || null);
   A.updateState = clone(state.updateState || null);
   A.hidden = state.hidden;
 
   installVoice(A);
+  A.cloud = {
+    endpoint: () => resolveCloudEndpoint(A.S),
+    llmManaged: () => Boolean(resolveCloudEndpoint(A.S) && (A.S?.cloud?.llmMode ?? 'managed') === 'managed' && A.cloudState?.hasSession),
+    voiceManaged: () => Boolean(resolveCloudEndpoint(A.S) && (A.S?.cloud?.voiceMode ?? 'managed') === 'managed' && A.cloudState?.hasSession),
+    bootstrap: () => action('cloud-bootstrap'),
+    refresh: () => action('cloud-refresh'),
+    login: (account: string, password = '') => action('cloud-login', { account, password }),
+    redeem: (code: string) => action('cloud-redeem', { code }),
+    signOut: () => action('cloud-sign-out'),
+    setLlmMode: (mode: string) => action('cloud-llm-mode', { mode }),
+    setVoiceMode: (mode: string) => action('cloud-voice-mode', { mode }),
+  };
   A.agent = {
     state: () => ({ ...(A.dshState || {}) }),
     reconnect: () => action('dsh-reconnect'),
@@ -163,12 +180,15 @@ export async function bootSettingsWindow() {
   const live = (next: any) => {
     const dshChanged = JSON.stringify(A.dshState) !== JSON.stringify(next.dshState);
     const accountChanged = JSON.stringify(A.accountState) !== JSON.stringify(next.accountState);
+    const cloudChanged = JSON.stringify(A.cloudState) !== JSON.stringify(next.cloudState);
     const updChanged = JSON.stringify(A.updateState) !== JSON.stringify(next.updateState);
     A.dshState = clone(next.dshState || null);
     A.accountState = clone(next.accountState || null);
+    A.cloudState = clone(next.cloudState || null);
     A.updateState = clone(next.updateState || null);
     if (dshChanged) A.emit('dsh:state', A.dshState);
     if (accountChanged) A.emit('account:state', A.accountState);
+    if (cloudChanged) A.emit('cloud:state', A.cloudState);
     if (updChanged) A.emit('updater:state', A.updateState);
   };
   await listen<any>('settings-state', ({ payload }) => { if (!queued) accept(payload); else live(payload); });

@@ -1,17 +1,19 @@
 import {
   DEFAULT_JARVIS_SAMPLE_URL,
   DEFAULT_REALTIME_BASE,
+  DEFAULT_TTS_BASE,
   mergeCustomRealtimeVoices,
-  MIMO_VOICES,
-  MIMO_VOICE_DESIGNS,
-  MIMO_VOICEDESIGN_MODEL,
   normalizeCustomVoices,
   normalizeRealtimeSettings,
+  normalizeTtsSettings,
   QWEN_REALTIME_MODELS,
+  QWEN_TTS_MODELS,
+  QWEN_TTS_VOICES,
   REALTIME_MODES,
   realtimeVoiceOptions,
   removeCustomRealtimeVoice,
 } from '../services/voice';
+import { cloudAccountCard } from './cloud-card';
 
 /* KBOT · 设置页（三）：语音（召唤实时语音交流 + 小米 MiMo TTS 语音合成） */
 (function () {
@@ -38,7 +40,7 @@ import {
           emotion: 'happy',
         });
         testStatus.className = 'sx-d ok';
-        testStatus.textContent = out?.provider === 'mimo' ? '播放成功（小米 MiMo 语音）' : '播放完成';
+        testStatus.textContent = out?.provider === 'qwen' ? '播放成功（千问 Qwen3-TTS）' : '播放完成';
       } catch (err) {
         testStatus.className = 'sx-d bad';
         testStatus.textContent = String(err?.message || err);
@@ -53,16 +55,8 @@ import {
     const testRow = X.row('试听', null, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end' }, [testBtn, stopBtn]));
     $$('.sx-l', testRow)[0].append(testStatus);
 
-    const mimoModelInput = X.text('voice.model', { ph: 'mimo-v2.5-tts', w: 190, max: 80 });
-    const mimoStyleInput = X.text('voice.style', { ph: '自动', w: 250, max: 420, allowEmpty: true });
-    const designBtn = X.btn('套用英式 AI 管家', () => {
-      const [, , prompt] = MIMO_VOICE_DESIGNS[0];
-      A.sput('voice.model', MIMO_VOICEDESIGN_MODEL);
-      A.sput('voice.style', prompt);
-      mimoModelInput.value = MIMO_VOICEDESIGN_MODEL;
-      mimoStyleInput.value = prompt;
-      A.toast('已套用英式 AI 管家音色，点击“试听”确认效果');
-    }, 'ghost');
+    normalizeTtsSettings(A.S.voice);
+    const ttsStyleInput = X.text('voice.style', { ph: '留空时跟随性格与表情', w: 250, max: 420, allowEmpty: true });
 
     let modelSelect;
     let voiceSelect;
@@ -253,40 +247,49 @@ import {
     );
     $$('.sx-l', cloneRow)[0].append(cloneStatus);
 
+    const cloudSlot = h('div', {});
+    const drawCloud = () => {
+      cloudSlot.replaceChildren(cloudAccountCard(A, { modeKey: 'voiceMode', onModeChange: () => drawCloud() }));
+    };
+    drawCloud();
+    el._redraw = drawCloud;
+
     el.append(
-      X.group('召唤语音交流',
-        X.row('召唤即开启语音交流', '默认关闭。开启后每次唤起都会请求麦克风并自动倾听；关闭时点输入框左侧的麦克风再说话', X.toggle('voice.summonVoice')),
-        X.row('语音对话方案', '“自动”模式下，已保存百炼 Key 时优先走实时语音大模型', X.select('voice.realtimeMode', REALTIME_MODES, null, 250)),
+      cloudSlot,
+      X.group('语音通话入口',
+        X.row('唤起时直接开启语音通话', '默认关闭。关闭时按快捷键只打开轻量文字输入框（点右侧电话图标随时进入纯语音通话）；开启后每次唤起直接进入纯语音通话界面', X.toggle('voice.summonVoice')),
       ),
-      X.group('阿里云百炼 · 实时语音大模型',
-        X.row('WebSocket 地址', '默认北京 DashScope，可切换专属空间接入点', X.text('voice.realtimeBase', { ph: DEFAULT_REALTIME_BASE, w: 250, max: 240 })),
-        X.row('实时模型', null, modelSelect),
-        X.row('实时音色', '复刻后的音色将出现在列表顶部；可随时切换回官方预设', voiceSelect),
+      X.group('实时音色与声音复刻',
+        X.row('实时对话音色', '复刻后的音色将出现在列表顶部；可随时切换回官方预设', voiceSelect),
         cloneRow,
         customVoicesSlot,
-        X.row('自定义音色 ID', '也可直接粘贴百炼控制台生成的 voice_id', customIdInput),
-        X.row('API Key', '只保存在这台 Mac 上', X.keyCtl('voice', 'realtime', null, 'realtimeHasKey')),
       ),
-      X.note('实时语音开启后支持全双工随时插话打断；涉及读写记忆、文件、命令或定时提醒时会自动桥接本机 DeepSeek Harness 执行。'),
-      X.group('播报',
+      X.group('播报与朗读',
         X.row('语音', null, X.toggle('voice.enabled')),
         X.row('朗读回复', '自动跳过代码块', X.toggle('voice.autoReply')),
         X.row('朗读提醒和气泡', '勿扰或隐藏时静音', X.toggle('voice.autoProactive')),
-      ),
-      X.group('发音引擎',
-        X.row('引擎', null, h('span', { class: 'sx-status' }, '小米 MiMo 语音')),
+        X.row('朗读音色', '千问 Qwen3-TTS 预设音色，与实时语音共用同一套千问能力', X.select('voice.ttsVoice', QWEN_TTS_VOICES, null, 230)),
         testRow,
       ),
-      X.note('对话窗自动朗读与本机听写回退模式使用小米 MiMo 语音。'),
-      X.group('小米 MiMo',
-        X.row('API 地址', null, X.text('voice.base', { ph: 'https://api.xiaomimimo.com/v1', w: 250, max: 200 })),
-        X.row('模型', null, mimoModelInput),
-        X.row('音色', '推荐“冰糖”或“茉莉”', X.select('voice.mimoVoice', MIMO_VOICES, null, 210)),
-        X.row('语气风格', '留空时跟随性格与表情', mimoStyleInput),
-        X.row('音色方案', '用文字生成原创音色，不需要上传样本', designBtn),
-        X.row('API Key', '只保存在这台 Mac 上', X.keyCtl('voice', 'tts')),
-      ),
-      X.note('对话里每条回复下方的喇叭按钮，可以单独朗读这一条。'),
+      X.note('实时语音（Qwen-Omni）与消息朗读（Qwen3-TTS）统一基于阿里云千问同一套密钥；对话里每条回复下方的喇叭按钮可单独朗读这一条。'),
+      h('details', { class: 'sx-advanced' }, [
+        h('summary', {}, '高级连接与自带 API Key（千问统一接入）'),
+        X.note('支持由平台托管的体验额度与充值点数网关接入；如需使用自己的阿里云百炼 API Key 或指定托管网关地址，可在此展开配置（实时语音、声音复刻与文字朗读共用这一把 Key）。'),
+        X.group('阿里云百炼统一凭据',
+          X.row('百炼 API Key', '同时驱动千问实时语音与 Qwen3-TTS 朗读，只保存在这台 Mac 上', X.keyCtl('voice', 'realtime', v => { A.sput('voice.hasKey', !!v); }, 'realtimeHasKey')),
+          X.row('语音对话方案', '“自动”模式下，已连接百炼能力时优先走实时语音大模型', X.select('voice.realtimeMode', REALTIME_MODES, null, 250)),
+        ),
+        X.group('实时语音进阶参数',
+          X.row('WebSocket 地址', '默认北京 DashScope，可切换托管网关或专属空间接入点', X.text('voice.realtimeBase', { ph: DEFAULT_REALTIME_BASE, w: 250, max: 240 })),
+          X.row('实时模型', null, modelSelect),
+          X.row('自定义音色 ID', '也可直接粘贴百炼控制台生成的 voice_id', customIdInput),
+        ),
+        X.group('千问朗读（Qwen3-TTS）进阶参数',
+          X.row('REST 地址', '默认北京 DashScope，可切换托管网关', X.text('voice.base', { ph: DEFAULT_TTS_BASE, w: 250, max: 200 })),
+          X.row('朗读模型', 'qwen3-tts-instruct-flash 支持自定义语气指令', X.select('voice.model', QWEN_TTS_MODELS, null, 250)),
+          X.row('语气指令', '配合 instruct 模型使用，留空时跟随性格与表情', ttsStyleInput),
+        ),
+      ]),
     );
     drawCustomVoices();
   };

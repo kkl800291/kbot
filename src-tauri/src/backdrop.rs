@@ -228,6 +228,8 @@ mod mac {
     const COLLECTION: u64 = (1 << 0) | (1 << 4) | (1 << 6) | (1 << 8);
     const BLEND_BEHIND_WINDOW: i64 = 0;
     const MATERIAL_HUD_WINDOW: i64 = 13;
+    const MATERIAL_FULL_SCREEN_UI: i64 = 15;
+    const GLASS_STYLE_CLEAR: i64 = 1;
     const STATE_ACTIVE: i64 = 1;
     const NS_WINDOW_BELOW: i64 = -1;
     const RESIZE_STRETCH: i64 = 1;
@@ -236,6 +238,8 @@ mod mac {
     // AppKit 只能在主线程上动，视图指针也只在主线程里存取。
     thread_local! {
         static FX: Cell<*mut Object> = const { Cell::new(std::ptr::null_mut()) };
+        static STANDBY_FX: Cell<*mut Object> = const { Cell::new(std::ptr::null_mut()) };
+        static STANDBY_IS_GLASS: Cell<bool> = const { Cell::new(false) };
         static STANDBY_ACTIVE: Cell<bool> = const { Cell::new(false) };
         // 此刻的（羽化，圆角），变形途中是中间值；MASK 是已经生成的遮罩按半点取整后的键
         static SHAPE: Cell<(f64, f64)> = const { Cell::new((0.0, 0.0)) };
@@ -354,24 +358,114 @@ mod mac {
         Ok(ns)
     }
 
-    /// 待命空间的衬底铺满整个屏幕，整体淡入、整体淡出：桌面只是“静下来”，没有从哪里铺开或收回的形状。
-    unsafe fn apply_standby(fx: *mut Object, target: NSRect, b: Backdrop) -> Result<(), String> {
+    unsafe fn standby_view(window: &tauri::WebviewWindow) -> Result<(*mut Object, bool), String> {
+        let existing = STANDBY_FX.with(|c| c.get());
+        if !existing.is_null() {
+            return Ok((existing, STANDBY_IS_GLASS.with(|c| c.get())));
+        }
+        let w = ns_window(window)?;
+        let content: *mut Object = msg_send![w, contentView];
+        let nil: *mut Object = std::ptr::null_mut();
+        if let Some(glass_cls) = Class::get("NSGlassEffectView") {
+            let fx: *mut Object = msg_send![glass_cls, alloc];
+            let fx: *mut Object = msg_send![fx, initWithFrame: NSRect::new(0.0, 0.0, 0.0, 0.0)];
+            if !fx.is_null() {
+                // macOS 26+ Liquid Glass：Clear 样式让全屏保持通透折射质感，中央区域由网页径向压暗承托对话
+                let _: () = msg_send![fx, setStyle: GLASS_STYLE_CLEAR];
+                let _: () = msg_send![fx, setCornerRadius: 0.0f64];
+                let ok_app: BOOL = msg_send![fx, respondsToSelector: sel!(setAppearance:)];
+                if ok_app == YES {
+                    let appearance: *mut Object =
+                        msg_send![class!(NSAppearance), appearanceNamed: NSAppearanceNameVibrantDark];
+                    let _: () = msg_send![fx, setAppearance: appearance];
+                }
+                let tint: *mut Object = msg_send![
+                    class!(NSColor),
+                    colorWithSRGBRed: 0.05f64
+                    green: 0.07f64
+                    blue: 0.12f64
+                    alpha: 0.20f64
+                ];
+                let _: () = msg_send![fx, setTintColor: tint];
+                let _: () = msg_send![fx, setAlphaValue: 0.0f64];
+                let _: () = msg_send![fx, setHidden: YES];
+                let _: () = msg_send![content, addSubview: fx positioned: NS_WINDOW_BELOW relativeTo: nil];
+                STANDBY_FX.with(|c| c.set(fx));
+                STANDBY_IS_GLASS.with(|c| c.set(true));
+                return Ok((fx, true));
+            }
+        }
+        let cls = Class::get("NSVisualEffectView").ok_or("系统没有 NSVisualEffectView")?;
+        let fx: *mut Object = msg_send![cls, alloc];
+        let fx: *mut Object = msg_send![fx, initWithFrame: NSRect::new(0.0, 0.0, 0.0, 0.0)];
+        if fx.is_null() {
+            return Err("无法创建模糊视图".into());
+        }
+        let _: () = msg_send![fx, setBlendingMode: BLEND_BEHIND_WINDOW];
+        let _: () = msg_send![fx, setMaterial: MATERIAL_FULL_SCREEN_UI];
+        let _: () = msg_send![fx, setState: STATE_ACTIVE];
+        let appearance: *mut Object =
+            msg_send![class!(NSAppearance), appearanceNamed: NSAppearanceNameVibrantDark];
+        let _: () = msg_send![fx, setAppearance: appearance];
+        let _: () = msg_send![fx, setAlphaValue: 0.0f64];
+        let _: () = msg_send![fx, setHidden: YES];
+        let _: () = msg_send![content, addSubview: fx positioned: NS_WINDOW_BELOW relativeTo: nil];
+        STANDBY_FX.with(|c| c.set(fx));
+        STANDBY_IS_GLASS.with(|c| c.set(false));
+        Ok((fx, false))
+    }
+
+    unsafe fn hide_view_now(view: *mut Object) {
+        if view.is_null() {
+            return;
+        }
+        let _: () = msg_send![view, setAlphaValue: 0.0f64];
+        let _: () = msg_send![view, setHidden: YES];
+    }
+
+    /// 待命空间的衬底铺满整个屏幕，整体淡入、整体淡出：macOS 26+ 用 Liquid Glass，旧系统用全屏柔雾。
+    unsafe fn apply_standby(
+        window: &tauri::WebviewWindow,
+        plate_fx: *mut Object,
+        target: NSRect,
+        b: Backdrop,
+    ) -> Result<(), String> {
         let was = STANDBY_ACTIVE.with(|s| s.replace(b.visible));
-        // 停掉常驻条、通知那种底板还在进行的变形，换成没有遮罩的整块
         MORPH.fetch_add(1, Ordering::SeqCst);
         MASK.with(|m| m.set((-1, -1)));
         let nil: *mut Object = std::ptr::null_mut();
-        let _: () = msg_send![fx, setMaskImage: nil];
-        let _: () = msg_send![fx, setFrame: target];
+        let _: () = msg_send![plate_fx, setMaskImage: nil];
+        hide_view_now(plate_fx);
+
+        let (sfx, is_glass) = standby_view(window)?;
+        let target_alpha = if b.visible {
+            if is_glass { 1.0f64 } else { 0.82f64 }
+        } else {
+            0.0f64
+        };
+        // 将 NSGlassEffectView 略微外扩出屏幕边界，裁掉其自身边框折射硬边，只保留整屏柔和的 Liquid Glass 介质感
+        let glass_frame = if is_glass {
+            NSRect::new(
+                target.origin.x - 24.0,
+                target.origin.y - 24.0,
+                target.size.width + 48.0,
+                target.size.height + 48.0,
+            )
+        } else {
+            target
+        };
+        let _: () = msg_send![sfx, setFrame: glass_frame];
         if b.duration <= 0.0 {
-            let _: () = msg_send![fx, setAlphaValue: if b.visible { 1.0f64 } else { 0.0f64 }];
-            let _: () = msg_send![fx, setHidden: if b.visible { NO } else { YES }];
+            let _: () = msg_send![sfx, setAlphaValue: target_alpha];
+            let _: () = msg_send![sfx, setHidden: if b.visible { NO } else { YES }];
             return Ok(());
         }
-        if was == b.visible { return Ok(()); }
+        if was == b.visible {
+            return Ok(());
+        }
         if b.visible {
-            let _: () = msg_send![fx, setAlphaValue: 0.0f64];
-            let _: () = msg_send![fx, setHidden: NO];
+            let _: () = msg_send![sfx, setAlphaValue: 0.0f64];
+            let _: () = msg_send![sfx, setHidden: NO];
         }
         let _: () = msg_send![class!(NSAnimationContext), beginGrouping];
         let ctx: *mut Object = msg_send![class!(NSAnimationContext), currentContext];
@@ -380,8 +474,8 @@ mod mac {
         if !tf.is_null() {
             let _: () = msg_send![ctx, setTimingFunction: tf];
         }
-        let animator: *mut Object = msg_send![fx, animator];
-        let _: () = msg_send![animator, setAlphaValue: if b.visible { 1.0f64 } else { 0.0f64 }];
+        let animator: *mut Object = msg_send![sfx, animator];
+        let _: () = msg_send![animator, setAlphaValue: target_alpha];
         let _: () = msg_send![class!(NSAnimationContext), endGrouping];
         Ok(())
     }
@@ -449,8 +543,11 @@ mod mac {
             NSRect::new(x, y, width, height)
         };
         let target = to_native(b.x, b.y, b.w, b.h);
-        if b.standby { return apply_standby(fx, target, b); }
+        if b.standby {
+            return apply_standby(window, fx, target, b);
+        }
         STANDBY_ACTIVE.with(|s| s.set(false));
+        hide_view_now(STANDBY_FX.with(|c| c.get()));
         // 从隐身出现、或收回隐身时，底板都在原位淡入淡出；只有两种底板之间切换才跟着矩形变形
         let hidden: BOOL = msg_send![fx, isHidden];
         let gen = MORPH.fetch_add(1, Ordering::SeqCst) + 1;
@@ -506,6 +603,7 @@ mod mac {
             let _: () = msg_send![fx, setAlphaValue: 0.0f64];
             let _: () = msg_send![fx, setHidden: YES];
         }
+        hide_view_now(STANDBY_FX.with(|c| c.get()));
         Ok(())
     }
 }

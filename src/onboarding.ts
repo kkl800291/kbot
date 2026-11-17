@@ -1,5 +1,6 @@
 import { energyMark } from './ui/energy.js';
 import { accountPanel } from './ui/account';
+import { cloudAccountCard } from './ui/cloud-card';
 import { balanceSummary, loginPending } from './services/account';
 
 export function onboarding(A: any) {
@@ -18,15 +19,23 @@ export function onboarding(A: any) {
     A.S.onboarding = true;
     try { await A.flush(); }
     catch { A.toast('无法保存设置，请检查磁盘空间'); busy = false; return; }
-    A.off('account:state', redraw); A.off('dsh:state', redraw);
+    A.off('account:state', redraw); A.off('dsh:state', redraw); A.off('cloud:state', redraw);
     overlay.remove(); A.emit('onboarded');
     if (openAgentSettings) A.openSettings('agent');
     else { A.releaseWindow(); A.say('你好，我是 Kbot。有事随时找我。', { pri: 'mid', expr: 'happy' }); }
   };
   const accountSlot = h('div', { class: 'welcome-account' });
-  const skip = h('button', { class: 'btn secondary', onclick: () => finish(false) }, '稍后登录');
+  const skip = h('button', { class: 'btn secondary', onclick: () => finish(false) }, '稍后配置');
   const primary = h('button', { class: 'btn primary', onclick: async () => {
     if (!A.native) return finish(false);
+    if (A.cloud?.endpoint?.()) {
+      const cs = A.cloudState;
+      if (!cs?.hasSession) {
+        try { await A.cloud.bootstrap(false); } catch (err: any) { A.toast(String(err?.message || err), 4500); return; }
+      }
+      if ((A.cloudState?.credits || 0) <= 0) return finish(true);
+      return finish(false);
+    }
     if (!A.dshState?.connected) return A.agent.reconnect();
     if (A.accountState?.status === 'unsupported') return finish(true);
     if (A.dshState?.model) {
@@ -35,9 +44,22 @@ export function onboarding(A: any) {
     }
     if (A.accountState?.status === 'credential-stored') { await A.account.refresh(); return A.agent.reconnect(); }
     return A.account.signIn();
-  } }, '登录 DeepSeek');
+  } }, '立即体验');
   function redraw() {
     if (!overlay.isConnected) return;
+    if (A.cloud?.endpoint?.()) {
+      accountSlot.replaceChildren(cloudAccountCard(A, { compact: true }));
+      const cs = A.cloudState || {};
+      const credits = Number(cs.credits || 0);
+      primary.textContent = !A.native ? '开始预览'
+        : cs.busy || cs.status === 'connecting' ? '正在准备体验额度…'
+        : !cs.hasSession ? '免费领取体验额度'
+        : credits <= 0 ? '充值点数 / 自带 Key'
+        : `免费开始体验（剩余 ${credits} 点）`;
+      primary.disabled = !!cs.busy;
+      skip.textContent = cs.hasSession && credits > 0 ? '跳过' : '稍后配置';
+      return;
+    }
     accountSlot.replaceChildren(accountPanel(A, false));
     const state = A.accountState;
     const pending = loginPending(state);
@@ -56,13 +78,13 @@ export function onboarding(A: any) {
       h('div', { class: 'welcome-mark' }, energyMark(72, { palette: A.S.palette, tone: 'dark' })),
       h('div', { class: 'welcome-eyebrow' }, '很高兴认识你'),
       h('h1', { id: 'welcome-title' }, '你好，我是 Kbot。'),
-      h('p', {}, `我是你的桌面搭档。登录后就能随时对话、记事备忘和设提醒，按 ${A.S.hotkey.label} 就能呼出我。`),
+      h('p', {}, `我是你的桌面搭档。可以随时对话、记事备忘和设提醒，按 ${A.S.hotkey.label} 就能呼出我。`),
       accountSlot,
       h('details', { class: 'welcome-preferences' }, [h('summary', {}, '陪伴设置（可选）'), h('div', { class: 'welcome-options' }, [
         option('senseIdle', '知道您是否离开', '只读取键鼠空闲时长，您离开时我不打扰。'),
         option('senseApp', '开会时保持安静', '只读取前台应用名称，不看窗口标题和屏幕内容。'),
         option('senseWeather', '感知所在城市天气', '使用您填写的城市，不获取设备定位。'),
-        option('notifications', '隐藏后也能收到提醒', '允许 macOS 系统通知；也可以稍后开启。', false),
+        option('notifications', '隐藏后也能收到提醒', '允许系统通知；也可以稍后开启。', false),
       ])]),
       h('p', { class: 'welcome-privacy' }, '养成记忆默认保存在本机 ~/KBOT 目录，语音与感知发送范围可在设置中随时管理。'),
       h('div', { class: 'welcome-actions' }, [
@@ -71,7 +93,7 @@ export function onboarding(A: any) {
       h('button', { class: 'welcome-advanced', onclick: () => finish(true) }, '已有 API Key？打开高级设置'),
     ]));
   document.body.append(overlay);
-  A.on('account:state', redraw); A.on('dsh:state', redraw); redraw();
+  A.on('account:state', redraw); A.on('dsh:state', redraw); A.on('cloud:state', redraw); redraw();
   const focusable = () => Array.from(overlay.querySelectorAll('button, input')) as HTMLElement[];
   overlay.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key !== 'Tab') return;

@@ -1,3 +1,4 @@
+import { isQuotaErrorMessage } from './cloud';
 import { addressName, personaHint } from './persona';
 import { command, listen, native } from './runtime';
 
@@ -1699,7 +1700,9 @@ export function installAgent(A: any) {
             markRefusal(activeTurn);
             finishActiveTurn('done');
           } else {
-            finishActiveTurn('error', ev.code?.startsWith('ACCOUNT_') ? ev.code : ev.message || '执行出错');
+            const msg = ev.code?.startsWith('ACCOUNT_') ? ev.code : ev.message || '执行出错';
+            if (isQuotaErrorMessage(msg)) A.emit?.('cloud:quota-hit');
+            finishActiveTurn('error', msg);
           }
           break;
         }

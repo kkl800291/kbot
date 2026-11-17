@@ -73,4 +73,40 @@ describe('energy frame placement', () => {
       expect(energy.stats().state).toBe('idle');
     } finally { energy.destroy(); }
   });
+
+  it('activates full-screen optical edge mode on summon, tracks full-screen pointer and deliver mist, and transitions cleanly to panel edge', () => {
+    const energy = setup();
+    try {
+      energy.setBox([620, 140, 360, 360]);
+      energy.start();
+      energy.setEdge(null);
+      energy.setPointer(1420, 380);
+      energy.setDeliver(true);
+      expect(energy.stats()).toMatchObject({ edgeMode: 0, edgeEnable: 1, deliver: 1, pointerOn: 1 });
+
+      energy.setEdge([200, 100, 540, 440, 24], { immediate: true });
+      expect(energy.stats()).toMatchObject({ edgeMode: 1, edgeEnable: 1 });
+
+      energy.setPointer(null);
+      energy.setDeliver(false);
+      energy.setEdge(false);
+      expect(energy.stats()).toMatchObject({ edgeEnable: 0, deliver: 0, pointerOn: 0 });
+    } finally { energy.destroy(); }
+  });
+
+  it('tracks the summon input pill with silk-filament wrapping and clears it when dismissed', () => {
+    const energy = setup();
+    try {
+      energy.setBox([450, 120, 540, 220]);
+      energy.start();
+      energy.setFieldEdge(() => [470, 420, 500, 48, 24], { immediate: true });
+      expect(energy.stats()).toMatchObject({
+        fieldEdgeVis: 1,
+        fieldEdgeRect: { x: 470, y: 420, w: 500, h: 48, r: 24 },
+      });
+
+      energy.setFieldEdge(false, { immediate: true });
+      expect(energy.stats().fieldEdgeVis).toBe(0);
+    } finally { energy.destroy(); }
+  });
 });

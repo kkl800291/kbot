@@ -7,8 +7,12 @@ on:
 
 jobs:
   verify:
-    name: Typecheck, Build & Unit Tests
-    runs-on: macos-15
+    name: Typecheck, Build & Unit Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

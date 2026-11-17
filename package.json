@@ -16,6 +16,7 @@
     "desktop:build": "node scripts/desktop.mjs build",
     "desktop:sync": "node scripts/sync-app.mjs",
     "runtime:prepare": "node scripts/prepare-dsh-runtime.mjs",
+    "gateway": "node server/gateway.mjs",
     "release": "node scripts/release-deploy.mjs",
     "release:manifest": "node scripts/generate-update-manifest.mjs",
     "test": "vitest run"

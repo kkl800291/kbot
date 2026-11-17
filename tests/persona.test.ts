@@ -22,8 +22,8 @@ describe('butler persona', () => {
   });
 
   it('reads replies in a partner tone that follows the persona and preserves Kbot pronunciation', () => {
-    const S = { persona: 'witty', voice: { enabled: true, hasKey: true, style: '' } };
-    expect(speechPlan(S, '好的。').mimo?.style).toBe(personaVoiceStyle('lively'));
+    const S = { persona: 'witty', voice: { enabled: true, realtimeHasKey: true, style: '' } };
+    expect(speechPlan(S, '好的。').tts?.style).toBe(personaVoiceStyle('lively'));
     expect(personaVoiceStyle('quiet')).toContain('搭档');
     expect(personaVoiceStyle('quiet')).toContain('Kbot');
   });

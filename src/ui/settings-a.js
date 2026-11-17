@@ -1,29 +1,8 @@
-import { uiAccent } from './accent.js';
-
 /* KBOT · 设置页（一）：通用（版本、启动、外观、系统通知、数据重置） */
 (function () {
   'use strict';
-  const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
+  const A = window.App, { h } = A, X = A.sx, pages = A.settingsPages;
   const look = () => A.applyLook();
-
-  const PAL_NAMES = { molten: '柔光', aurora: '极光', iri: '虹彩' };
-  const PAL_STYLES = {
-    molten: '--c:240,164,75;--c2:156,178,255',
-    aurora: '--c:63,209,184;--c2:132,120,255',
-    iri: '--c:161,147,255;--c2:255,190,214',
-  };
-  function swatches() {
-    const el = h('div', { class: 'sx-swatches' }, Object.keys(PAL_NAMES).map(k => h('button', {
-      type: 'button', 'data-pal': k, title: PAL_NAMES[k], 'aria-label': PAL_NAMES[k], style: PAL_STYLES[k] || `--c:${uiAccent(k, true).join(',')}`,
-    })));
-    const sync = () => $$('button', el).forEach(b => b.classList.toggle('on', b.dataset.pal === A.S.palette));
-    el.addEventListener('click', e => {
-      const b = e.target.closest('button'); if (!b) return;
-      A.sput('palette', b.dataset.pal); look(); sync();
-    });
-    sync();
-    return el;
-  }
 
   pages.general = el => {
     const updateSlot = h('div', {});
@@ -106,10 +85,9 @@ import { uiAccent } from './accent.js';
       ),
       X.group('外观',
         X.row('设置窗口主题', '只影响设置窗口；屏幕顶部固定是烟灰玻璃', X.seg('theme', [['light', '浅色'], ['dark', '深色']], look)),
-        X.row('能量体配色', null, swatches()),
         X.row('减少动态效果', '切换更慢，不爆散、不闪烁', X.toggle('reduced', look)),
       ),
-      X.note('提醒和出错时，能量体会临时转成警示色，结束后回到所选配色。'),
+      X.note('边缘流光会根据倾听、思考、打字、提醒与出错自动进行多色流转；提醒与出错时转为警示色。'),
       X.group('提示与通知',
         X.row('提示音', '勿扰时自动静音', X.toggle('sound', v => { if (v) A.blip(); })),
         X.row('系统通知', 'KBOT 隐藏时，用系统通知送达提醒', X.btn('允许通知', () => A.requestNotifications())),

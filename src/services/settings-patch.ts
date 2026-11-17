@@ -36,7 +36,7 @@ const userSettings = new Set([
   'autostart', 'workFrom', 'workTo', 'holidays', 'params', 'festival',
   'term', 'city', 'senseIdle', 'senseApp', 'senseWeather', 'senseCal', 'apps',
   'hotkey', 'retention', 'newChatAfter', 'send', 'ai', 'aiCompanion', 'cityInfo', 'cityCoords',
-  'dsh', 'voice', 'updater',
+  'dsh', 'voice', 'updater', 'cloud',
 ]);
 const object = (value: any): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (value: any, key: string) => value != null && Object.prototype.hasOwnProperty.call(value, key);

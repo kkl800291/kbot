@@ -1,5 +1,6 @@
 import { normalizePersona } from '../services/persona';
 import { accountPanel } from './account';
+import { cloudAccountCard } from './cloud-card';
 
 /* KBOT · 设置页（二）：智能核心（DeepSeek Harness 双模桥接、~/KBOT 养成目录、角色语气） */
 (function () {
@@ -22,9 +23,11 @@ import { accountPanel } from './account';
   pages.agent = el => {
     const statusSlot = h('div', {});
     const patchSlot = h('div', {});
+    const cloudSlot = h('div', {});
     const accountSlot = h('div', {});
 
     const drawStatus = () => {
+      cloudSlot.replaceChildren(cloudAccountCard(A, { modeKey: 'llmMode', onModeChange: () => drawStatus() }));
       accountSlot.replaceChildren(accountPanel(A));
       statusSlot.replaceChildren();
       patchSlot.replaceChildren();
@@ -127,7 +130,7 @@ import { accountPanel } from './account';
         A.agent?.reconnect?.();
       },
     });
-    const openWsBtn = X.btn('在访达中打开', () => A.agent?.openWorkspace?.());
+    const openWsBtn = X.btn(/Mac/i.test(navigator.platform || navigator.userAgent || '') ? '在访达中打开' : '在文件夹中打开', () => A.agent?.openWorkspace?.());
     const initWsBtn = X.btn('补齐模板文件', async () => {
       try {
         await A.agent?.initWorkspace?.(false);
@@ -153,10 +156,14 @@ import { accountPanel } from './account';
     const callsToday = A.S.ai?.calls?.day === new Date().toDateString() ? A.S.ai.calls.n : 0;
 
     el.append(
+      cloudSlot,
       accountSlot,
-      X.note('智能核心随 KBOT 安装，无需另外安装软件。登录和充值均通过 DeepSeek 官方页面完成。'),
+      X.note('支持默认云托管体验额度（免配置即用），也可随时登录 DeepSeek 账号或在下方展开改用自己的 API Key。'),
       h('details', { class: 'sx-advanced' }, [
-        h('summary', {}, '高级连接设置 · 自带 API Key / 外部核心'),
+        h('summary', {}, '高级连接设置 · 云托管网关 / 自带 API Key / 外部核心'),
+        X.group('云托管网关',
+          X.row('托管网关地址', '填写自建或官方网关地址（如 https://api.你的域名.com）', X.text('cloud.endpoint', { ph: '默认（由安装包提供）', w: 250, max: 240, allowEmpty: true })),
+        ),
         statusGroup,
         X.note('“自动”会优先复用已打开的 DeepSeek Harness，没有打开时使用 KBOT 自带核心。'),
       ]),

@@ -38,38 +38,85 @@ function tune(look, r) {
   look.near = LOOK.near * halo; look.far = LOOK.far * halo;
 }
 
-/** WebGL 用不了时的样子：一颗不动的玻璃球。 */
+/** WebGL 用不了时的样子：柔和散开的珍珠微光。 */
 function paintFlat(ctx, view, x, y, r, alpha, light) {
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
   if (alpha <= 0.004 || r < 1) return;
   ctx.globalAlpha = alpha;
-  if (light) { ctx.fillStyle = 'rgb(22, 24, 48)'; ctx.beginPath(); ctx.arc(x, y, r * 1.12, 0, 6.2832); ctx.fill(); }
-  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.05, x, y, r);
-  g.addColorStop(0, 'rgba(255, 255, 255, .5)'); g.addColorStop(0.45, 'rgba(196, 200, 255, .2)');
-  g.addColorStop(0.86, 'rgba(170, 180, 255, .12)'); g.addColorStop(1, 'rgba(236, 238, 255, .55)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
-  ctx.strokeStyle = 'rgba(240, 242, 255, .7)'; ctx.lineWidth = Math.max(0.75, r * 0.02); ctx.stroke();
+  if (light) { ctx.fillStyle = 'rgba(20, 22, 42, .9)'; ctx.beginPath(); ctx.arc(x, y, r * 1.12, 0, 6.2832); ctx.fill(); }
+  const g = ctx.createRadialGradient(x, y, r * 0.04, x, y, r * 1.05);
+  g.addColorStop(0, 'rgba(248, 250, 255, .62)'); g.addColorStop(0.42, 'rgba(210, 222, 255, .28)');
+  g.addColorStop(0.78, 'rgba(182, 194, 245, .09)'); g.addColorStop(1, 'rgba(182, 194, 245, 0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 1.05, 0, 6.2832); ctx.fill();
   ctx.globalAlpha = 1;
 }
 
 /** 把球摆进画面：身体的动态、位置大小、深浅外观 → 这一帧的画法。 */
-function compose(look, life, frame, plateAlpha, edge) {
-  const sc = frame.r / REF.r, ox = frame.x - REF.x * sc, oy = frame.y - REF.y * sc, sh = life.dyn.shell;
-  tune(look, frame.r);
+function compose(look, life, frame, plateAlpha, edge, extra) {
+  const rf = frame;
+  const sc = rf.r / REF.r, ox = rf.x - REF.x * sc, oy = rf.y - REF.y * sc, sh = life.dyn.shell;
+  tune(look, rf.r);
   const halo = clamp(life.dyn.halo ?? 1, 0.4, 2.2);
-  look.near *= halo; look.far *= halo;
+  look.fill = LOOK.fill;
+  look.glowFill = LOOK.glowFill; look.glowBlob = LOOK.glowBlob; look.glowShell = LOOK.glowShell;
+  look.fogFill = LOOK.fogFill;
+  look.near *= halo; look.mid = LOOK.mid; look.far *= halo;
+  look.shell = LOOK.shell; look.shellBody = LOOK.shellBody;
   look.iri = LOOK.iri * clamp(life.dyn.iri ?? 1, 0.2, 2.2);
   look.time = life.clock.t; look.tint = life.dyn.tint; look.gain = life.dyn.gain;
   const pl = look.plate;
-  pl.x = ox + sh.x * sc; pl.y = oy + sh.y * sc; pl.r = Math.max(frame.r, sh.r * sc) * 1.1; pl.a = plateAlpha * life.S.alpha;
-  if (edge && look.edge) {
-    Object.assign(look.edge, edge, {
-      gain: life.dyn.edge ?? 0,
+  pl.x = ox + sh.x * sc; pl.y = oy + sh.y * sc; pl.r = Math.max(rf.r, sh.r * sc) * 1.1; pl.a = plateAlpha * life.S.alpha;
+  if (look.aura) {
+    Object.assign(look.aura, {
+      x: ox + sh.x * sc,
+      y: oy + sh.y * sc,
+      r: rf.r,
+      strength: life.dyn.glow ?? 1,
       burst: life.dyn.edgeBurst ?? 0,
+      alpha: plateAlpha > 0.05 ? 0 : life.S.alpha,
       time: life.dyn.edgePhase ?? life.clock.t,
+    });
+  }
+  if (edge && look.edge) {
+    const isFull = edge.mode === 0;
+    Object.assign(look.edge, edge, {
+      gain: isFull ? (0.94 + 0.28 * (life.dyn.edge ?? 0.25)) * life.S.alpha : (0.14 + 0.10 * (life.dyn.edge ?? 0.2)) * life.S.alpha,
+      burst: extra?.calm ? 0 : (life.dyn.edgeBurst ?? 0),
+      time: life.dyn.edgePhase ?? life.clock.t,
+      summon: extra?.summon ?? 0,
+      summonOn: isFull && !extra?.calm ? 1 : 0,
+      think: life.state === 'think' ? 1 : 0,
+      listen: life.state === 'listen' ? 1 : 0,
+      talk: life.state === 'talk' ? 1 : 0,
+      deliver: extra?.deliver ?? 0,
+      pal: extra?.pal ?? 0,
+      mx: extra?.mx ?? 0,
+      my: extra?.my ?? 0,
+      mouseOn: extra?.mouseOn ?? 0,
+      light: extra?.light ?? 0,
       tint: life.dyn.tint,
     });
+  }
+  if (look.fieldEdge) {
+    const fe = extra?.fieldEdge;
+    if (fe && (extra?.fieldVis ?? 0) > 0.004 && fe.w > 2 && fe.h > 2) {
+      Object.assign(look.fieldEdge, fe, {
+        enable: 1,
+        gain: (0.78 + 0.30 * (life.dyn.edge ?? 0.25)) * life.S.alpha,
+        burst: extra?.calm ? 0 : (life.dyn.edgeBurst ?? 0),
+        vis: extra.fieldVis,
+        time: life.dyn.edgePhase ?? life.clock.t,
+        think: life.state === 'think' ? 1 : 0,
+        listen: life.state === 'listen' ? 1 : 0,
+        talk: life.state === 'talk' ? 1 : 0,
+        mx: extra?.mx ?? 0,
+        my: extra?.my ?? 0,
+        mouseOn: extra?.mouseOn ?? 0,
+      });
+    } else {
+      look.fieldEdge.enable = 0;
+    }
   }
   return { scale: sc, ox, oy };
 }
@@ -87,7 +134,9 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   const look = {
     ...LOOK,
     plate: { x: 0, y: 0, r: 0, a: 0 },
+    aura: { x: 0, y: 0, r: 0, strength: 1, burst: 0, alpha: 0, time: 0 },
     edge: { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0, gain: 0, burst: 0, time: 0, tint: [1, 1, 1, 0] },
+    fieldEdge: { x: 0, y: 0, w: 0, h: 0, r: 24, enable: 0, gain: 0, burst: 0, vis: 0, time: 0 },
   };
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
@@ -113,7 +162,12 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   const cur = { x: 0, y: 0, r: 1 }, tgt = { x: 0, y: 0, r: 1 }, vel = { x: 0, y: 0, r: 0 };
   const edgeCur = { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0 };
   const edgeTgt = { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0 };
-  let edgeFullscreen = true;
+  const fieldRect = { x: 0, y: 0, w: 0, h: 0, r: 24 };
+  const fieldVis = { cur: 0, tgt: 0 };
+  let fieldSource = null;
+  let edgeFullscreen = true, fullMix = 0, summonAt = 0;
+  const ptr = { x: 0, y: 0, sx: 0, sy: 0, on: 0, tgtOn: 0 };
+  const deliver = { cur: 0, tgt: 0 };
   let origin = null, plate = 0, tone = 'dark', small = false;
   let running = false, leaving = false, raf = 0, last = 0, goneAt = -1e9, haltTimer = 0;
   let base = 'idle', hold = null, holdUntil = 0, voiceActive = false, lastPokeAt = 0, lastKickAt = 0, mode = 'idle';
@@ -154,12 +208,26 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     const o = host.getBoundingClientRect();
     origin = { x: o.left, y: o.top };
     if (edgeFullscreen) { edgeTgt.x = 0; edgeTgt.y = 0; edgeTgt.w = view.w; edgeTgt.h = view.h; edgeTgt.r = 0; edgeTgt.mode = 0; }
-    if (calm) { Object.assign(cur, tgt); vel.x = vel.y = vel.r = 0; Object.assign(edgeCur, edgeTgt); return; }
+    const wantFull = edgeFullscreen && edgeTgt.enable > 0.5 ? 1 : 0;
+    if (calm) {
+      Object.assign(cur, tgt); vel.x = vel.y = vel.r = 0; Object.assign(edgeCur, edgeTgt);
+      fullMix = wantFull; deliver.cur = deliver.tgt; ptr.sx = ptr.x; ptr.sy = ptr.y; ptr.on = ptr.tgtOn;
+      fieldVis.cur = fieldVis.tgt;
+      syncFieldRect();
+      return;
+    }
     const w = 11;
     for (const k of ['x', 'y', 'r']) { vel[k] += (w * w * (tgt[k] - cur[k]) - 2 * w * vel[k]) * dt; cur[k] += vel[k] * dt; }
     if (cur.r < 1) cur.r = 1;
     edgeCur.mode = edgeTgt.mode;
     edgeCur.enable += (edgeTgt.enable - edgeCur.enable) * (1 - Math.exp(-dt * 9));
+    fieldVis.cur += (fieldVis.tgt - fieldVis.cur) * (1 - Math.exp(-dt * 10));
+    syncFieldRect();
+    fullMix += (wantFull - fullMix) * (1 - Math.exp(-dt * 9));
+    deliver.cur += (deliver.tgt - deliver.cur) * (1 - Math.exp(-dt * 7));
+    ptr.sx += (ptr.x - ptr.sx) * (1 - Math.exp(-dt * 10));
+    ptr.sy += (ptr.y - ptr.sy) * (1 - Math.exp(-dt * 10));
+    ptr.on += (ptr.tgtOn - ptr.on) * (1 - Math.exp(-dt * 6));
     if (edgeFullscreen) { Object.assign(edgeCur, { x: edgeTgt.x, y: edgeTgt.y, w: edgeTgt.w, h: edgeTgt.h, r: edgeTgt.r }); }
     else {
       const ke = 1 - Math.exp(-dt * 14);
@@ -175,8 +243,33 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     return Math.abs(tgt.x - cur.x) + Math.abs(tgt.y - cur.y) + Math.abs(tgt.r - cur.r) < 0.4 && Math.abs(vel.x) + Math.abs(vel.y) + Math.abs(vel.r) < 2;
   }
 
-  function paint() {
-    const at = compose(look, life, cur, plate, edgeCur);
+  function syncFieldRect() {
+    if (!fieldSource) return;
+    const raw = typeof fieldSource === 'function' ? fieldSource() : fieldSource;
+    if (!raw || (Number(raw[2]) || 0) <= 2 || (Number(raw[3]) || 0) <= 2) return;
+    fieldRect.x = Number(raw[0]) || 0;
+    fieldRect.y = Number(raw[1]) || 0;
+    fieldRect.w = Math.max(0, Number(raw[2]) || 0);
+    fieldRect.h = Math.max(0, Number(raw[3]) || 0);
+    fieldRect.r = Math.max(0, Number(raw[4]) || 24);
+  }
+
+  function paint(now = performance.now()) {
+    const extra = {
+      fullMix,
+      viewW: view.w,
+      summon: summonAt ? Math.max(0, (now - summonAt) / 1000) : 0,
+      deliver: deliver.cur,
+      pal: Math.max(0, PALETTES.indexOf(pal)),
+      mx: ptr.sx,
+      my: ptr.sy,
+      mouseOn: ptr.on,
+      light: tone === 'light' ? 1 : 0,
+      calm,
+      fieldEdge: fieldRect,
+      fieldVis: fieldVis.cur,
+    };
+    const at = compose(look, life, cur, plate, edgeCur, extra);
     if (fallback) { if (flat) paintFlat(flat, view, look.plate.x, look.plate.y, cur.r, life.S.alpha, plate > 0.5); return; }
     gl.draw(meshFor(small).update(at, life.dyn), view, look);
   }
@@ -192,7 +285,7 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     if (leaving && !calm && !life.busy) { halt(); return; }
     small = settledSmall();
     const t1 = performance.now();
-    paint();
+    paint(now);
     if (gpuTiming) gl?.finish();
     const t2 = performance.now();
     perf.sim += (t1 - t0 - perf.sim) * 0.05;
@@ -220,6 +313,9 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     clearTimeout(haltTimer);
     band.hidden = true;
     life.hide();
+    edgeTgt.enable = 0; edgeCur.enable = 0; fullMix = 0;
+    fieldSource = null; fieldVis.cur = 0; fieldVis.tgt = 0;
+    deliver.cur = 0; deliver.tgt = 0; ptr.on = 0; ptr.tgtOn = 0;
     goneAt = performance.now();
     gl?.clear();
     if (flat) { flat.setTransform(1, 0, 0, 1, 0, 0); flat.clearRect(0, 0, flatCanvas.width, flatCanvas.height); }
@@ -256,6 +352,7 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
       const now = performance.now(), again = leaving || now - goneAt < RESUMMON_MS;
       clearTimeout(haltTimer);
       if (!running) { Object.assign(cur, tgt); vel.x = vel.y = vel.r = 0; plate = plateFor(cur.r); small = false; }
+      summonAt = now;
       running = true; leaving = false;
       measure();
       sync(now);
@@ -301,10 +398,14 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     setEdge(rect, { immediate = false } = {}) {
       if (rect === false) { edgeTgt.enable = 0; return; }
       if (rect == null) {
-        const wasPanel = !edgeFullscreen;
+        const wasPanel = !edgeFullscreen || edgeTgt.enable < 0.5;
         edgeFullscreen = true;
         edgeTgt.x = 0; edgeTgt.y = 0; edgeTgt.w = view.w; edgeTgt.h = view.h; edgeTgt.r = 0; edgeTgt.mode = 0; edgeTgt.enable = 1;
-        if (immediate || calm || wasPanel) Object.assign(edgeCur, { x: edgeTgt.x, y: edgeTgt.y, w: edgeTgt.w, h: edgeTgt.h, r: edgeTgt.r, mode: 0 });
+        if (wasPanel) summonAt = performance.now();
+        if (immediate || calm || wasPanel) {
+          Object.assign(edgeCur, { x: edgeTgt.x, y: edgeTgt.y, w: edgeTgt.w, h: edgeTgt.h, r: edgeTgt.r, mode: 0 });
+          if (calm) fullMix = 1;
+        }
         return;
       }
       const wasFull = edgeFullscreen;
@@ -317,6 +418,28 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
       });
       if (immediate || calm || !running || wasFull) Object.assign(edgeCur, edgeTgt);
     },
+    /** 召唤态输入框外缘丝线包裹边界：[x, y, w, h, r]、动态读取回调 () => [...]，或 false 关闭。 */
+    setFieldEdge(rectOrFn, { immediate = false } = {}) {
+      if (!rectOrFn) {
+        fieldSource = null;
+        fieldVis.tgt = 0;
+        if (immediate || calm || !running) fieldVis.cur = 0;
+        return;
+      }
+      fieldSource = rectOrFn;
+      fieldVis.tgt = 1;
+      syncFieldRect();
+      if (immediate || calm || !running) fieldVis.cur = 1;
+    },
+    /** 指针全屏坐标（host CSS 像素）；null 表示移出或停止追随。 */
+    setPointer(x, y) {
+      if (x == null || y == null || !Number.isFinite(+x) || !Number.isFinite(+y)) { ptr.tgtOn = 0; return; }
+      ptr.x = +x; ptr.y = +y;
+      if (!ptr.on && ptr.tgtOn === 0) { ptr.sx = ptr.x; ptr.sy = ptr.y; }
+      ptr.tgtOn = 1;
+    },
+    /** 召唤态顶部无框光雾是否向下垂落展开对话内容。 */
+    setDeliver(on) { deliver.tgt = on ? 1 : 0; },
     /** 进度带的矩形；null 时不画。 */
     setBand(rect) {
       const ok = rect && rect.length >= 4 && Number(rect[2]) > 0;
@@ -346,11 +469,11 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     /** 实时语音音量（0..1）驱动光纹涟漪。 */
     setVoiceLevel(level) {
       const v = clamp(Number(level) || 0, 0, 1);
-      if (!running || v <= 0.06) return;
+      if (!running || v <= 0.02) return;
       const now = performance.now();
-      if (now - lastPokeAt < 110) return;
+      if (now - lastPokeAt < 85) return;
       lastPokeAt = now;
-      life.poke(clamp(v * 0.85, 0.18, 0.9));
+      life.poke(clamp(v * 1.15, 0.22, 0.95));
     },
     setPalette(name) {
       const next = PALETTES.includes(name) ? name : 'molten';
@@ -363,7 +486,8 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     stats() {
       return {
         running, leaving, fallback, mode, state: life.state, voiceActive, palette: pal, tone, x: cur.x, y: cur.y, R: cur.r, lite: small,
-        alpha: life.S.alpha, simMs: perf.sim, drawMs: perf.draw,
+        alpha: life.S.alpha, edgeMode: edgeCur.mode, edgeEnable: edgeTgt.enable, fieldEdgeVis: fieldVis.cur, fieldEdgeRect: { ...fieldRect }, fullMix, deliver: deliver.tgt, pointerOn: ptr.tgtOn,
+        simMs: perf.sim, drawMs: perf.draw,
       };
     },
     destroy() {

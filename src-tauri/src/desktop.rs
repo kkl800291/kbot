@@ -62,9 +62,12 @@ pub fn focus_companion(
     window: tauri::WebviewWindow,
     desktop: State<Desktop>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if !window.is_focused().unwrap_or(false) {
+        #[cfg(target_os = "macos")]
         let previous = mac::frontmost_pid();
+        #[cfg(target_os = "windows")]
+        let previous = win::frontmost_pid();
         if previous != Some(std::process::id() as i32) {
             if let Ok(mut state) = desktop.lock() {
                 state.previous_app = previous;
@@ -80,10 +83,13 @@ pub fn release_focus(window: tauri::WebviewWindow, desktop: State<Desktop>) -> R
         .lock()
         .ok()
         .and_then(|mut state| state.previous_app.take());
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if window.is_focused().unwrap_or(false) {
         if let Some(pid) = previous {
+            #[cfg(target_os = "macos")]
             mac::activate(pid);
+            #[cfg(target_os = "windows")]
+            win::activate(pid);
         }
     }
     window.set_focusable(false).map_err(|e| e.to_string())
@@ -93,7 +99,9 @@ pub fn release_focus(window: tauri::WebviewWindow, desktop: State<Desktop>) -> R
 pub fn idle_seconds() -> f64 {
     #[cfg(target_os = "macos")]
     return mac::idle();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    return win::idle();
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     0.0
 }
 #[tauri::command]
@@ -129,8 +137,16 @@ pub fn screen_permission(request: bool) -> bool {
         }
         return CGPreflightScreenCaptureAccess() || (request && CGRequestScreenCaptureAccess());
     }
-    #[cfg(not(target_os = "macos"))]
-    false
+    #[cfg(target_os = "windows")]
+    {
+        let _ = request;
+        true
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = request;
+        false
+    }
 }
 
 #[tauri::command]
@@ -140,28 +156,39 @@ pub async fn capture_screen() -> Result<Option<String>, String> {
     }
     tauri::async_runtime::spawn_blocking(|| {
         use base64::Engine;
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| "系统时间不可用")?
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "companion-shot-{}-{}.png",
-            std::process::id(),
-            nonce
-        ));
-        let result = std::process::Command::new("/usr/sbin/screencapture")
-            .args(["-i", "-x", "-t", "png"])
-            .arg(&path)
-            .status();
-        if result.is_err() {
-            return Err("无法启动系统截图工具".into());
-        }
-        if !path.exists() {
-            return Ok(None);
-        }
-        let bytes = std::fs::read(&path).map_err(|_| "无法读取截图");
-        let _ = std::fs::remove_file(&path);
-        let bytes = bytes?;
+        #[cfg(target_os = "macos")]
+        let bytes = {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "系统时间不可用")?
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "companion-shot-{}-{}.png",
+                std::process::id(),
+                nonce
+            ));
+            let result = std::process::Command::new("/usr/sbin/screencapture")
+                .args(["-i", "-x", "-t", "png"])
+                .arg(&path)
+                .status();
+            if result.is_err() {
+                return Err("无法启动系统截图工具".into());
+            }
+            if !path.exists() {
+                return Ok(None);
+            }
+            let bytes = std::fs::read(&path).map_err(|_| "无法读取截图");
+            let _ = std::fs::remove_file(&path);
+            bytes?
+        };
+        #[cfg(target_os = "windows")]
+        let bytes = match win::capture_active_monitor_png()? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        return Err("当前系统暂不支持内置截图".into());
+
         if bytes.len() > 40 * 1024 * 1024 {
             return Err("截图过大，请选择更小的区域".into());
         }
@@ -239,6 +266,244 @@ mod mac {
                 }
             };
             (string(sel!(localizedName)), string(sel!(bundleIdentifier)))
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod win {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::Path;
+    use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+        GetDIBits, GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST, RGBQUAD, SRCCOPY,
+    };
+    use windows_sys::Win32::System::SystemInformation::GetTickCount;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetCursorPos, GetForegroundWindow, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
+    };
+
+    pub fn idle() -> f64 {
+        unsafe {
+            let mut info = LASTINPUTINFO {
+                cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+                dwTime: 0,
+            };
+            if GetLastInputInfo(&mut info) == 0 {
+                return 0.0;
+            }
+            let elapsed_ms = GetTickCount().wrapping_sub(info.dwTime);
+            f64::from(elapsed_ms) / 1000.0
+        }
+    }
+
+    pub fn button() -> bool {
+        unsafe { (GetAsyncKeyState(i32::from(VK_LBUTTON)) as u16 & 0x8000) != 0 }
+    }
+
+    pub fn frontmost_pid() -> Option<i32> {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() {
+                return None;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            (pid != 0).then_some(pid as i32)
+        }
+    }
+
+    struct EnumMatch {
+        target_pid: u32,
+        found: HWND,
+    }
+
+    unsafe extern "system" fn enum_window_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let state = &mut *(lparam as *mut EnumMatch);
+        if IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == state.target_pid {
+            state.found = hwnd;
+            return 0;
+        }
+        1
+    }
+
+    pub fn activate(pid: i32) {
+        if pid <= 0 {
+            return;
+        }
+        unsafe {
+            let mut state = EnumMatch {
+                target_pid: pid as u32,
+                found: std::ptr::null_mut(),
+            };
+            let _ = EnumWindows(Some(enum_window_cb), (&mut state as *mut EnumMatch) as LPARAM);
+            if !state.found.is_null() {
+                let _ = SetForegroundWindow(state.found);
+            }
+        }
+    }
+
+    pub fn frontmost() -> (Option<String>, Option<String>) {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() {
+                return (None, None);
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            let title = {
+                let mut buf = [0u16; 256];
+                let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+                (n > 0).then(|| {
+                    OsString::from_wide(&buf[..n as usize])
+                        .to_string_lossy()
+                        .trim()
+                        .to_string()
+                })
+            }
+            .filter(|s| !s.is_empty());
+
+            let exe_stem = if pid != 0 {
+                let proc_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                if proc_handle.is_null() {
+                    None
+                } else {
+                    let mut buf = [0u16; 1024];
+                    let mut len = buf.len() as u32;
+                    let ok = QueryFullProcessImageNameW(proc_handle, 0, buf.as_mut_ptr(), &mut len) != 0;
+                    let _ = CloseHandle(proc_handle);
+                    if ok && len > 0 {
+                        let full = OsString::from_wide(&buf[..len as usize]);
+                        Path::new(&full)
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().into_owned())
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let app_name = exe_stem.clone().or(title);
+            (app_name, exe_stem)
+        }
+    }
+
+    pub fn capture_active_monitor_png() -> Result<Option<Vec<u8>>, String> {
+        unsafe {
+            let mut pt = POINT { x: 0, y: 0 };
+            let _ = GetCursorPos(&mut pt);
+            let monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                rcMonitor: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+                rcWork: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+                dwFlags: 0,
+            };
+            if monitor.is_null() || GetMonitorInfoW(monitor, &mut mi) == 0 {
+                return Err("无法读取当前显示器信息".into());
+            }
+            let x = mi.rcMonitor.left;
+            let y = mi.rcMonitor.top;
+            let w = (mi.rcMonitor.right - mi.rcMonitor.left).max(1);
+            let h = (mi.rcMonitor.bottom - mi.rcMonitor.top).max(1);
+
+            let screen_dc = GetDC(std::ptr::null_mut());
+            if screen_dc.is_null() {
+                return Err("无法获取屏幕绘制上下文".into());
+            }
+            let mem_dc = CreateCompatibleDC(screen_dc);
+            if mem_dc.is_null() {
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+                return Err("无法创建内存绘图句柄".into());
+            }
+            let bmp = CreateCompatibleBitmap(screen_dc, w, h);
+            if bmp.is_null() {
+                let _ = DeleteDC(mem_dc);
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+                return Err("无法创建截图位图".into());
+            }
+            let old_obj = SelectObject(mem_dc, bmp);
+            let copied = BitBlt(mem_dc, 0, 0, w, h, screen_dc, x, y, SRCCOPY | CAPTUREBLT) != 0;
+
+            let mut pixels = vec![0u8; (w as usize) * (h as usize) * 4];
+            let mut ok = false;
+            if copied {
+                let mut bmi = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                        biWidth: w,
+                        biHeight: -h,
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        biCompression: BI_RGB,
+                        biSizeImage: 0,
+                        biXPelsPerMeter: 0,
+                        biYPelsPerMeter: 0,
+                        biClrUsed: 0,
+                        biClrImportant: 0,
+                    },
+                    bmiColors: [RGBQUAD {
+                        rgbBlue: 0,
+                        rgbGreen: 0,
+                        rgbRed: 0,
+                        rgbReserved: 0,
+                    }; 1],
+                };
+                let rows = GetDIBits(
+                    mem_dc,
+                    bmp,
+                    0,
+                    h as u32,
+                    pixels.as_mut_ptr().cast(),
+                    &mut bmi,
+                    DIB_RGB_COLORS,
+                );
+                ok = rows > 0;
+            }
+
+            let _ = SelectObject(mem_dc, old_obj);
+            let _ = DeleteObject(bmp);
+            let _ = DeleteDC(mem_dc);
+            ReleaseDC(std::ptr::null_mut(), screen_dc);
+
+            if !ok {
+                return Err("无法读取屏幕截图像素".into());
+            }
+            for px in pixels.chunks_exact_mut(4) {
+                px.swap(0, 2);
+                px[3] = 255;
+            }
+            let mut png_bytes = Vec::with_capacity((w as usize) * (h as usize) / 4);
+            {
+                let mut encoder = png::Encoder::new(&mut png_bytes, w as u32, h as u32);
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder
+                    .write_header()
+                    .map_err(|_| "PNG 编码头初始化失败".to_string())?;
+                writer
+                    .write_image_data(&pixels)
+                    .map_err(|_| "PNG 编码失败".to_string())?;
+            }
+            Ok(Some(png_bytes))
         }
     }
 }
@@ -324,9 +589,11 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
             }
             #[cfg(target_os = "macos")]
             let down = mac::button();
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
+            let down = win::button();
+            #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
             let down = false;
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 if down && !mouse_down && !hit && s.interactive {
                     let _ = w.emit("desktop-outside", ());
@@ -367,11 +634,19 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
                     } else {
                         (None, None)
                     };
-                    #[cfg(not(target_os = "macos"))]
+                    #[cfg(target_os = "windows")]
+                    let (name, id) = if app_enabled {
+                        win::frontmost()
+                    } else {
+                        (None, None)
+                    };
+                    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
                     let (name, id) = (None, None);
                     #[cfg(target_os = "macos")]
                     let idle = idle_enabled.then(mac::idle);
-                    #[cfg(not(target_os = "macos"))]
+                    #[cfg(target_os = "windows")]
+                    let idle = idle_enabled.then(win::idle);
+                    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
                     let idle = None;
                     let _ = out.emit(
                         "desktop-sensors",

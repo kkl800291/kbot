@@ -44,10 +44,10 @@ export async function nativeSmoke(A: any) {
   const assert = (name: string, value: unknown) => { if (!value) throw new Error(name); results[name] = true; };
   try {
     const keys = await command<Record<string, boolean>>('key_status');
-    assert('isolated keychain starts empty', !keys.tts);
-    await command('save_key', { slot: 'tts', key: 'local-mimo-fixture-only' });
+    assert('isolated keychain starts empty', !keys.realtime);
+    await command('save_key', { slot: 'realtime', key: 'local-dashscope-fixture-only' });
     const savedKeys = await command<Record<string, boolean>>('key_status');
-    assert('keychain metadata reports tts slot without returning secrets', savedKeys.tts === true);
+    assert('keychain metadata reports realtime slot without returning secrets', savedKeys.realtime === true);
 
     const state = { smoke: '本地存储验证', S: { onboarding: false } };
     await command('save_state', { data: state });

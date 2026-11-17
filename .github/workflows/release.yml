@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -13,7 +16,7 @@ permissions:
 
 jobs:
   release-macos:
-    name: Build & Publish KBOT (macOS Apple Silicon)
+    name: Build KBOT (macOS Apple Silicon)
     runs-on: macos-15
     steps:
       - name: Checkout repository
@@ -118,14 +121,149 @@ jobs:
           (cd release-dist && shasum -a 256 "${ZIP_NAME}" "${DMG_NAME}" > SHA256SUMS.txt)
           ls -lh release-dist/
 
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: release-dist/
+
+  release-windows:
+    name: Build KBOT (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Resolve release version & sync manifests
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${INPUT_TAG}" ]]; then
+            RAW_TAG="${INPUT_TAG}"
+          elif [[ "${REF_TYPE}" == "tag" ]]; then
+            RAW_TAG="${REF_NAME}"
+          else
+            PKG_VER=$(node -p "require('./package.json').version")
+            RAW_TAG="v${PKG_VER}"
+          fi
+          VERSION="${RAW_TAG#v}"
+          VERSION="${VERSION#V}"
+          TAG_NAME="v${VERSION}"
+
+          VERSION="${VERSION}" node - <<'NODE'
+          const fs = require('node:fs');
+          const ver = process.env.VERSION;
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = ver;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+
+          const tauriConfPath = 'src-tauri/tauri.conf.json';
+          const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
+          tauriConf.version = ver;
+          fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n');
+
+          const cargoPath = 'src-tauri/Cargo.toml';
+          const cargoRaw = fs.readFileSync(cargoPath, 'utf8');
+          const cargoNext = cargoRaw.replace(/^version\s*=\s*"[^"]+"/m, `version = "${ver}"`);
+          fs.writeFileSync(cargoPath, cargoNext);
+          NODE
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Prepare bundled intelligence runtime
+        run: npm run runtime:prepare
+
+      - name: Run unit tests
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build Windows NSIS installer
+        run: npm run desktop:build -- --bundles nsis
+
+      - name: Stage Windows installer & checksum
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-dist-win
+          EXE_SRC=$(ls -1 src-tauri/target/release/bundle/nsis/*.exe | head -n 1)
+          EXE_NAME="KBOT_${VERSION}_x64-setup.exe"
+          cp "${EXE_SRC}" "release-dist-win/${EXE_NAME}"
+          (cd release-dist-win && sha256sum "${EXE_NAME}" > SHA256SUMS.win.txt)
+          ls -lh release-dist-win/
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: release-dist-win/
+
+  publish:
+    name: Publish GitHub Release
+    needs: [release-macos, release-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dist
+          path: release-all
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: release-all
+
+      - name: Merge SHA256SUMS & determine tag
+        id: info
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          cd release-all
+          if [[ -f SHA256SUMS.win.txt ]]; then
+            cat SHA256SUMS.win.txt >> SHA256SUMS.txt
+            rm -f SHA256SUMS.win.txt
+          fi
+          TAG=$(ls -1 KBOT_*_aarch64.dmg | head -n 1 | sed -E 's/^KBOT_([^_]+)_aarch64\.dmg$/v\1/')
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          ls -lh
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: KBOT ${{ steps.meta.outputs.tag }}
+          tag_name: ${{ steps.info.outputs.tag }}
+          name: KBOT ${{ steps.info.outputs.tag }}
           generate_release_notes: true
           files: |
-            release-dist/KBOT_${{ steps.meta.outputs.version }}_aarch64.dmg
-            release-dist/KBOT_${{ steps.meta.outputs.version }}_aarch64.app.zip
-            release-dist/latest.json
-            release-dist/SHA256SUMS.txt
+            release-all/*

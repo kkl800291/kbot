@@ -11,6 +11,7 @@ export async function installSettingsOwner(A: any) {
     birthdays: A.birthdays || [],
     dshState: A.dshState || null,
     accountState: A.accountState || null,
+    cloudState: A.cloudState || null,
     updateState: A.updateState || null,
     conversations: A.chat.convs.map((c: any) => ({ id: c.id, messages: c.messages.length ? [{}] : [] })),
     hidden: A.hidden,
@@ -26,6 +27,7 @@ export async function installSettingsOwner(A: any) {
   A.on('hidden', publish);
   A.on('dsh:state', publish);
   A.on('account:state', publish);
+  A.on('cloud:state', publish);
   A.on('updater:state', publish);
 
   let tail = Promise.resolve();
@@ -43,8 +45,26 @@ export async function installSettingsOwner(A: any) {
           for (const k of changed) A.emit('set:' + k, A.S[k]);
           if (changed.some(k => ['palette', 'reduced'].includes(k))) A.applyLook();
           if (changed.includes('city') || changed.includes('cityCoords')) A.emit('sense:city');
+          if (changed.includes('cloud')) {
+            if (A.cloud?.endpoint?.()) A.cloud?.bootstrap?.(true)?.catch?.(() => {});
+            else A.cloud?.refresh?.()?.catch?.(() => {});
+          }
           if (birthdaysChanged) A.emit('birthdays');
           A.save();
+        } else if (action === 'cloud-bootstrap') {
+          await A.cloud?.bootstrap?.(false);
+        } else if (action === 'cloud-refresh') {
+          await A.cloud?.refresh?.();
+        } else if (action === 'cloud-login') {
+          await A.cloud?.login?.(String(payload.account || ''), String(payload.password || ''));
+        } else if (action === 'cloud-redeem') {
+          await A.cloud?.redeem?.(String(payload.code || ''));
+        } else if (action === 'cloud-sign-out') {
+          await A.cloud?.signOut?.();
+        } else if (action === 'cloud-llm-mode') {
+          await A.cloud?.setLlmMode?.(payload.mode);
+        } else if (action === 'cloud-voice-mode') {
+          await A.cloud?.setVoiceMode?.(payload.mode);
         } else if (action === 'dsh-reconnect') {
           await A.agent?.reconnect?.();
         } else if (action === 'dsh-restart') {

@@ -7,6 +7,10 @@ src-tauri/target/
 !\.env.example
 test-results/
 /KBOT_*.dmg
+/KBOT_*.exe
+/KBOT_*.msi
 /src-tauri/resources/dsh-runtime/
 /src-tauri/resources/dsh-runtime.staging/
 /.cache/dsh-runtime/
+/.kbot-gateway-data/
+/server/data/

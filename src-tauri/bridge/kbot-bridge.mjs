@@ -4,6 +4,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 export const name = "kbot-bridge";
@@ -570,6 +571,65 @@ export async function apply(ctx, config = {}) {
   const getDefaultModelSvc = () => ctx.get?.("agentDefaultModel") ?? ctx.agentDefaultModel ?? null;
   const getUserQuestionsSvc = () => ctx.get?.("userQuestions") ?? ctx.userQuestions ?? null;
   const getAccount = () => ctx.get?.("deepseekAccount") ?? ctx.deepseekAccount ?? null;
+
+  const cloudState = {
+    enabled: false,
+    baseURL: "",
+    token: "",
+    registered: false,
+  };
+  let cloudModCache = null;
+  async function loadDeepSeekAdapterMod() {
+    if (cloudModCache) return cloudModCache;
+    try {
+      const req = createRequire(process.argv[1] || import.meta.url);
+      const resolved = req.resolve("@deepseek-ai/dsh-llm-deepseek");
+      cloudModCache = await import(pathToFileURL(resolved).href);
+      return cloudModCache;
+    } catch {
+      return null;
+    }
+  }
+  async function ensureCloudProviderRegistered() {
+    if (cloudState.registered) return true;
+    if (!getLlm()) return false;
+    const mod = await loadDeepSeekAdapterMod();
+    if (!mod?.registerDeepSeekProvider || !mod?.resolveAdapterOptions || !mod?.Config) return false;
+    const buildConnection = () => {
+      const parsed = mod.Config.parse({
+        baseURL: cloudState.baseURL || mod.PUBLIC_BASE_URL,
+      });
+      return mod.resolveAdapterOptions(mod.plainOptions(parsed), { get: () => undefined });
+    };
+    const buildView = () => {
+      const conn = buildConnection();
+      return {
+        ...conn,
+        offered: conn.models,
+        refusals: new Map(),
+        badges: new Map(),
+      };
+    };
+    mod.registerDeepSeekProvider(ctx, "kbot-cloud", {
+      providerName: "KBOT 云托管",
+      options: buildView,
+      connect: async () => buildView(),
+      resolveAuth: async () => {
+        if (!cloudState.enabled || !cloudState.token) {
+          throw new Error("KBOT 云托管未配置或未开启");
+        }
+        return { headers: { "x-api-key": cloudState.token } };
+      },
+      admit: () => {},
+      discoverModels: async (provider) => {
+        if (!cloudState.enabled || !cloudState.token || !cloudState.baseURL) return [];
+        const conn = buildConnection();
+        return conn.models.map((m) => mod.catalogModelInfo(provider, m));
+      },
+    });
+    cloudState.registered = true;
+    return true;
+  }
   const clientVersion = (() => {
     try { return JSON.parse(fs.readFileSync(path.resolve(path.dirname(process.argv[1]), "../package.json"), "utf8")).version; }
     catch { return "0.2.2-rc.1"; }
@@ -1563,6 +1623,16 @@ export async function apply(ctx, config = {}) {
       if (url.pathname === "/sensors/update") {
         latestSensors = body.sensors || null;
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (url.pathname === "/cloud/configure") {
+        const nextEnabled = Boolean(body.enabled && body.baseURL && body.token);
+        cloudState.enabled = nextEnabled;
+        cloudState.baseURL = nextEnabled ? String(body.baseURL).trim() : "";
+        cloudState.token = nextEnabled ? String(body.token).trim() : "";
+        const supported = nextEnabled ? await ensureCloudProviderRegistered() : cloudState.registered;
+        sendJson(res, 200, { ok: true, enabled: cloudState.enabled, supported });
         return;
       }
 

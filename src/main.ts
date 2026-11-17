@@ -2,9 +2,10 @@ import './desktop.css';
 import { command, loadState, native, installPersistence } from './services/runtime';
 import { installDesktop } from './services/desktop';
 import { installWeather } from './services/weather';
-import { installVoice, normalizeRealtimeSettings } from './services/voice';
+import { installVoice, normalizeRealtimeSettings, normalizeTtsSettings } from './services/voice';
 import { installAgent } from './services/agent';
 import { installAccount } from './services/account';
+import { installCloud } from './services/cloud';
 import { installProactive } from './services/proactive';
 import { installUpdater } from './services/updater';
 import { onboarding } from './onboarding';
@@ -27,16 +28,22 @@ async function boot() {
   if (native) document.documentElement.classList.add('native-host');
   A.version = native ? await getVersion() : '开发预览';
   installPersistence(A);
-  if (normalizeRealtimeSettings(A.S.voice)) A.save();
+  const normalizedVoice = normalizeRealtimeSettings(A.S.voice) || normalizeTtsSettings(A.S.voice);
+  if (normalizedVoice) A.save();
   if (native) {
     const keys = await command('key_status');
-    if (typeof keys.tts === 'boolean') A.S.voice.hasKey = keys.tts;
-    if (typeof keys.realtime === 'boolean') A.S.voice.realtimeHasKey = keys.realtime;
+    const rtReady = Boolean(keys.realtime);
+    const ttsReady = Boolean(keys.realtime || keys.tts);
+    A.S.voice.realtimeHasKey = rtReady;
+    A.S.voice.hasKey = ttsReady;
+    if (!A.S.cloud || typeof A.S.cloud !== 'object') A.S.cloud = { endpoint: '', llmMode: 'managed', voiceMode: 'managed', hasSession: false };
+    A.S.cloud.hasSession = Boolean(keys.managed);
   }
   await import('./ui/top.js');
   await import('./ui/chat.js');
   await import('./ui/composer.js');
   await import('./ui/reply.js');
+  installCloud(A);
   installVoice(A);
   installAgent(A);
   installAccount(A);
@@ -54,6 +61,9 @@ async function boot() {
   if (native) await installSettingsOwner(A);
   window.Icons.mount();
   await A.start();
+  if (native && A.cloud?.endpoint?.() && ((A.S.cloud?.llmMode ?? 'managed') === 'managed' || (A.S.cloud?.voiceMode ?? 'managed') === 'managed')) {
+    void A.cloud.bootstrap(true);
+  }
   window.Icons.mount();
   onboarding(A);
 

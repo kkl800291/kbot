@@ -19,14 +19,27 @@ fn state_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn default_credentials_path() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "无法定位用户主目录".to_string())?;
     #[cfg(target_os = "macos")]
-    let dir = PathBuf::from(home)
-        .join("Library")
-        .join("Application Support")
+    let dir = {
+        let home = std::env::var("HOME").map_err(|_| "无法定位用户主目录".to_string())?;
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(SERVICE)
+    };
+    #[cfg(target_os = "windows")]
+    let dir = std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "无法定位用户主目录".to_string())?
         .join(SERVICE);
-    #[cfg(not(target_os = "macos"))]
-    let dir = PathBuf::from(home).join(".config").join(SERVICE);
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let dir = {
+        let home = std::env::var("HOME").map_err(|_| "无法定位用户主目录".to_string())?;
+        PathBuf::from(home).join(".config").join(SERVICE)
+    };
 
     let file_name = if cfg!(debug_assertions) && std::env::var("COMPANION_SMOKE").as_deref() == Ok("1") {
         "credentials.smoke.json"
@@ -85,9 +98,63 @@ const SERVICE: &str = "com.cybercompanion.desktop";
 
 fn account(slot: &str) -> Result<&str, String> {
     match slot {
-        "tts" | "realtime" | "chat" | "vision" | "search" => Ok(slot),
+        "tts" | "realtime" | "chat" | "vision" | "search" | "managed" => Ok(slot),
         _ => Err("未知的凭据类型".into()),
     }
+}
+
+fn generate_device_id() -> String {
+    let mut bytes = [0u8; 16];
+    let ok = std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut bytes))
+        .is_ok();
+    if !ok {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = ((nanos >> ((i % 8) * 8)) ^ (i as u128 * 37 + std::process::id() as u128)) as u8;
+        }
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11],
+        bytes[12], bytes[13], bytes[14], bytes[15],
+    )
+}
+
+pub fn read_or_create_device_id() -> Result<String, String> {
+    let path = default_credentials_path()?;
+    let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用")?;
+    if let Some(existing) = vault_get_in(&path, "device_id")? {
+        return Ok(existing);
+    }
+    let id = format!("kbot-{}", generate_device_id());
+    vault_set_in(&path, "device_id", &id)?;
+    Ok(id)
+}
+
+pub fn save_key_internal(slot: &str, secret: &str) -> Result<(), String> {
+    account(slot)?;
+    let trimmed = secret.trim();
+    if trimmed.is_empty() || trimmed.len() > 4096 {
+        return Err("凭据无效".into());
+    }
+    let path = default_credentials_path()?;
+    let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用")?;
+    vault_set_in(&path, slot, trimmed)
+}
+
+pub fn delete_key_internal(slot: &str) -> Result<(), String> {
+    account(slot)?;
+    let path = default_credentials_path()?;
+    let _guard = CREDENTIALS_LOCK.lock().map_err(|_| "凭据锁不可用")?;
+    vault_delete_in(&path, slot)
 }
 
 fn read_vault_map(path: &Path) -> Result<Map<String, Value>, String> {
@@ -221,6 +288,7 @@ pub async fn key_status() -> Result<Value, String> {
         serde_json::json!({
             "tts": slot_has_key(&map, "tts"),
             "realtime": slot_has_key(&map, "realtime"),
+            "managed": slot_has_key(&map, "managed"),
             "chat": slot_has_key(&map, "chat"),
             "vision": slot_has_key(&map, "vision"),
             "search": slot_has_key(&map, "search"),

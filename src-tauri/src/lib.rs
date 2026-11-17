@@ -1,4 +1,5 @@
 mod backdrop;
+mod cloud;
 mod desktop;
 mod dsh;
 mod interaction_diagnostics;
@@ -9,6 +10,8 @@ mod dictation;
 mod realtime;
 mod voice;
 mod weather;
+#[cfg(target_os = "windows")]
+mod win_audio;
 
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -136,11 +139,12 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
-                .build(),
-        )
+        .plugin({
+            let builder = tauri_plugin_autostart::Builder::new();
+            #[cfg(target_os = "macos")]
+            let builder = builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            builder.build()
+        })
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(desktop)
@@ -153,6 +157,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Regular);
             let w = app.get_webview_window("main").expect("main window");
+            #[cfg(target_os = "windows")]
+            let _ = w.set_skip_taskbar(true);
             desktop::fit_monitor(&w, false)?;
             w.set_focusable(false)?;
             w.set_ignore_cursor_events(true)?;
@@ -182,9 +188,16 @@ pub fn run() {
                     &quit,
                 ],
             )?;
+            #[cfg(target_os = "macos")]
+            let tray_icon = tray_image();
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = app
+                .default_window_icon()
+                .map(|img| tauri::image::Image::new_owned(img.rgba().to_vec(), img.width(), img.height()))
+                .unwrap_or_else(tray_image);
             TrayIconBuilder::with_id("companion")
-                .icon(tray_image())
-                .icon_as_template(true)
+                .icon(tray_icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("KBOT")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
@@ -214,10 +227,16 @@ pub fn run() {
             storage::save_key,
             storage::delete_key,
             storage::key_status,
+            cloud::cloud_bootstrap,
+            cloud::cloud_status,
+            cloud::cloud_login,
+            cloud::cloud_redeem,
+            cloud::cloud_sign_out,
             weather::weather_get,
             weather::city_search,
             dsh::dsh_status,
             dsh::dsh_ensure,
+            dsh::dsh_configure_cloud,
             dsh::dsh_open_console,
             dsh::dsh_restart,
             dsh::dsh_stop,

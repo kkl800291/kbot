@@ -80,9 +80,9 @@
       enabled: false,
       autoReply: false,
       autoProactive: true,
-      base: 'https://api.xiaomimimo.com/v1',
-      model: 'mimo-v2.5-tts',
-      mimoVoice: '冰糖',
+      base: 'https://dashscope.aliyuncs.com/api/v1',
+      model: 'qwen3-tts-flash',
+      ttsVoice: 'Cherry',
       style: '',
       hasKey: false,
       summonVoice: false,
@@ -92,6 +92,12 @@
       realtimeVoice: 'Tina',
       realtimeHasKey: false,
       customVoices: [],
+    },
+    cloud: {
+      endpoint: '',
+      llmMode: 'managed',
+      voiceMode: 'managed',
+      hasSession: false,
     },
     ai: {
       chat: { provider: 'deepseek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: false },
@@ -109,11 +115,22 @@
   };
   A.defaults = () => clone(DEFAULTS);
   A.S = merge(clone(DEFAULTS), stored.S);
-  // 清理旧版 macOS 系统朗读设置与已下线实时模型/音色。
+  // 清理旧版 macOS 系统朗读设置、小米 MiMo 残留及已下线实时模型/音色。
   if (A.S.voice && typeof A.S.voice === 'object') {
     delete A.S.voice.provider;
     delete A.S.voice.sayVoice;
     delete A.S.voice.rate;
+    delete A.S.voice.mimoVoice;
+    if (!A.S.voice.base || String(A.S.voice.base).includes('xiaomimimo.com')) {
+      A.S.voice.base = 'https://dashscope.aliyuncs.com/api/v1';
+    }
+    if (!A.S.voice.model || String(A.S.voice.model).startsWith('mimo')) {
+      A.S.voice.model = 'qwen3-tts-flash';
+    }
+    const legacyMimoVoices = ['冰糖', '茉莉', '苏打', '白桦', 'mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean'];
+    if (!A.S.voice.ttsVoice || legacyMimoVoices.includes(A.S.voice.ttsVoice)) {
+      A.S.voice.ttsVoice = 'Cherry';
+    }
     // 召唤时自动开麦原来是默认开启，多数人没主动选过；改为默认关闭，旧设置一次性重置
     if (!A.S.voice.summonVoiceReset) { A.S.voice.summonVoice = false; A.S.voice.summonVoiceReset = true; }
     if (!A.S.voice.realtimeModel || ['qwen-omni-turbo-realtime', 'qwen3-omni-flash-realtime'].includes(A.S.voice.realtimeModel)) {
