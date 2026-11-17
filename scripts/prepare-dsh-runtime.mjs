@@ -49,10 +49,18 @@ async function pruneDevelopmentFiles(folder) {
   }
 }
 
+const TARGET_TO_PLATFORM = {
+  'aarch64-apple-darwin': 'darwin-arm64',
+  'x86_64-apple-darwin': 'darwin-x64',
+  'x86_64-pc-windows-msvc': 'win32-x64',
+  'x86_64-pc-windows-gnu': 'win32-x64',
+};
+
 function platformSpec(platform) {
   const isWin = platform.startsWith('win32-');
   return {
     isWin,
+    distName: isWin ? platform.replace(/^win32-/, 'win-') : platform,
     ext: isWin ? 'zip' : 'tar.gz',
     nodeSrc: isWin ? 'node.exe' : 'bin/node',
     nodeDest: isWin ? 'node/node.exe' : 'node/bin/node',
@@ -71,6 +79,10 @@ async function extractArchive(archive, cacheDir, isWin) {
     await run('/usr/bin/tar', ['-xzf', archive, '-C', cacheDir]);
     return;
   }
+  if (process.platform === 'darwin') {
+    await run('/usr/bin/ditto', ['-x', '-k', archive, cacheDir]);
+    return;
+  }
   try {
     await run('tar', ['-xf', archive, '-C', cacheDir]);
   } catch {
@@ -86,10 +98,14 @@ async function extractArchive(archive, cacheDir, isWin) {
 
 export async function prepareRuntime(target) {
   const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'));
-  const platform = `${process.platform}-${process.arch}`;
-  if (!manifest.nodeArchives[platform]) throw new Error(`Bundled DSH currently supports macOS arm64/x64 and Windows x64; got ${platform}`);
+  const hostPlatform = `${process.platform}-${process.arch}`;
+  const platform = target ? (TARGET_TO_PLATFORM[target] || '') : hostPlatform;
+  if (!platform || !manifest.nodeArchives[platform]) {
+    throw new Error(`Bundled DSH currently supports macOS arm64/x64 and Windows x64; got ${target || hostPlatform}`);
+  }
   const spec = platformSpec(platform);
-  if (target && spec.targetTriple && target !== spec.targetTriple) {
+  const crossWin = platform !== hostPlatform;
+  if (crossWin && !(process.platform === 'darwin' && spec.isWin)) {
     throw new Error(`Build the DSH runtime on the matching host architecture (${spec.targetTriple}). Cross-architecture bundles are not supported.`);
   }
   const lock = await readFile(join(source, 'package-lock.json'));
@@ -100,7 +116,7 @@ export async function prepareRuntime(target) {
 
   const cache = join(root, '.cache/dsh-runtime');
   await mkdir(cache, { recursive: true });
-  const name = `node-v${manifest.nodeVersion}-${platform}`;
+  const name = `node-v${manifest.nodeVersion}-${spec.distName}`;
   const archive = join(cache, `${name}.${spec.ext}`);
   let archiveBytes = await readFile(archive).catch(() => null);
   if (!archiveBytes || hash(archiveBytes) !== manifest.nodeArchives[platform]) {
@@ -122,12 +138,20 @@ export async function prepareRuntime(target) {
   if (!spec.isWin) await chmod(destNode, 0o755);
   await copyFile(join(extracted, 'LICENSE'), join(staging, 'NODE_LICENSE.txt'));
   for (const file of ['package.json', 'package-lock.json']) await copyFile(join(source, file), join(staging, 'app', file));
-  console.log(`Installing pinned DeepSeek Harness ${manifest.dshVersion}…`);
-  const nodePathEntry = spec.binDir ? join(extracted, spec.binDir) : extracted;
-  await run(join(extracted, spec.nodeSrc), [join(extracted, spec.npmCli), 'ci', '--omit=dev', '--no-audit', '--no-fund'], {
-    cwd: join(staging, 'app'),
-    env: { ...process.env, PATH: [nodePathEntry, process.env.PATH].filter(Boolean).join(delimiter) },
-  });
+  console.log(`Installing pinned DeepSeek Harness ${manifest.dshVersion} (${platform})…`);
+  if (crossWin) {
+    const npmCli = join(process.execPath, '../../lib/node_modules/npm/bin/npm-cli.js');
+    await run(process.execPath, [npmCli, 'ci', '--os=win32', '--cpu=x64', '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], {
+      cwd: join(staging, 'app'),
+      env: process.env,
+    });
+  } else {
+    const nodePathEntry = spec.binDir ? join(extracted, spec.binDir) : extracted;
+    await run(join(extracted, spec.nodeSrc), [join(extracted, spec.npmCli), 'ci', '--omit=dev', '--no-audit', '--no-fund'], {
+      cwd: join(staging, 'app'),
+      env: { ...process.env, PATH: [nodePathEntry, process.env.PATH].filter(Boolean).join(delimiter) },
+    });
+  }
   await writeFile(join(staging, 'THIRD_PARTY_NOTICES.txt'), await licenses(join(staging, 'app/node_modules')));
   // These are compiler declarations and debugging symbols, never runtime code.
   await pruneDevelopmentFiles(join(staging, 'app/node_modules'));
