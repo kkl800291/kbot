@@ -98,7 +98,7 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   const cur = { x: 0, y: 0, r: 1 }, tgt = { x: 0, y: 0, r: 1 }, vel = { x: 0, y: 0, r: 0 };
   let origin = null, plate = 0, tone = 'dark', small = false;
   let running = false, leaving = false, raf = 0, last = 0, goneAt = -1e9, haltTimer = 0;
-  let base = 'idle', hold = null, holdUntil = 0, attendUntil = 0, mode = 'idle';
+  let base = 'idle', hold = null, holdUntil = 0, attendUntil = 0, voiceActive = false, lastPokeAt = 0, mode = 'idle';
   const perf = { sim: 0, draw: 0 };
 
   function measure() {
@@ -123,12 +123,12 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   }
   const opacity = v => { for (const c of [glCanvas, flatCanvas]) if (c) c.style.opacity = String(v); };
 
-  /** 此刻该是什么状态：表情触发的思考、提醒盖在基础模式上；刚有人打字就转过来听。 */
+  /** 此刻该是什么状态：表情触发的思考、提醒盖在基础模式上；开启语音或刚有人打字就转过来听。 */
   function sync(now = performance.now()) {
     if (hold === 'remind' && now >= holdUntil) hold = null;
     if (attendUntil && now >= attendUntil) attendUntil = 0;
     mode = hold || base;
-    const st = mode === 'listen' && attendUntil ? 'listen' : MODE_STATE[mode] || 'idle';
+    const st = mode === 'listen' && (voiceActive || attendUntil) ? 'listen' : MODE_STATE[mode] || 'idle';
     if (st !== life.state) life.setState(st);
   }
 
@@ -291,6 +291,20 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
       attendUntil = performance.now() + ATTEND_MS;
       sync();
     },
+    /** 语音交流激活时保持专注倾听姿态。 */
+    setVoiceActive(on) {
+      voiceActive = !!on;
+      sync();
+    },
+    /** 实时语音音量（0..1）驱动光纹涟漪。 */
+    setVoiceLevel(level) {
+      const v = clamp(Number(level) || 0, 0, 1);
+      if (!running || v <= 0.06) return;
+      const now = performance.now();
+      if (now - lastPokeAt < 110) return;
+      lastPokeAt = now;
+      life.poke(clamp(v * 0.85, 0.18, 0.9));
+    },
     setPalette(name) {
       const next = PALETTES.includes(name) ? name : 'molten';
       if (next === pal) return;
@@ -301,7 +315,7 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
     setReduced(on) { calm = !!on; life.setReduced(calm); },
     stats() {
       return {
-        running, leaving, fallback, mode, state: life.state, palette: pal, tone, x: cur.x, y: cur.y, R: cur.r, lite: small,
+        running, leaving, fallback, mode, state: life.state, voiceActive, palette: pal, tone, x: cur.x, y: cur.y, R: cur.r, lite: small,
         alpha: life.S.alpha, simMs: perf.sim, drawMs: perf.draw,
       };
     },

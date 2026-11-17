@@ -31,6 +31,11 @@ import { energyMark } from './energy.js';
     }
     return row;
   };
+  X.stackRow = (label, desc, ctl) => {
+    const row = X.row(label, desc, ctl);
+    row.classList.add('sx-stack');
+    return row;
+  };
   X.note = text => h('p', { class: 'sx-note' }, text);
   X.btn = (label, fn, cls = '') => h('button', { class: 'btn sm ' + cls, type: 'button', onclick: fn }, label);
   X.empty = text => h('div', { class: 'sx-empty' }, text);
@@ -108,9 +113,10 @@ import { energyMark } from './energy.js';
     return h('span', { class: 'sx-num' }, [i, o.unit ? h('span', { class: 'sx-u' }, o.unit) : null, o.err ? null : err]);
   };
 
-  X.keyCtl = (cfgPath, slot, after) => {
+  X.keyCtl = (cfgPath, slot, after, keyField = 'hasKey') => {
     const wrap = h('div', { class: 'sx-key' });
-    const hasKey = () => !!A.sget(cfgPath + '.hasKey');
+    const flagPath = `${cfgPath}.${keyField}`;
+    const hasKey = () => !!A.sget(flagPath);
     const draw = editing => {
       wrap.replaceChildren();
       if (hasKey() && !editing) {
@@ -120,7 +126,7 @@ import { energyMark } from './energy.js';
           X.btn('删除', async () => {
             try {
               await A.nativeCommand('delete_key', { slot });
-              A.sput(cfgPath + '.hasKey', false);
+              A.sput(flagPath, false);
               if (after) after(false);
               draw(false);
             } catch (e) { A.toast(String(e), 5000); }
@@ -128,7 +134,7 @@ import { energyMark } from './energy.js';
         );
         return;
       }
-      const i = h('input', { class: 'sx-in', type: 'password', placeholder: '输入 API Key…', style: 'width:190px', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'API Key' });
+      const i = h('input', { class: 'sx-in', type: 'password', placeholder: '输入 API Key…', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'API Key' });
       const eye = h('button', { class: 'ib', type: 'button', title: '显示 / 隐藏', 'aria-label': '显示或隐藏 Key', html: A.icon('eye', 15) });
       eye.addEventListener('click', () => {
         const show = i.type === 'password';
@@ -140,7 +146,7 @@ import { energyMark } from './energy.js';
         if (!v) { i.focus(); return; }
         try {
           await A.nativeCommand('save_key', { slot, key: v });
-          A.sput(cfgPath + '.hasKey', true);
+          A.sput(flagPath, true);
           i.value = '';
           if (after) after(true);
           draw(false);
@@ -160,7 +166,7 @@ import { energyMark } from './energy.js';
   const PAGE_INFO = {
     general: '软件更新、启动方式与外观',
     agent: '登录 DeepSeek，管理账号、记忆与性格',
-    voice: '语音播报与发音引擎',
+    voice: '召唤实时语音交流与发音引擎',
     sense: '让 KBOT 了解你在做什么，全部在本机完成',
     chat: '召唤快捷键与对话记录',
   };
@@ -236,6 +242,8 @@ import { energyMark } from './energy.js';
     go(it.id);
     const row = $$('.sx-t', pageEl).find(t => t.textContent.trim() === it.label)?.closest('.sx-row');
     if (!row) return;
+    const details = row.closest('details');
+    if (details) details.open = true;
     row.scrollIntoView({ block: 'center' });
     row.classList.remove('sx-found'); void row.offsetWidth; row.classList.add('sx-found');
   }

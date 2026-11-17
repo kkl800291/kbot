@@ -56,17 +56,54 @@ function intervalFactor(freq: unknown): number {
   return 1;
 }
 
+export type RoutineMinutes = {
+  water?: number;
+  eye?: number;
+};
+
+export function nextRoutineRemainingMinutes({
+  settings = {},
+  activeMinutes = 0,
+  fired = {},
+  lastRoutineMinutes = {},
+}: {
+  settings?: ProactiveSettings;
+  activeMinutes?: number;
+  fired?: Record<string, boolean>;
+  lastRoutineMinutes?: RoutineMinutes;
+}): number {
+  if (settings.aiCompanion === false) return 0;
+  const params = settings.params || {};
+  const factor = intervalFactor(settings.freq);
+  const candidates: number[] = [];
+  const eyeBase = Number(params.eyeEvery);
+  if (eyeBase > 0 && !(fired.eye && lastRoutineMinutes.eye == null)) {
+    const eyeEvery = positiveInt(eyeBase, 20) * factor;
+    const elapsed = Math.max(0, activeMinutes - (lastRoutineMinutes.eye ?? 0));
+    candidates.push(Math.max(1, Math.ceil(eyeEvery - elapsed)));
+  }
+  const waterBase = Number(params.waterEvery);
+  if (waterBase > 0 && !(fired.water && lastRoutineMinutes.water == null)) {
+    const waterEvery = positiveInt(waterBase, 45) * factor;
+    const elapsed = Math.max(0, activeMinutes - (lastRoutineMinutes.water ?? 0));
+    candidates.push(Math.max(1, Math.ceil(waterEvery - elapsed)));
+  }
+  return candidates.length ? Math.min(...candidates) : 0;
+}
+
 export function buildDueProactiveEvents({
   now = Date.now(),
   settings = {},
   activeMinutes = 0,
   fired = {},
+  lastRoutineMinutes = {},
   active = true,
 }: {
   now?: number;
   settings?: ProactiveSettings;
   activeMinutes?: number;
   fired?: Record<string, boolean>;
+  lastRoutineMinutes?: RoutineMinutes;
   active?: boolean;
 }): ProactiveEvent[] {
   if (!active || settings.aiCompanion === false) return [];
@@ -76,7 +113,9 @@ export function buildDueProactiveEvents({
   const waterEvery = positiveInt(params.waterEvery, 45) * factor;
   const eyeEvery = positiveInt(params.eyeEvery, 20) * factor;
   const routine = () => {
-    if (activeMinutes >= waterEvery && !fired.water) {
+    const waterSuppressed = Boolean(fired.water && lastRoutineMinutes.water == null);
+    const sinceWater = activeMinutes - (lastRoutineMinutes.water ?? 0);
+    if (!waterSuppressed && sinceWater >= waterEvery) {
       return {
         key: 'water',
         kind: 'remind',
@@ -85,7 +124,9 @@ export function buildDueProactiveEvents({
         expr: 'remind',
       } satisfies ProactiveEvent;
     }
-    if (activeMinutes >= eyeEvery && !fired.eye) {
+    const eyeSuppressed = Boolean(fired.eye && lastRoutineMinutes.eye == null);
+    const sinceEye = activeMinutes - (lastRoutineMinutes.eye ?? 0);
+    if (!eyeSuppressed && sinceEye >= eyeEvery) {
       return {
         key: 'eye',
         kind: 'remind',
@@ -116,7 +157,7 @@ export function buildDueProactiveEvents({
 
   const workFrom = parseClock(settings.workFrom);
   if (nearMinute(now, workFrom) && !fired.start) {
-    return [{ key: 'start', kind: 'speech', pri: 'low', text: '到上班时间了。有什么需要，随时吩咐。', expr: 'happy' }];
+    return [{ key: 'start', kind: 'speech', pri: 'low', text: '到上班时间了，有什么事直接跟我说。', expr: 'happy' }];
   }
   const nextRoutine = routine();
   return nextRoutine ? [nextRoutine] : [];
@@ -129,6 +170,7 @@ type ProactiveRuntimeState = {
   lastIdleSeconds: number | null;
   awayAt: number | null;
   fired: Record<string, boolean>;
+  lastRoutineMinutes: RoutineMinutes;
 };
 
 export function installProactive(A: any) {
@@ -141,6 +183,7 @@ export function installProactive(A: any) {
     lastIdleSeconds: null,
     awayAt: null,
     fired: saved?.day === today && saved?.fired && typeof saved.fired === 'object' ? { ...saved.fired } : {},
+    lastRoutineMinutes: {},
   };
 
   A.persisters.proactive = () => ({
@@ -156,12 +199,17 @@ export function installProactive(A: any) {
     state.day = next;
     state.activeMs = 0;
     state.fired = {};
+    state.lastRoutineMinutes = {};
     A.save?.();
   };
 
   const speak = (event: ProactiveEvent) => {
     if (!enabled()) return;
-    state.fired[event.key] = true;
+    if (event.key === 'water' || event.key === 'eye') {
+      state.lastRoutineMinutes[event.key] = state.activeMs / 60000;
+    } else {
+      state.fired[event.key] = true;
+    }
     A.speak?.({
       kind: event.kind,
       pri: event.pri,
@@ -189,15 +237,35 @@ export function installProactive(A: any) {
       settings: A.S,
       activeMinutes: state.activeMs / 60000,
       fired: state.fired,
+      lastRoutineMinutes: state.lastRoutineMinutes,
       active: isActive(),
     });
     events.forEach(speak);
   };
 
   A.proactive = {
-    state: () => ({ day: state.day, activeMinutes: state.activeMs / 60000, fired: { ...state.fired } }),
+    state: () => {
+      const activeMinutes = state.activeMs / 60000;
+      return {
+        day: state.day,
+        activeMinutes,
+        fired: { ...state.fired },
+        nextBreakMinutes: nextRoutineRemainingMinutes({
+          settings: A.S,
+          activeMinutes,
+          fired: state.fired,
+          lastRoutineMinutes: state.lastRoutineMinutes,
+        }),
+      };
+    },
     tick,
-    reset: () => { state.activeMs = 0; state.lastTickAt = 0; state.fired = {}; A.save?.(); },
+    reset: () => {
+      state.activeMs = 0;
+      state.lastTickAt = 0;
+      state.fired = {};
+      state.lastRoutineMinutes = {};
+      A.save?.();
+    },
   };
 
   A.on('tick', () => tick());
@@ -214,6 +282,11 @@ export function installProactive(A: any) {
     const awayFor = state.awayAt ? now - state.awayAt : 0;
     state.awayAt = null;
     state.lastTickAt = now;
+    const restMs = Math.max(1, Number(A.S.rest) || 5) * 60_000;
+    if (awayFor >= restMs) {
+      state.activeMs = 0;
+      state.lastRoutineMinutes = {};
+    }
     if (enabled() && awayFor >= 5 * 60_000 && !A.isDnd?.() && !A.meeting) {
       A.speak?.({ kind: 'speech', pri: 'low', text: '欢迎回来。刚才进行到哪儿了？', expr: 'happy', dur: 8500 });
     }
@@ -221,6 +294,7 @@ export function installProactive(A: any) {
   A.on('set:aiCompanion', () => { if (!enabled()) A.bubble?.hideSpeech?.(); });
   ['set:params', 'set:workFrom', 'set:workTo', 'set:freq'].forEach(event => A.on(event, () => {
     state.fired = {};
+    state.lastRoutineMinutes = {};
     A.save?.();
   }));
 

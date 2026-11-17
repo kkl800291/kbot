@@ -71,7 +71,7 @@ import { uiAccent } from './accent.js';
       if (installBtn) installBtn.disabled = installing;
 
       updateSlot.append(
-        X.row('当前版本', desc, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
+        X.row('当前版本', desc, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end' }, [
           h('span', { class: badgeCls }, badgeLabel),
           installBtn,
           checkBtn,

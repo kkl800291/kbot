@@ -85,7 +85,7 @@ const SERVICE: &str = "com.cybercompanion.desktop";
 
 fn account(slot: &str) -> Result<&str, String> {
     match slot {
-        "tts" | "chat" | "vision" | "search" => Ok(slot),
+        "tts" | "realtime" | "chat" | "vision" | "search" => Ok(slot),
         _ => Err("未知的凭据类型".into()),
     }
 }
@@ -220,6 +220,7 @@ pub async fn key_status() -> Result<Value, String> {
             .unwrap_or_default();
         serde_json::json!({
             "tts": slot_has_key(&map, "tts"),
+            "realtime": slot_has_key(&map, "realtime"),
             "chat": slot_has_key(&map, "chat"),
             "vision": slot_has_key(&map, "vision"),
             "search": slot_has_key(&map, "search"),
@@ -262,6 +263,12 @@ mod tests {
         vault_delete_in(&vault_path, "tts").unwrap();
         vault_delete_in(&vault_path, "tts").unwrap();
         assert_eq!(vault_get_in(&vault_path, "tts").unwrap(), None);
+
+        assert_eq!(account("realtime").unwrap(), "realtime");
+        vault_set_in(&vault_path, "realtime", "sk-dashscope-rt-123").unwrap();
+        let map = read_vault_map(&vault_path).unwrap();
+        assert!(slot_has_key(&map, "realtime"));
+        assert!(!slot_has_key(&map, "tts"));
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

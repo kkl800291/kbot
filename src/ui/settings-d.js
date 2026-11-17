@@ -47,9 +47,9 @@
       redraw();
     });
     chips.append(add);
-    return h('div', { class: 'sx-row', style: 'align-items:flex-start' }, [
-      h('div', { class: 'sx-l', style: 'flex:none;width:56px;padding-top:3px' }, h('div', { class: 'sx-t' }, name)),
-      h('div', { class: 'sx-l' }, chips),
+    return h('div', { class: 'sx-row', style: 'align-items:flex-start;flex-wrap:nowrap' }, [
+      h('div', { class: 'sx-l', style: 'flex:none;width:56px;min-width:56px;padding-top:3px' }, h('div', { class: 'sx-t' }, name)),
+      h('div', { class: 'sx-l', style: 'flex:1 1 0;min-width:0' }, chips),
     ]);
   }
 
@@ -57,11 +57,10 @@
     const appsCard = h('div', { class: 'sx-card' });
     const drawApps = () => { appsCard.replaceChildren(...CATS.map(c => appRow(c, drawApps))); };
     drawApps();
-    const city = X.row('所在城市', null, null);
-    const cityInfo = h('div', { class: 'sx-d' }, A.S.cityInfo);
+    const city = X.stackRow('所在城市', null, cityCtl());
+    const cityInfo = h('div', { class: 'sx-d' }, A.S.cityInfo || '');
     $$('.sx-l', city)[0].append(cityInfo);
-    city.append(h('div', { class: 'sx-c', style: 'flex:0 1 330px' }, cityCtl()));
-    A.on('sense:city', () => { cityInfo.textContent = A.S.cityInfo; });
+    A.on('sense:city', () => { cityInfo.textContent = A.S.cityInfo || ''; });
 
     el.append(
       X.group('桌面感知',
@@ -96,7 +95,7 @@
   const labelOf = k => `${k.ctrl ? '⌃ ' : ''}${k.alt ? '⌥ ' : ''}${k.shift ? '⇧ ' : ''}${k.meta ? '⌘ ' : ''}${KEYS[k.code] || k.code.replace(/^Key|^Digit/, '')}`;
 
   function hotkeyCtl() {
-    const box = h('span', { class: 'sx-time' });
+    const box = h('span', { class: 'sx-time', style: 'flex-wrap:wrap;justify-content:flex-end;gap:6px' });
     const msg = h('span', { class: 'sx-err' });
     const chip = h('button', { class: 'sx-kbd', type: 'button', title: '点击后按下新的组合键' }, A.S.hotkey.label);
     let rec = null;
@@ -125,6 +124,7 @@
     return wrap;
   }
 
+  const FRESH = [[0, '不自动新建'], [10, '10 分钟'], [30, '30 分钟'], [120, '2 小时']];
   const KEEP = [[0, '不清理'], [7, '7 天'], [30, '30 天'], [90, '90 天']];
   pages.chat = el => {
     const stat = h('div', { class: 'sx-d' });
@@ -138,7 +138,8 @@
     el.append(
       X.group('召唤与收起',
         X.row('召唤快捷键', '按一下召唤 KBOT，再按一下收起。点击按键框后按下新的组合键即可更换', hotkeyCtl()),
-        X.row('点击外部时收起', null, X.toggle('outsideClose')),
+        X.row('隔多久自动开新对话', '再次唤起时，距上一条消息超过这个时间就从新对话开始；没超过就接着聊', X.select('newChatAfter', FRESH, null, 120)),
+        X.row('点击外部时收起', '只收起召唤态。打开的对话框要点关闭才会收起', X.toggle('outsideClose')),
       ),
       X.group('对话记录', keepRow,
         X.row('清空对话记录', '不影响 ~/KBOT 里的长期记忆', X.danger('清空…', '再点一次确认', () => { A.chat.clearAll(); count(); A.toast('对话记录已清空'); })),

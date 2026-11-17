@@ -24,6 +24,9 @@
       </div>
       <section id="summon" inert aria-label="召唤 KBOT">
         <div class="s-field">
+          <button type="button" class="s-mic" id="sMic" title="点击开启或静音语音交流" aria-label="语音交流" data-icon="mic" data-size="15">
+            <span class="s-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          </button>
           <input id="sInput" type="text" autocomplete="off" spellcheck="false" aria-label="吩咐 KBOT">
           <button type="button" class="s-btn" id="sBtn" title="在窗口中继续（⌘↩）" aria-label="在窗口中继续" data-icon="expand"></button>
         </div>
@@ -64,8 +67,10 @@
             <div class="toolbar">
               <button class="tb" data-t="image" title="添加图片（也可以粘贴或拖入）" data-icon="image"></button>
               <button class="tb" data-t="shot" title="截图提问" id="shotBtn" data-icon="shot" hidden></button>
+              <button class="tb" data-t="mic" id="micBtn" title="语音输入，只写入输入框" data-icon="mic"></button>
               <button class="web-toggle" data-t="voice" id="voiceBtn" data-icon="speaker"><span>朗读</span></button>
               <button type="button" class="model-tag" id="modelTag" title="切换模型"></button>
+              <button type="button" class="model-tag effort-tag" id="effortTag" title="切换思考强度" hidden></button>
               <span class="sp"></span>
               <button class="send" id="sendBtn" title="发送（Enter）"></button>
             </div>

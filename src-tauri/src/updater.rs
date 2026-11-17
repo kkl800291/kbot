@@ -347,8 +347,25 @@ pub fn parse_release_payload(payload: &Value, current_version: &str, source: &st
     })
 }
 
+fn validate_remote_url(raw: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(raw).map_err(|_| "更新地址格式无效".to_string())?;
+    let host = parsed.host_str().unwrap_or("");
+    let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]");
+    if parsed.scheme() == "https" || (is_loopback && parsed.scheme() == "http") {
+        Ok(())
+    } else {
+        Err("远程更新地址必须使用 HTTPS（本机调试除外）".into())
+    }
+}
+
+fn normalize_sha256(raw: Option<&str>) -> Option<String> {
+    raw.map(|s| s.trim().trim_start_matches("sha256:").to_ascii_lowercase())
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
 async fn load_manifest_json(source: &str) -> Result<Value, String> {
     if source.starts_with("https://") || source.starts_with("http://") {
+        validate_remote_url(source)?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(12))
             .user_agent(format!("KBOT/{}", env!("CARGO_PKG_VERSION")))
@@ -360,6 +377,7 @@ async fn load_manifest_json(source: &str) -> Result<Value, String> {
             .send()
             .await
             .map_err(|e| format!("请求更新源失败: {e}"))?;
+        validate_remote_url(resp.url().as_str())?;
         if !resp.status().is_success() {
             return Err(format!("更新源返回 HTTP {}", resp.status().as_u16()));
         }
@@ -617,6 +635,15 @@ pub async fn install_app_update(
         return Err("缺少更新包下载地址".into());
     }
 
+    let is_remote = trimmed.starts_with("https://") || trimmed.starts_with("http://");
+    let verified_sha256 = normalize_sha256(expected_sha256.as_deref());
+    if is_remote {
+        validate_remote_url(&trimmed)?;
+        if verified_sha256.is_none() {
+            return Err("远程更新包缺少有效的 SHA-256 校验值，已中止安装".into());
+        }
+    }
+
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -639,7 +666,7 @@ pub async fn install_app_update(
     // 整体进度：下载占 0～80，校验 84，解压 90，替换 96，重启 100。界面上只显示这一个数
     emit_progress(&app, "downloading", 0, "正在下载新版本…");
 
-    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+    if is_remote {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(300))
@@ -651,6 +678,10 @@ pub async fn install_app_update(
             .send()
             .await
             .map_err(|e| format!("下载更新包失败: {e}"))?;
+        if let Err(err) = validate_remote_url(resp.url().as_str()) {
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
+            return Err(err);
+        }
         if !resp.status().is_success() {
             let _ = tokio::fs::remove_dir_all(&work_dir).await;
             return Err(format!("下载更新包返回 HTTP {}", resp.status().as_u16()));
@@ -688,17 +719,12 @@ pub async fn install_app_update(
             .map_err(|e| format!("复制本地更新包失败: {e}"))?;
     }
 
-    if let Some(expected) = expected_sha256
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(clean_expected) = verified_sha256 {
         emit_progress(&app, "verifying", 84, "正在校验安装包…");
         let path_clone = artifact_path.clone();
         let actual = tokio::task::spawn_blocking(move || compute_file_sha256(&path_clone))
             .await
             .map_err(|e| format!("校验任务异常: {e}"))??;
-        let clean_expected = expected.trim_start_matches("sha256:").to_ascii_lowercase();
         if actual != clean_expected {
             let _ = tokio::fs::remove_dir_all(&work_dir).await;
             return Err("安装包 SHA-256 校验未通过，已中止安装".into());
@@ -908,5 +934,20 @@ mod tests {
                 Some("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
             );
         }
+    }
+
+    #[test]
+    fn enforces_https_and_valid_sha256_for_remote_updates() {
+        assert!(validate_remote_url("https://schathub.xyz/kbot/releases/latest.json").is_ok());
+        assert!(validate_remote_url("http://127.0.0.1:8080/latest.json").is_ok());
+        assert!(validate_remote_url("http://localhost:3000/latest.json").is_ok());
+        assert!(validate_remote_url("http://example.com/latest.json").is_err());
+
+        assert_eq!(
+            normalize_sha256(Some("sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef")),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into())
+        );
+        assert_eq!(normalize_sha256(Some("not-a-hex-digest")), None);
+        assert_eq!(normalize_sha256(None), None);
     }
 }

@@ -10,7 +10,10 @@
     C.dropChips();
     const um = { id: A.uid(), role: 'user', text, images, time: Date.now() };
     conv.messages.push(um);
-    if (conv.title === '新对话') conv.title = (text || '图片提问').replace(/\s+/g, ' ').slice(0, 18);
+    if (conv.title === '新对话') {
+      conv.title = (text || '图片提问').replace(/\s+/g, ' ').slice(0, 18);
+      conv.titleSource = 'auto';
+    }
     conv.t = Date.now();
     C.append(um); A.save();
     C.respond(um);

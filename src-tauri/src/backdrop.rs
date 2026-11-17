@@ -50,6 +50,13 @@ pub fn set_backdrop(window: tauri::WebviewWindow, backdrop: Backdrop) -> Result<
     }
 }
 
+pub fn reset(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    let _ = mac::on_main(window, |_w| unsafe { mac::reset_view() });
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
 #[tauri::command]
 pub fn top_metrics(window: tauri::WebviewWindow) -> TopMetrics {
     #[cfg(target_os = "macos")]
@@ -478,6 +485,27 @@ mod mac {
         let _: () = msg_send![animator, setFrame: target];
         let _: () = msg_send![animator, setAlphaValue: if b.visible { 1.0f64 } else { 0.0f64 }];
         let _: () = msg_send![class!(NSAnimationContext), endGrouping];
+        Ok(())
+    }
+
+    pub unsafe fn reset_view() -> Result<(), String> {
+        MORPH.fetch_add(1, Ordering::SeqCst);
+        STANDBY_ACTIVE.with(|s| s.set(false));
+        SHAPE.with(|c| c.set((0.0, 0.0)));
+        MASK.with(|m| m.set((-1, -1)));
+        let fx = FX.with(|c| c.get());
+        if !fx.is_null() {
+            let nil: *mut Object = std::ptr::null_mut();
+            let _: () = msg_send![fx, setMaskImage: nil];
+            let _: () = msg_send![class!(NSAnimationContext), beginGrouping];
+            let ctx: *mut Object = msg_send![class!(NSAnimationContext), currentContext];
+            let _: () = msg_send![ctx, setDuration: 0.0f64];
+            let animator: *mut Object = msg_send![fx, animator];
+            let _: () = msg_send![animator, setAlphaValue: 0.0f64];
+            let _: () = msg_send![class!(NSAnimationContext), endGrouping];
+            let _: () = msg_send![fx, setAlphaValue: 0.0f64];
+            let _: () = msg_send![fx, setHidden: YES];
+        }
         Ok(())
     }
 }

@@ -7,10 +7,10 @@ import { accountPanel } from './account';
   const A = window.App, { h, $$ } = A, X = A.sx, pages = A.settingsPages;
 
   const PERSONAS = [
-    ['cute', '从容', '默认', '随时为您效劳。今天先从哪件事开始？'],
-    ['gentle', '温和', '', '您已经忙了很久，歇一会儿吧，其余的交给我。'],
-    ['lively', '机敏', '', '已就绪。顺带一提，您的咖啡大概已经凉了。'],
-    ['quiet', '简洁', '', '在。请吩咐。'],
+    ['cute', '从容', '默认', '在。今天先从哪件事开始？'],
+    ['gentle', '温和', '', '忙了挺久了吧，歇口气，剩下的交给我。'],
+    ['lively', '机敏', '', '随时在。顺带一提，你的咖啡可能快凉了。'],
+    ['quiet', '简洁', '', '在，直接说。'],
   ];
 
   const MODES = [
@@ -83,7 +83,7 @@ import { accountPanel } from './account';
       });
 
       statusSlot.append(
-        X.row('状态', detail, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
+        X.stackRow('状态', detail, h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end' }, [
           h('span', { class: badgeCls }, badgeText),
           reconnectBtn,
           restartBtn,

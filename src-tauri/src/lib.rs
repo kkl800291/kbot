@@ -5,6 +5,8 @@ mod interaction_diagnostics;
 mod settings_window;
 mod storage;
 mod updater;
+mod dictation;
+mod realtime;
 mod voice;
 mod weather;
 
@@ -14,7 +16,20 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 
 #[tauri::command]
-fn desktop_ready(window: tauri::WebviewWindow) -> Result<(), String> {
+fn desktop_ready(
+    window: tauri::WebviewWindow,
+    desktop: tauri::State<'_, desktop::Desktop>,
+) -> Result<(), String> {
+    if window.label() == "main" {
+        if let Ok(mut state) = desktop.lock() {
+            state.regions.clear();
+            state.interactive = false;
+            state.dragging = false;
+        }
+        let _ = window.set_ignore_cursor_events(true);
+        let _ = window.set_focusable(false);
+        backdrop::reset(&window);
+    }
     window.show().map_err(|e| e.to_string())
 }
 #[tauri::command]
@@ -133,6 +148,7 @@ pub fn run() {
         .manage(dsh::DshManager::default())
         .manage(settings_window::SettingsWindowGate::default())
         .manage(voice::Speech::default())
+        .manage(realtime::RealtimeManager::default())
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Regular);
@@ -226,6 +242,18 @@ pub fn run() {
             voice::voice_speak,
             voice::voice_stop,
             voice::voice_permission_status,
+            dictation::voice_dictation_start,
+            dictation::voice_dictation_stop,
+            realtime::voice_realtime_start,
+            realtime::voice_realtime_stop,
+            realtime::voice_realtime_interrupt,
+            realtime::voice_realtime_set_muted,
+            realtime::voice_realtime_set_bridging,
+            realtime::voice_realtime_send_text,
+            realtime::voice_realtime_tool_output,
+            realtime::voice_realtime_enroll,
+            realtime::voice_realtime_list_voices,
+            realtime::voice_realtime_delete_voice,
             updater::check_app_update,
             updater::install_app_update
         ])
@@ -249,6 +277,8 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<dsh::DshManager>().shutdown_blocking();
+                app.state::<realtime::RealtimeManager>()
+                    .stop_blocking(app.state::<voice::Speech>().inner());
                 app.state::<voice::Speech>().stop_active();
             }
             #[cfg(target_os = "macos")]

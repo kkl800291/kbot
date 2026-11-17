@@ -35,7 +35,7 @@ const userSettings = new Set([
   'persona', 'freq', 'nickname', 'work', 'rest', 'webDefault', 'screenPerm',
   'autostart', 'workFrom', 'workTo', 'holidays', 'params', 'festival',
   'term', 'city', 'senseIdle', 'senseApp', 'senseWeather', 'senseCal', 'apps',
-  'hotkey', 'retention', 'send', 'ai', 'aiCompanion', 'cityInfo', 'cityCoords',
+  'hotkey', 'retention', 'newChatAfter', 'send', 'ai', 'aiCompanion', 'cityInfo', 'cityCoords',
   'dsh', 'voice', 'updater',
 ]);
 const object = (value: any): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);

@@ -1,11 +1,13 @@
 /* KBOT · 屏幕顶部：圆角底板、六个状态（召唤态为主，对话窗口另有入口）、通知排队、能量体；勿扰、离开、隐藏。
    旧桌宠、对话面板、气泡的对外接口（A.panel 现在表示对话窗口、A.bubble、A.speak、A.robot、A.setBase…）保留，调用方不用改 */
-import { command } from '../services/runtime';
+import { command, listen } from '../services/runtime';
+import { addressName, personaHint } from '../services/persona';
+import { buildRealtimeInstructions, extractDshBridgeDirective, normalizeSpokenBrand, resolveSummonVoiceBackend } from '../services/voice';
 import { createEnergy } from './energy.js';
 import { uiAccent } from './accent.js';
 import {
-  arrival, barTarget, captionOf, createNoteQueue, energyMode, energyPlacement, GAP, gazeAt, hotkeyRoute, inHotzone, inRect, layout, plainText,
-  settleState, shouldAutoClose, shouldWait, SUMMON, SUMMON_IDLE, talkMs, WIN,
+  arrival, barTarget, captionOf, chatRest, contentSize, createNoteQueue, energyMode, energyPlacement, GAP, gazeAt, hotkeyRoute, inHotzone, inRect, layout, plainText,
+  settleState, shouldAutoClose, shouldStartFresh, shouldWait, SUMMON, SUMMON_IDLE, talkMs, waitLine, WIN,
 } from './top-model.js';
 
 (function () {
@@ -15,7 +17,7 @@ import {
   const barLabel = $('#tLabel'), barAux = $('#tAux'), bar = $('#tBar');
   const noteEl = $('#tNote'), noteTitle = $('#tNoteTitle'), noteBody = $('#tNoteBody'), noteActs = $('#tNoteActs');
   const summonEl = $('#summon'), capEl = $('#sCap'), capIn = $('.s-cap-in'), saidEl = $('#sSaid'), replyEl = $('#sReply');
-  const moreEl = $('#sMore'), sActs = $('#sActs'), sInput = $('#sInput'), sBtn = $('#sBtn');
+  const moreEl = $('#sMore'), sActs = $('#sActs'), sMic = $('#sMic'), sInput = $('#sInput'), sBtn = $('#sBtn');
   const panel = $('#panel'), input = $('#input');
   const standbyEl = $('#standby');
   const PALETTES = ['molten', 'aurora', 'iri'];
@@ -26,6 +28,7 @@ import {
 
   // cap：召唤态字幕区高度；surface：进行中的回复最后是在召唤态还是窗口里看的
   const T = { state: 'hidden', act: null, chatMode: 'listen', note: null, safeTop: 0, notch: 0, area: 0, layout: null, moving: false, cap: 0, surface: 'summon', chatOffset: { x: 0, y: 0 } };
+  const V = { mode: 'off', phase: 'off', wanted: false, manualTyping: false, prompting: false, dictTimer: 0, resumeTimer: 0, rtTurn: null, bridging: null };
   const notes = createNoteQueue();
   const energy = A.energy = createEnergy(energyEl, {
     palette: PALETTES.includes(A.S.palette) ? A.S.palette : 'molten', reduced: !!A.S.reduced,
@@ -39,6 +42,11 @@ import {
   let nativeBackdrop = !!A.native, hideTimer = 0, lastStandby = false;
   const cssBackdrop = () => { stage.classList.add('css-backdrop'); standbyEl.classList.add('css-backdrop'); };
   if (!nativeBackdrop) cssBackdrop();
+  if (A.native) {
+    addEventListener('pagehide', () => {
+      if (nativeBackdrop) command('set_backdrop', { backdrop: { x: 0, y: 0, w: 0, h: 0, feather: 0, radius: 0, visible: false, duration: 0, spring: false, standby: false } }).catch(() => {});
+    });
+  }
   /** fade：原位淡入淡出（出现、收回）；否则是两种底板之间的变形，时长和网页那层一致。 */
   function backdrop(halo, visible, grow, immediate = false, fade = false) {
     if (!halo) return;
@@ -70,16 +78,23 @@ import {
   }
 
   // ---------- 状态 ----------
-  function currentLayout(st) {
+  function screenFrame() {
     const r = stage.getBoundingClientRect(), top = GAP + T.safeTop;
+    return { x: GAP - r.left, y: top - r.top, w: Math.max(0, innerWidth - GAP * 2), h: Math.max(0, innerHeight - top - GAP) };
+  }
+  function currentLayout(st) {
+    const r = stage.getBoundingClientRect();
     return layout(st, {
       act: T.act, expanded: !!A.S.expanded, safeTop: T.safeTop, caption: T.cap, chatOffset: T.chatOffset,
-      bounds: { x: GAP - r.left, y: top - r.top, w: Math.max(0, innerWidth - GAP * 2), h: Math.max(0, innerHeight - top - GAP) },
+      bounds: screenFrame(),
       viewport: { x: -r.left, y: -r.top, w: innerWidth, h: innerHeight },
     });
   }
   function rememberPanelPosition(c) {
-    T.chatOffset = { x: c.x - (WIN.w - c.w) / 2, y: c.y - GAP - T.safeTop };
+    if (A.S.expanded) return;
+    const [w, h] = contentSize('chat');
+    const rest = chatRest(w, h, screenFrame());
+    T.chatOffset = { x: c.x - rest.x, y: c.y - rest.y };
   }
   let motionTimer = 0, pinTimer = 0;
   const isPlate = st => st === 'peek' || st === 'compact' || st === 'note' || st === 'chat';
@@ -176,10 +191,9 @@ import {
 
   // ---------- 常驻条和探出 ----------
   function peekLine() {
-    const st = A.proactive?.state?.(), mins = Math.round(st?.activeMinutes || 0), p = A.S.params || {};
-    const due = [['eye', p.eyeEvery], ['water', p.waterEvery]].filter(([k, m]) => Number(m) > 0 && !st?.fired?.[k]).map(([, m]) => Number(m));
-    const left = due.length ? Math.max(1, Math.ceil(Math.min(...due) - mins)) : 0;
-    if (!mins) return '一切就绪，随时吩咐';
+    const st = A.proactive?.state?.(), mins = Math.round(st?.activeMinutes || 0);
+    const left = typeof st?.nextBreakMinutes === 'number' ? st.nextBreakMinutes : 0;
+    if (!mins) return '一切就绪，随时找我';
     return `已专注 ${mins} 分钟` + (A.S.aiCompanion !== false && left ? ` · ${left} 分钟后提醒休息` : '');
   }
   function renderBar() {
@@ -362,7 +376,30 @@ import {
   const agentAct = () => ({ kind: 'think', label: base === 'talk' ? '正在回复…' : '正在思考…', source: 'agent', surface: T.surface });
   const MODS = ['Shift', 'Meta', 'Alt', 'Control', 'CapsLock', 'Escape', 'Tab'];
 
-  function follow(m) { S.msg = m || null; S.note = null; S.pro = null; S.hold = 0; sActs.replaceChildren(); }
+  function follow(m) { S.msg = m || null; S.note = null; S.pro = null; S.hold = 0; S.actSig = ''; sActs.replaceChildren(); }
+
+  // 需要人拍板的卡片（工具审批、选项题）直接在字幕下给按钮，不用跳去窗口
+  function syncCardActs() {
+    if (S.note) return;
+    const m = S.msg, c = m?.card, pending = c?.state === 'pending' ? c : null;
+    let sig = '', btns = [];
+    if (pending?.type === 'approval') {
+      sig = 'a:' + pending.approvalId;
+      btns = [
+        h('button', { class: 'btn sm primary', onclick: () => A.chat.approve(m, true) }, '允许一次'),
+        h('button', { class: 'btn sm', onclick: () => A.chat.approve(m, false) }, '拒绝'),
+      ];
+    } else if (pending?.type === 'question') {
+      const idx = pending.index || 0, q = pending.questions?.[idx], opts = q && !q.multiSelect ? (q.options || []) : [];
+      sig = 'q:' + pending.questionRequestId + ':' + idx;
+      btns = opts.length && opts.length <= 3
+        ? opts.map(o => h('button', { class: 'btn sm' + (o.recommended ? ' primary' : ''), title: o.description || '', onclick: () => A.chat.answerOption(m, o.label) }, A.chat.optLabel(o)))
+        : [h('button', { class: 'btn sm primary', onclick: openFull }, '在窗口中回答')];
+    }
+    if (sig === (S.actSig || '')) return;
+    S.actSig = sig;
+    sActs.replaceChildren(...btns);
+  }
   const lastReply = () => [...(A.chat.cur?.messages || [])].reverse().find(m => m.role === 'assistant' && (m.status === 'thinking' || m.status === 'streaming'));
 
   function showNote(ev) {
@@ -401,11 +438,12 @@ import {
     const um = u >= 0 ? msgs[u] : null;
     const cap = captionOf(m);
     // 回复还在进行、此刻又没有具体步骤可说：也留一行状态，不让这一行时有时无
-    if (!cap.text && !cap.dim && (m.status === 'thinking' || m.status === 'streaming')) cap.dim = '正在思考…';
+    if (!cap.text && !cap.dim && (m.status === 'thinking' || m.status === 'streaming')) cap.dim = waitLine(Date.now() - (m.startedAt ?? m.time ?? Date.now()));
     return { said: um ? um.text || (um.images?.length ? '［图片］' : '') : '', remind: false, ...cap };
   }
 
   function renderCaption() {
+    syncCardActs();
     const v = view(), text = v?.text || '', full = text || v?.dim || '';
     saidEl.textContent = v?.said || '';
     saidEl.classList.toggle('remind', !!v?.remind);
@@ -432,13 +470,425 @@ import {
     if (capH !== T.cap) { T.cap = capH; if (T.state === 'summon') setState('summon'); }
   }
 
+  function setVoiceUi(phase, level = 0) {
+    V.phase = phase;
+    if (summonEl) {
+      summonEl.dataset.voice = phase === 'off' ? '' : phase;
+      summonEl.style.setProperty('--voice-level', String(Math.max(0, Math.min(1, Number(level) || 0))));
+    }
+    energy.setVoiceActive(phase === 'listening' || phase === 'connecting');
+    if (sMic) {
+      const active = phase !== 'off' && phase !== 'muted';
+      const tip = phase === 'speaking' ? '正在说话，点击打断'
+        : phase === 'listening' ? '正在倾听，点击静音'
+          : phase === 'connecting' ? '正在连接语音…'
+            : phase === 'thinking' ? '正在思考…'
+              : phase === 'muted' ? '语音已静音，点击继续说话'
+                : '点击开启语音交流';
+      sMic.setAttribute('aria-pressed', String(active));
+      sMic.title = tip;
+      sMic.setAttribute('aria-label', tip);
+    }
+  }
+
+  function clearVoiceTimers() {
+    clearTimeout(V.dictTimer);
+    clearTimeout(V.resumeTimer);
+    V.dictTimer = 0;
+    V.resumeTimer = 0;
+  }
+
+  function stopSummonVoice() {
+    clearVoiceTimers();
+    V.wanted = false;
+    V.manualTyping = false;
+    V.mode = 'off';
+    V.rtTurn = null;
+    V.bridging = null;
+    A.voice?.setRealtimeBridging?.(false);
+    A.voice?.stopDictation?.().catch?.(() => {});
+    A.voice?.stopRealtime?.().catch?.(() => {});
+    setVoiceUi('off');
+  }
+
+  function parseToolTask(rawArgs) {
+    try {
+      const obj = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+      return String(obj?.task || obj?.query || obj?.instruction || '').trim();
+    } catch {
+      return String(rawArgs || '').trim();
+    }
+  }
+
+  function ensureRealtimeTurn(userText = '') {
+    if (!V.rtTurn) {
+      V.rtTurn = { userText, userMsg: null, rawText: '', assistantMsg: null, bridged: false };
+    }
+    return V.rtTurn;
+  }
+
+  function runDshBridge(task, callId) {
+    const cleanTask = String(task || '').trim();
+    if (!cleanTask) {
+      if (callId) A.voice?.sendRealtimeToolOutput?.(callId, '未提供需要执行的具体任务，请重新说明你的指令。').catch(() => {});
+      return;
+    }
+    if (A.S.model === 'none') {
+      if (callId) A.voice?.sendRealtimeToolOutput?.(callId, '智能核心尚未连接或未登录，请提醒对方先到设置中连接。').catch(() => {});
+      return;
+    }
+    if (A.chat.generating) {
+      if (callId) A.voice?.sendRealtimeToolOutput?.(callId, '智能核心正在处理上一项任务，请稍候再试。').catch(() => {});
+      return;
+    }
+    A.voice?.setRealtimeBridging?.(true);
+    T.chatMode = 'think';
+    syncMode();
+    setVoiceUi('thinking');
+    syncField();
+    A.chat.send(cleanTask, []);
+    const dshMsg = A.chat.cur?.messages?.at(-1);
+    if (dshMsg?.role === 'assistant') {
+      follow(dshMsg);
+      renderCaption();
+      V.bridging = { callId, msg: dshMsg };
+    } else {
+      A.voice?.setRealtimeBridging?.(false);
+    }
+  }
+
+  async function startRealtimeSession() {
+    if (T.state !== 'summon' || !A.native) return;
+    clearVoiceTimers();
+    V.mode = 'qwen-realtime';
+    V.wanted = true;
+    V.rtTurn = null;
+    V.bridging = null;
+    setVoiceUi('connecting');
+    syncField();
+    const instructions = buildRealtimeInstructions({
+      personaHint: personaHint(A.S.persona),
+      nickname: addressName(A.S.nickname),
+    });
+    try {
+      await A.voice.startRealtime({
+        instructions,
+        onReady() {
+          if (T.state !== 'summon') return;
+          A.focusWindow?.();
+          T.chatMode = 'listen';
+          syncMode();
+          setVoiceUi('listening');
+          syncField();
+          S.active = Date.now();
+          armAuto();
+          focusSummon();
+        },
+        onLevel(lvl) {
+          if (T.state !== 'summon') return;
+          summonEl.style.setProperty('--voice-level', String(lvl));
+          energy.setVoiceLevel(lvl);
+          if (lvl > 0.08) S.active = Date.now();
+        },
+        onListening() {
+          if (T.state !== 'summon') return;
+          V.rtTurn = null;
+          T.chatMode = 'listen';
+          syncMode();
+          setVoiceUi(A.voice?.realtimeMuted ? 'muted' : 'listening');
+          syncField();
+          S.active = Date.now();
+        },
+        onThinking() {
+          if (T.state !== 'summon') return;
+          T.chatMode = 'think';
+          syncMode();
+          setVoiceUi('thinking');
+          syncField();
+        },
+        onSpeaking() {
+          if (T.state !== 'summon') return;
+          T.chatMode = 'talk';
+          syncMode();
+          setVoiceUi('speaking');
+          syncField();
+          S.active = Date.now();
+        },
+        onSpeakingDone() {
+          if (T.state !== 'summon') return;
+          if (V.mode === 'qwen-realtime' && !V.bridging) {
+            T.chatMode = 'listen';
+            syncMode();
+            setVoiceUi(A.voice?.realtimeMuted ? 'muted' : 'listening');
+            syncField();
+            S.active = Date.now();
+            armAuto();
+          }
+        },
+        onUserTranscript(text, isFinal) {
+          if (T.state !== 'summon') return;
+          const turn = ensureRealtimeTurn();
+          if (!isFinal) {
+            turn.userText += text;
+            const live = turn.userText.trim();
+            if (live) {
+              if (!S.msg && !S.note) saidEl.textContent = live;
+              if (!sInput.value) sInput.placeholder = `正在听：${live}`;
+            }
+            S.active = Date.now();
+            return;
+          }
+          const spoken = String(text || turn.userText || '').trim();
+          syncField();
+          if (!spoken) return;
+          const conv = A.chat.cur;
+          const um = { id: A.uid(), role: 'user', text: spoken, images: [], time: Date.now() };
+          conv.messages.push(um);
+          if (conv.title === '新对话') {
+            conv.title = spoken.replace(/\s+/g, ' ').slice(0, 18);
+            conv.titleSource = 'auto';
+          }
+          conv.t = Date.now();
+          A.chat.append(um);
+          const am = {
+            id: A.uid(),
+            role: 'assistant',
+            text: '',
+            status: 'streaming',
+            steps: [],
+            time: Date.now(),
+          };
+          conv.messages.push(am);
+          A.chat.append(am);
+          A.save();
+          turn.userText = spoken;
+          turn.userMsg = um;
+          turn.assistantMsg = am;
+          follow(am);
+          S.replied = false;
+          renderCaption();
+        },
+        onAssistantDelta(delta) {
+          if (T.state !== 'summon') return;
+          const turn = ensureRealtimeTurn();
+          if (!turn.assistantMsg) {
+            const conv = A.chat.cur;
+            const am = {
+              id: A.uid(),
+              role: 'assistant',
+              text: '',
+              status: 'streaming',
+              steps: [],
+              time: Date.now(),
+            };
+            conv.messages.push(am);
+            A.chat.append(am);
+            turn.assistantMsg = am;
+            follow(am);
+          }
+          turn.rawText += delta;
+          const parsed = extractDshBridgeDirective(turn.rawText);
+          turn.assistantMsg.text = parsed.cleanText;
+          if (panel.hidden) A.emit('chat:msg', turn.assistantMsg);
+          else A.chat.paintText(turn.assistantMsg);
+        },
+        onToolCall({ callId, name, arguments: rawArgs }) {
+          if (T.state !== 'summon') return;
+          if (name === 'ask_dsh') {
+            const turn = ensureRealtimeTurn();
+            turn.bridged = true;
+            runDshBridge(parseToolTask(rawArgs), callId);
+          }
+        },
+        onTurnDone() {
+          const turn = V.rtTurn;
+          if (turn?.assistantMsg) {
+            const parsed = extractDshBridgeDirective(turn.rawText);
+            turn.assistantMsg.text = parsed.cleanText;
+            turn.assistantMsg.status = 'done';
+            A.chat.paint(turn.assistantMsg);
+            A.save();
+            if (parsed.dshTask && !turn.bridged) {
+              turn.bridged = true;
+              runDshBridge(parsed.dshTask, null);
+            }
+          }
+          if (T.state === 'summon') {
+            S.replied = true;
+            S.active = Date.now();
+            if (!A.voice?.realtimeSpeaking && !V.bridging) {
+              T.chatMode = 'listen';
+              syncMode();
+              setVoiceUi(A.voice?.realtimeMuted ? 'muted' : 'listening');
+              syncField();
+            }
+            armAuto();
+          }
+        },
+        onError(message) {
+          A.toast?.(message, 4500);
+          const noMic = /麦克风/.test(String(message || ''));
+          if (!noMic && V.phase === 'connecting' && A.S.voice?.realtimeMode === 'auto' && A.S.model !== 'none') {
+            A.voice?.stopRealtime?.().catch?.(() => {});
+            startNativeVoiceSession();
+          } else if (T.state === 'summon') {
+            V.mode = 'off';
+            setVoiceUi('off');
+            syncField();
+          }
+        },
+        onEnd() {
+          if (V.mode === 'qwen-realtime') {
+            V.mode = 'off';
+            V.bridging = null;
+            A.voice?.setRealtimeBridging?.(false);
+            T.chatMode = 'listen';
+            syncMode();
+            setVoiceUi('off');
+            syncField();
+            armAuto();
+          }
+        },
+      });
+    } catch (err) {
+      const msg = (err && err.message) || String(err || '暂时无法开启实时语音');
+      A.toast?.(msg, 4500);
+      const noMic = /麦克风/.test(msg);
+      if (!noMic && A.S.voice?.realtimeMode === 'auto' && A.S.model !== 'none' && T.state === 'summon') {
+        startNativeVoiceSession();
+      } else {
+        V.mode = 'off';
+        setVoiceUi('off');
+        syncField();
+      }
+    }
+  }
+
+  function scheduleNativeResume() {
+    clearTimeout(V.resumeTimer);
+    V.resumeTimer = setTimeout(() => {
+      V.resumeTimer = 0;
+      if (
+        T.state === 'summon' &&
+        V.mode === 'dsh-native' &&
+        V.wanted &&
+        !V.manualTyping &&
+        !A.chat?.generating &&
+        !A.voice?.speaking &&
+        !A.isDnd?.()
+      ) {
+        startNativeVoiceSession();
+      }
+    }, 320);
+  }
+
+  async function startNativeVoiceSession() {
+    if (T.state !== 'summon' || !A.native || A.S.model === 'none' || A.chat?.generating || A.voice?.speaking) return;
+    clearVoiceTimers();
+    V.mode = 'dsh-native';
+    V.wanted = true;
+    V.manualTyping = false;
+    setVoiceUi('connecting');
+    syncField();
+    try {
+      await A.voice.startDictation({
+        onLevel(lvl) {
+          if (T.state !== 'summon') return;
+          summonEl.style.setProperty('--voice-level', String(lvl));
+          energy.setVoiceLevel(lvl);
+          if (lvl > 0.08) S.active = Date.now();
+        },
+        onPartial(text) {
+          if (T.state !== 'summon' || V.manualTyping) return;
+          sInput.value = text;
+          S.active = Date.now();
+          energy.kick();
+          clearTimeout(V.dictTimer);
+          if (text.trim()) {
+            V.dictTimer = setTimeout(() => {
+              if (T.state === 'summon' && !V.manualTyping && sInput.value.trim() && !A.chat.generating) {
+                A.voice?.stopDictation?.().catch?.(() => {});
+                send();
+              }
+            }, 1150);
+          }
+        },
+        onFinal(text) {
+          clearTimeout(V.dictTimer);
+          if (T.state !== 'summon' || V.manualTyping) return;
+          const spoken = String(text || '').trim();
+          if (spoken && !A.chat.generating) {
+            sInput.value = spoken;
+            send();
+          }
+        },
+        onError(message) {
+          clearTimeout(V.dictTimer);
+          const silenceOnly = !sInput.value.trim() && String(message || '').includes('没有听到声音');
+          if (!silenceOnly && message) A.toast?.(message, 4500);
+          if (T.state === 'summon') {
+            setVoiceUi('off');
+            syncField();
+            armAuto();
+          }
+        },
+        onEnd() {
+          clearTimeout(V.dictTimer);
+          if (T.state === 'summon' && V.mode === 'dsh-native') {
+            if (A.chat.generating) setVoiceUi('thinking');
+            else if (A.voice?.speaking) setVoiceUi('speaking');
+            else if (V.phase !== 'muted') setVoiceUi('off');
+            syncField();
+            armAuto();
+          }
+        },
+      });
+      if (T.state === 'summon' && !V.manualTyping && A.voice?.dictating) {
+        A.focusWindow?.();
+        T.chatMode = 'listen';
+        syncMode();
+        setVoiceUi('listening');
+        syncField();
+        focusSummon();
+      }
+    } catch (err) {
+      const msg = (err && err.message) || String(err || '听写暂时没能开始');
+      A.toast?.(msg, 4500);
+      setVoiceUi('off');
+      syncField();
+    }
+  }
+
+  function startSummonVoice({ force = false } = {}) {
+    if (T.state !== 'summon' || !A.native) return;
+    if (!force && location.search.includes('visualPreview')) return;
+    const backend = resolveSummonVoiceBackend(A.S);
+    if (!force && (backend === 'off' || A.isDnd?.())) return;
+    if (backend === 'qwen-realtime' || (force && A.S.voice?.realtimeHasKey && A.S.voice?.realtimeMode !== 'dsh-native')) {
+      startRealtimeSession();
+    } else if (A.S.model !== 'none') {
+      startNativeVoiceSession();
+    } else if (force) {
+      A.toast?.('请先在设置中连接智能核心或开启实时语音服务', 4000);
+    }
+  }
+
   function syncField() {
-    const C = A.chat, off = C?.offText?.() || '', gen = !!C?.generating, busy = gen || !!A.voice?.speaking;
-    sInput.readOnly = !!off;
-    // 召唤态只有球和输入框，输入框里也不放提示语；用不了的时候才说明原因
-    sInput.placeholder = off || '';
-    // 右侧按钮：生成中是“停止生成”，朗读中是“停止朗读”，其余是“在窗口中继续”
-    const tip = gen ? '停止生成' : busy ? '停止朗读（Esc）' : '在窗口中继续（⌘↩）';
+    const C = A.chat, off = C?.offText?.() || '', gen = !!C?.generating;
+    const speaking = !!A.voice?.speaking || V.phase === 'speaking';
+    const busy = gen || speaking;
+    const canChat = V.mode === 'qwen-realtime' || !off;
+    sInput.readOnly = !canChat;
+    const ph = !canChat ? off
+      : V.phase === 'connecting' ? '正在连接语音交流…'
+        : V.phase === 'listening' ? '正在倾听，直接说或打字…'
+          : V.phase === 'thinking' ? '正在思考…'
+            : V.phase === 'speaking' ? '正在回复…（可直接开口打断）'
+              : V.phase === 'muted' ? '已静音，可直接打字或点击左侧麦克风说话'
+                : A.S.voice?.summonVoice === false ? '打字吩咐，或点左侧麦克风说话' : '直接说，或者打字…';
+    sInput.placeholder = ph;
+    // 右侧按钮：生成中是“停止生成”，朗读/说话中是“停止说话”，其余是“在窗口中继续”
+    const tip = gen ? '停止生成' : speaking ? '停止说话（Esc）' : '在窗口中继续（⌘↩）';
     sBtn.classList.toggle('stop', busy);
     sBtn.innerHTML = A.icon(busy ? 'stop' : 'expand', busy ? 14 : 15);
     sBtn.title = tip;
@@ -447,30 +897,67 @@ import {
 
   function send() {
     const C = A.chat, text = sInput.value.trim();
-    if (!text || C.generating || A.S.model === 'none') return;
+    if (!text) return;
+    if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
+      sInput.value = '';
+      const conv = C.cur;
+      const um = { id: A.uid(), role: 'user', text, images: [], time: Date.now() };
+      conv.messages.push(um);
+      if (conv.title === '新对话') { conv.title = text.replace(/\s+/g, ' ').slice(0, 18); conv.titleSource = 'auto'; }
+      conv.t = Date.now();
+      C.append(um);
+      const am = {
+        id: A.uid(),
+        role: 'assistant',
+        text: '',
+        status: 'streaming',
+        steps: [],
+        time: Date.now(),
+      };
+      conv.messages.push(am);
+      C.append(am);
+      A.save();
+      V.rtTurn = { userText: text, userMsg: um, rawText: '', assistantMsg: am, bridged: false };
+      follow(am);
+      S.replied = false;
+      clearTimeout(autoTimer);
+      setVoiceUi('thinking');
+      syncField();
+      renderCaption();
+      A.voice.sendRealtimeText(text).catch(err => A.toast?.(String(err), 4000));
+      return;
+    }
+    if (C.generating || A.S.model === 'none') return;
     sInput.value = '';
     C.send(text, []);
     const m = C.cur.messages.at(-1);
     follow(m?.role === 'assistant' ? m : null);
     S.replied = false;
     clearTimeout(autoTimer);
+    if (V.mode === 'dsh-native' && V.wanted) {
+      setVoiceUi('thinking');
+      syncField();
+    }
     renderCaption();
   }
 
-  // 回复结束后 30 秒没有悬停、没有输入、输入框为空就收起
+  // 回复结束后 30 秒没有悬停、没有输入、没有持续语音、输入框为空就收起
   function armAuto() {
     clearTimeout(autoTimer);
     if (T.state !== 'summon' || !S.replied) return;
+    const voiceActive = V.phase === 'listening' || V.phase === 'speaking' || V.phase === 'connecting' || V.phase === 'thinking';
     autoTimer = setTimeout(function check() {
       if (T.state !== 'summon') return;
       const idle = Date.now() - S.active;
-      if (shouldAutoClose({ idle, hovering: overContent, empty: !sInput.value.trim(), generating: !!A.chat.generating })) A.summon.close();
+      const va = V.phase === 'listening' || V.phase === 'speaking' || V.phase === 'connecting' || V.phase === 'thinking';
+      if (shouldAutoClose({ idle, hovering: overContent, empty: !sInput.value.trim(), generating: !!A.chat.generating, voiceActive: va })) A.summon.close();
       else autoTimer = setTimeout(check, Math.max(1000, SUMMON_IDLE - idle));
-    }, Math.max(1000, SUMMON_IDLE - (Date.now() - S.active)));
+    }, voiceActive ? SUMMON_IDLE : Math.max(1000, SUMMON_IDLE - (Date.now() - S.active)));
   }
 
   function leaveSummon() {
     clearTimeout(autoTimer); clearTimeout(focusTimer);
+    stopSummonVoice();
     sInput.blur();
     // 不在回复就清掉字幕，下次召唤是就绪的样子；淡出以后再把字幕区收回去，免得胶囊在淡出时跳动
     if (!A.chat?.generating) { follow(null); renderCaption(); }
@@ -492,14 +979,73 @@ import {
   const openFull = () => (S.note?.convId ? A.panel.open({ convId: S.note.convId }) : A.panel.open({ msgId: S.msg?.id }));
   sInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); toWindow(); return; }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); return; }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+      e.preventDefault();
+      clearTimeout(V.dictTimer);
+      if (A.voice?.dictating) A.voice.stopDictation().catch(() => {});
+      send();
+      return;
+    }
     if (MODS.includes(e.key) || e.metaKey || e.ctrlKey) return;
     S.active = Date.now();
+    V.manualTyping = true;
+    if (A.voice?.dictating) {
+      clearTimeout(V.dictTimer);
+      A.voice.stopDictation().catch(() => {});
+      setVoiceUi('off');
+      syncField();
+    }
   });
   sInput.addEventListener('input', () => { S.active = Date.now(); energy.kick(); });
   input.addEventListener('input', () => { if (T.state === 'chat') energy.kick(); });
+  if (sMic) {
+    sMic.addEventListener('click', async () => {
+      if (!A.native) { A.toast?.('请在桌面应用中使用语音交流'); return; }
+      if (V.phase === 'connecting') {
+        stopSummonVoice();
+        setVoiceUi('muted');
+        syncField();
+        armAuto();
+        return;
+      }
+      if (V.phase === 'speaking' || A.voice?.speaking) {
+        await A.voice.stop?.();
+        if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
+          T.chatMode = 'listen';
+          syncMode();
+          setVoiceUi(A.voice.realtimeMuted ? 'muted' : 'listening');
+          syncField();
+        } else if (V.mode === 'dsh-native') {
+          V.manualTyping = false;
+          startNativeVoiceSession();
+        }
+        return;
+      }
+      if (V.mode === 'qwen-realtime' && A.voice?.realtimeActive) {
+        const nextMuted = !A.voice.realtimeMuted;
+        await A.voice.setRealtimeMuted(nextMuted);
+        V.wanted = !nextMuted;
+        setVoiceUi(nextMuted ? 'muted' : 'listening');
+        syncField();
+        armAuto();
+        return;
+      }
+      if (A.voice?.dictating) {
+        V.wanted = false;
+        clearVoiceTimers();
+        await A.voice.stopDictation().catch(() => {});
+        setVoiceUi('muted');
+        syncField();
+        armAuto();
+        return;
+      }
+      V.manualTyping = false;
+      V.wanted = true;
+      startSummonVoice({ force: true });
+    });
+  }
   sBtn.addEventListener('click', () => {
-    const gen = A.chat.generating, speaking = !!A.voice?.speaking;
+    const gen = A.chat.generating, speaking = !!A.voice?.speaking || V.phase === 'speaking';
     if (gen) A.chat.stop();
     if (speaking) A.voice.stop();
     if (!gen && !speaking) toWindow();
@@ -512,20 +1058,84 @@ import {
     if (!S.msg || m.id !== S.msg.id || captionFrame) return;
     captionFrame = requestAnimationFrame(() => { captionFrame = 0; renderCaption(); });
   });
+  // 还没有任何输出时，每秒刷新一次“已等待多久”
+  setInterval(() => {
+    const m = S.msg;
+    if (T.state !== 'summon' || S.note || !m || (m.status !== 'thinking' && m.status !== 'streaming')) return;
+    if (plainText(m.text).text || m.card || (m.steps || []).some(s => s && s.kind !== 'note' && !s.done)) return;
+    renderCaption();
+  }, 1000);
   A.on('generating', on => {
     syncField();
     if (on) return;
-    if (T.state === 'summon') { if (S.msg) { S.replied = true; S.active = Date.now(); armAuto(); } }
-    else if (S.msg) { follow(null); renderCaption(); }
+    if (V.bridging) {
+      const br = V.bridging;
+      V.bridging = null;
+      A.voice?.setRealtimeBridging?.(false);
+      const raw = br.msg?.text || br.msg?.error || (br.msg?.status === 'stopped' ? '任务已取消。' : '已完成。');
+      const resultText = normalizeSpokenBrand(raw.trim());
+      if (A.voice?.realtimeActive) {
+        V.rtTurn = null;
+        if (br.callId) {
+          A.voice.sendRealtimeToolOutput(br.callId, resultText).catch(err => A.toast?.(String(err), 4000));
+        } else {
+          A.voice.sendRealtimeText(`[任务执行结果]\n${resultText}\n请用简短自然的口语直接说明结果，不要客服式收尾，提到自己时读作 Kbot（kay-bot）。`).catch(err => A.toast?.(String(err), 4000));
+        }
+      }
+      return;
+    }
+    if (T.state === 'summon') {
+      if (S.msg) { S.replied = true; S.active = Date.now(); armAuto(); }
+      if (V.mode === 'dsh-native' && V.wanted && !V.manualTyping && !A.isDnd?.()) {
+        setTimeout(() => {
+          if (T.state !== 'summon' || V.mode !== 'dsh-native' || !V.wanted || V.manualTyping || A.chat?.generating) return;
+          if (A.voice?.speaking) {
+            setVoiceUi('speaking');
+            syncField();
+            return;
+          }
+          if (S.msg?.text?.trim() && A.S.voice?.hasKey && A.S.voice?.enabled) {
+            setVoiceUi('speaking');
+            syncField();
+            A.voice.speakAuto(S.msg.text, { emotion: 'happy' });
+          } else {
+            scheduleNativeResume();
+          }
+        }, 80);
+      }
+    } else if (S.msg) { follow(null); renderCaption(); }
   });
   A.on('dsh:state', syncField);
   A.on('set:model', syncField);
+  A.on('set:voice', () => {
+    if (T.state === 'summon' && A.S.voice?.summonVoice === false && V.mode !== 'off') {
+      stopSummonVoice();
+      syncField();
+    }
+  });
+  A.on('realtime:stopped', () => {
+    if (T.state === 'summon' && V.mode === 'qwen-realtime') {
+      T.chatMode = 'listen';
+      syncMode();
+      setVoiceUi(A.voice?.realtimeMuted ? 'muted' : 'listening');
+      syncField();
+      armAuto();
+    }
+  });
 
   A.summon = {
     /** opts.note：把这条通知变成字幕；opts.msgId：字幕显示这条回复。 */
     open(opts = {}) {
       if (A.hidden || !A.chat?.cur) return;
       const C = A.chat, was = T.state;
+      // 隔了很久再唤起，就从新对话开始；没隔多久就接着聊。指向某条消息、带通知的唤起，以及从窗口过来的不动
+      if (was !== 'summon' && was !== 'chat' && !opts.note && !opts.msgId && !A.bubble.current()) {
+        const last = C.cur.messages.at(-1);
+        if (last && shouldStartFresh({ lastTime: last.time, now: Date.now(), afterMin: A.S.newChatAfter, generating: !!C.generating })) {
+          follow(null);
+          C.newConv(false);
+        }
+      }
       if (was === 'chat') { leavePanel(); T.surface = 'summon'; }
       else if (was !== 'summon') A.focusWindow?.();
       // 通知并入：正在显示的那条（没有就取排队里最新的一条）成为字幕，其余放进当前对话
@@ -536,6 +1146,11 @@ import {
       if (ev) showNote(ev);
       else if (opts.msgId) follow(C.find(opts.msgId));
       else if (C.generating && !S.msg) follow(lastReply());
+      else if (!S.msg) {
+        // 接着上一轮聊：字幕显示上一轮的回复，让界面和模型记得的内容一致
+        const last = C.cur.messages.at(-1);
+        if (last?.role === 'assistant' && last.status !== 'thinking' && last.status !== 'streaming') follow(last);
+      }
       if (S.msg && !C.generating && !S.replied) { S.replied = true; S.active = Date.now(); }
       if (T.act?.source === 'agent') T.act = null;
       clearTimeout(capTimer);
@@ -545,6 +1160,7 @@ import {
       armAuto();
       clearTimeout(focusTimer);
       focusTimer = setTimeout(focusSummon, 60);
+      if (was !== 'summon') startSummonVoice();
       if (was === 'chat') A.emit('panel', false);
       if (was !== 'summon') A.emit('summon', true);
     },
@@ -584,7 +1200,7 @@ import {
     A.emit('paneldrag', false);
   }
   panelHead.addEventListener('pointerdown', e => {
-    if (T.state !== 'chat' || !e.isPrimary || e.button !== 0 || e.target.closest('button, input, textarea, select, a, [contenteditable], [role="button"]')) return;
+    if (T.state !== 'chat' || A.S.expanded || !e.isPrimary || e.button !== 0 || e.target.closest('button, input, textarea, select, a, [contenteditable], [role="button"]')) return;
     e.preventDefault();
     const r = contentEl.getBoundingClientRect(), s = stage.getBoundingClientRect();
     const c = currentLayout('chat').content;
@@ -633,7 +1249,7 @@ import {
       if (T.act?.source === 'agent') T.act = null;
       if (fromSummon) T.surface = 'chat';
       setState('chat');
-      if (fromSummon) { sInput.value = ''; leaveSummon(); A.emit('summon', false); }
+      if (fromSummon) { if (S.msg) A.chat.paint(S.msg); sInput.value = ''; leaveSummon(); A.emit('summon', false); }
       if (draft) A.chat.setDraft(draft);
       // onOpen 会在下一帧滚到底，等它之后再定位
       if (opts.msgId) requestAnimationFrame(() => requestAnimationFrame(() => A.chat.reveal(opts.msgId)));
@@ -660,7 +1276,7 @@ import {
   function syncExpand() {
     const b = $('#expandBtn');
     b.innerHTML = A.icon(A.S.expanded ? 'shrink' : 'expand');
-    b.title = A.S.expanded ? '还原大小' : '放大';
+    b.title = A.S.expanded ? '还原大小' : '铺满屏幕';
   }
   $('.p-tools').addEventListener('click', e => {
     const b = e.target.closest('[data-p]');
@@ -680,11 +1296,10 @@ import {
     else if (T.state === 'chat') A.panel.close();
     else A.summon.close();
   }
-  /** 点外面收起（召唤态和窗口）。 */
+  /** 点外面或窗口失焦只收起召唤态（正在弹出系统授权时不收起）。已经打开的对话框保持不动，要手动关闭。 */
   function outside() {
     if (!A.S.outsideClose || panelDrag) return;
-    if (T.state === 'chat') A.panel.close();
-    else if (T.state === 'summon') A.summon.close();
+    if (T.state === 'summon' && !V.prompting) A.summon.close();
   }
   standbyEl.addEventListener('pointerdown', () => outside());
 
@@ -777,12 +1392,18 @@ import {
     hover: false, pressed: false, held: false,
   };
 
-  // 朗读时留一条常驻条，计时显示已经读了多久
+  // 朗读时留一条常驻条，计时显示已经读了多久；在召唤态本地语音模式下播完自动继续倾听
   let voiceTimer = 0;
   A.on('voice', on => {
     clearInterval(voiceTimer);
     syncField();
-    if (!on) { endAct('talk'); return; }
+    if (!on) {
+      endAct('talk');
+      if (T.state === 'summon' && V.mode === 'dsh-native' && V.wanted && !V.manualTyping && !A.chat?.generating) {
+        scheduleNativeResume();
+      }
+      return;
+    }
     const started = Date.now();
     startAct({ kind: 'talk', label: '正在朗读 · 点击停止', aux: '0:00', source: 'voice' });
     voiceTimer = setInterval(() => updateAct({ aux: A.mmss((Date.now() - started) / 1000).replace(/^0/, '') }), 1000);
@@ -944,6 +1565,16 @@ import {
   };
 
   A.init(async () => {
+    if (A.native) {
+      listen('voice-permission-prompting', ({ payload }) => {
+        const was = V.prompting;
+        V.prompting = Boolean(payload);
+        if (was && !V.prompting && T.state === 'summon') {
+          A.focusWindow?.();
+          focusSummon();
+        }
+      }).catch(() => {});
+    }
     A.applyLook();
     syncDnd();
     syncExpand();

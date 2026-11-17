@@ -33,7 +33,7 @@ const SEGMENT_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_MIMO_BASE: &str = "https://api.xiaomimimo.com/v1";
 const DEFAULT_MIMO_MODEL: &str = "mimo-v2.5-tts";
 const DEFAULT_MIMO_VOICE: &str = "冰糖";
-const DICTATION_MESSAGE: &str = "听写还没有接入。当前只查询麦克风和语音识别权限，不会弹出系统授权框，也不会把声音发给模型。文字输入不受影响。";
+const DICTATION_MESSAGE: &str = "听写使用 macOS 本机语音识别。声音不会发给对话模型，识别结果只写入输入框，不会自动发送。";
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
 
 struct ActivePlayback {
@@ -75,13 +75,13 @@ impl Speech {
         self.kill_playback();
     }
 
-    fn begin(&self) -> u64 {
+    pub(crate) fn begin(&self) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.kill_playback();
         generation
     }
 
-    fn is_current(&self, generation: u64) -> bool {
+    pub(crate) fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
     }
 
@@ -214,7 +214,7 @@ async fn speak_segments(
 }
 
 /// `Ok(true)` when the segment played to the end, `Ok(false)` when it was cancelled.
-async fn play_segment(speech: &Speech, generation: u64, wav: Vec<u8>) -> Result<bool, String> {
+pub(crate) async fn play_segment(speech: &Speech, generation: u64, wav: Vec<u8>) -> Result<bool, String> {
     if !speech.is_current(generation) {
         return Ok(false);
     }
@@ -227,7 +227,7 @@ async fn play_segment(speech: &Speech, generation: u64, wav: Vec<u8>) -> Result<
         return Ok(false);
     }
     loop {
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
         match speech.poll_playback(generation) {
             Playback::Playing => {}
             Playback::Finished => return Ok(true),
@@ -355,7 +355,7 @@ pub(crate) fn mimo_endpoint(raw_base: &str) -> Result<String, String> {
 
 pub(crate) fn mimo_style_prompt(style: &str, emotion: Option<&str>) -> String {
     let base = if style.trim().is_empty() {
-        "沉稳得体的管家语气，吐字清晰，节奏从容。"
+        "自然干练的桌面搭档口吻，吐字清晰，节奏从容；英文名 Kbot 连读作一个词，不要逐字母拼读。"
     } else {
         style.trim()
     };
@@ -570,7 +570,7 @@ fn reap(slot: &mut Option<ActivePlayback>) {
 
 pub(crate) fn permission_status() -> DictationStatus {
     DictationStatus {
-        implemented: false,
+        implemented: cfg!(target_os = "macos"),
         microphone: microphone_state(),
         speech_recognition: speech_state(),
         message: DICTATION_MESSAGE.into(),
@@ -598,7 +598,7 @@ pub(crate) fn speech_label(code: isize) -> &'static str {
 }
 
 #[cfg(target_os = "macos")]
-fn microphone_state() -> String {
+pub(crate) fn microphone_state() -> String {
     framework_status(
         "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
         "AVCaptureDevice",
@@ -609,12 +609,12 @@ fn microphone_state() -> String {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn microphone_state() -> String {
+pub(crate) fn microphone_state() -> String {
     "unsupported".into()
 }
 
 #[cfg(target_os = "macos")]
-fn speech_state() -> String {
+pub(crate) fn speech_state() -> String {
     framework_status(
         "/System/Library/Frameworks/Speech.framework/Speech",
         "SFSpeechRecognizer",
@@ -625,7 +625,7 @@ fn speech_state() -> String {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn speech_state() -> String {
+pub(crate) fn speech_state() -> String {
     "unsupported".into()
 }
 
@@ -774,7 +774,8 @@ mod tests {
         assert_eq!(speech_label(1), "denied");
         assert_eq!(speech_label(3), "authorized");
         let status = permission_status();
-        assert!(!status.implemented);
+        assert_eq!(status.implemented, cfg!(target_os = "macos"));
+        assert!(status.message.contains("不会发给对话模型"));
         assert!(!status.message.is_empty());
         assert!(matches!(
             status.microphone.as_str(),

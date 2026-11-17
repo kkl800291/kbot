@@ -2,7 +2,7 @@ import './desktop.css';
 import { command, loadState, native, installPersistence } from './services/runtime';
 import { installDesktop } from './services/desktop';
 import { installWeather } from './services/weather';
-import { installVoice } from './services/voice';
+import { installVoice, normalizeRealtimeSettings } from './services/voice';
 import { installAgent } from './services/agent';
 import { installAccount } from './services/account';
 import { installProactive } from './services/proactive';
@@ -27,9 +27,11 @@ async function boot() {
   if (native) document.documentElement.classList.add('native-host');
   A.version = native ? await getVersion() : '开发预览';
   installPersistence(A);
+  if (normalizeRealtimeSettings(A.S.voice)) A.save();
   if (native) {
     const keys = await command('key_status');
     if (typeof keys.tts === 'boolean') A.S.voice.hasKey = keys.tts;
+    if (typeof keys.realtime === 'boolean') A.S.voice.realtimeHasKey = keys.realtime;
   }
   await import('./ui/top.js');
   await import('./ui/chat.js');
@@ -81,8 +83,8 @@ async function boot() {
     if (A.menu.isOpen()) { A.menu.close(); return; }
     if (A.closeSettings()) return;
     if (document.querySelector('#history')!.classList.contains('open')) { A.chat.closeHistory(); return; }
-    // 正在朗读时，第一下 Esc 只停朗读，不收起
-    if (A.voice?.speaking) { A.voice.stop(); return; }
+    // 正在朗读或实时播报时，第一下 Esc 只打断说话，不收起
+    if (A.voice?.speaking || A.voice?.realtimeSpeaking) { A.voice.stop(); return; }
     if (A.summon.isOpen()) { A.summon.close(); return; }
     if (A.panel.isOpen()) { A.panel.close(); return; }
     if (A.bubble.current()) A.bubble.close();
@@ -91,6 +93,8 @@ async function boot() {
   A.quit = async () => {
     A.chat.stop?.();
     A.voice?.stop?.();
+    A.voice?.stopDictation?.();
+    A.voice?.stopRealtime?.();
     try { await A.flush(); if (native) await command('quit_app'); }
     catch { A.toast('保存失败，尚未退出。请检查磁盘空间后重试。'); }
   };

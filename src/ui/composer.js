@@ -1,17 +1,19 @@
+import { formatReasoningEffortLabel } from '../services/agent';
+
 /* KBOT · 输入区：文本、图片附件（粘贴/拖入/选择/截图）、回复朗读开关、发送与停止 */
 (function () {
   'use strict';
   const A = window.App, C = A.chat, { $, h } = A;
   const input = $('#input'), sendBtn = $('#sendBtn'), attRow = $('#attRow'), hintEl = $('#hint');
-  const fileIn = $('#file'), voiceBtn = $('#voiceBtn'), shotBtn = $('#shotBtn'), tag = $('#modelTag'), imgBtn = $('[data-t="image"]');
+  const fileIn = $('#file'), voiceBtn = $('#voiceBtn'), micBtn = $('#micBtn'), shotBtn = $('#shotBtn'), tag = $('#modelTag'), effortTag = $('#effortTag'), imgBtn = $('[data-t="image"]');
   let atts = [], hintTimer = 0;
 
   const imgOk = () => A.S.model !== 'none';
   C.modelName = () => {
     const st = A.dshState;
-    if (!st || !st.connected) return st && st.status === 'connecting' ? 'DSH 连接中…' : 'DSH 未连接';
+    if (!st || !st.connected) return st && st.status === 'connecting' ? '连接中…' : '未连接';
     const label = st.modelLabel || st.model;
-    return label || 'DeepSeek Harness';
+    return label || '智能核心';
   };
   C.imageSupported = imgOk;
 
@@ -31,7 +33,7 @@
   C.setGenerating = b => { C.generating = b; updateSend(); A.emit('generating', b); };
   // 未连接时的提示；召唤态的输入胶囊用同一句
   C.offText = () => A.S.model !== 'none' ? ''
-    : A.dshState?.status === 'connecting' ? '正在连接 DeepSeek Harness…' : '连接 DeepSeek Harness 后即可开始对话';
+    : A.dshState?.status === 'connecting' ? '正在准备智能核心…' : '请先在设置中连接智能核心后再开始对话';
   /** 把召唤态没发出的文字带进窗口的输入框。 */
   C.setDraft = text => { input.value = text; autosize(); updateSend(); };
 
@@ -47,12 +49,29 @@
       tag.insertAdjacentHTML('beforeend', A.icon('chevron', 11));
     }
     tag.title = st && st.connected
-      ? `当前模型：DSH · ${mName}${st.model && st.model !== mName ? ` (${st.model})` : ''}（点击切换模型）`
-      : '点击管理 DeepSeek Harness 模型连接';
+      ? `当前模型：${mName}${st.model && st.model !== mName ? ` (${st.model})` : ''}（点击切换模型）`
+      : '点击检查智能核心连接或前往设置';
+    if (effortTag) {
+      const efforts = st && st.connected && Array.isArray(st.reasoning?.efforts) ? st.reasoning.efforts : [];
+      if (!off && efforts.length > 1) {
+        const curId = st.reasoningEffort || st.reasoning?.defaultEffort || efforts[0].id;
+        const curEffort = efforts.find(e => e.id === curId) || efforts[0];
+        const short = formatReasoningEffortLabel(curEffort.id, curEffort.name);
+        const isOff = curEffort.id === 'off' || curEffort.id === 'none';
+        effortTag.hidden = false;
+        effortTag.classList.toggle('on', !isOff);
+        effortTag.innerHTML = '';
+        effortTag.append(h('span', { class: 'mt-name' }, isOff ? '不思考' : `思考 · ${short}`));
+        effortTag.insertAdjacentHTML('beforeend', A.icon('chevron', 11));
+        effortTag.title = `当前思考强度：${short}（点击切换）`;
+      } else {
+        effortTag.hidden = true;
+      }
+    }
     const voiceOn = !!(S.voice && S.voice.enabled && S.voice.autoReply);
     if (voiceBtn) {
       voiceBtn.classList.toggle('on', voiceOn);
-      voiceBtn.title = voiceOn ? '已开启回复自动朗读（点击关闭）' : '点击开启回复自动朗读（小米 MiMo 语音）';
+      voiceBtn.title = voiceOn ? '已开启回复自动朗读（点击关闭）' : '点击开启回复自动朗读';
       voiceBtn.setAttribute('aria-pressed', String(voiceOn));
       voiceBtn.disabled = false;
     }
@@ -97,7 +116,7 @@
   C.addFiles = async files => {
     files = Array.from(files).filter(Boolean);
     if (!files.length) return;
-    if (A.S.model === 'none') { hint('先连接 DeepSeek Harness 后再发送图片', true); return; }
+    if (A.S.model === 'none') { hint('请先连接智能核心后再发送图片', true); return; }
     const okType = /^image\/(png|jpe?g|webp|gif|heic|heif)$/i, okExt = /\.(png|jpe?g|webp|gif|heic|heif)$/i;
     for (const f of files) {
       if (atts.length >= 4) { hint('一条消息最多 4 张图片，多出的已略过', true); break; }
@@ -110,21 +129,82 @@
   };
 
   async function shoot() {
-    if (!imgOk()) { hint('请先连接 DeepSeek Harness', true); return; }
+    if (!imgOk()) { hint('请先连接智能核心', true); return; }
     try { const file = await A.captureScreen(); if (file) C.addFiles([file]); }
     catch (e) { hint(String(e), true, 6000); }
   }
 
   // ---------- 发送 ----------
+  let dictationGen = 0;
+  let dictationPrefix = '';
+  let dictationSuffix = '';
+  let writingDictation = false;
+  const setMic = on => {
+    if (!micBtn) return;
+    micBtn.classList.toggle('on', on);
+    micBtn.classList.remove('pending');
+    micBtn.title = on ? '停止听写' : '语音输入，只写入输入框';
+    micBtn.setAttribute('aria-pressed', String(on));
+  };
+  const applySpoken = text => {
+    writingDictation = true;
+    input.value = A.voice.applyTranscript(dictationPrefix, dictationSuffix, text);
+    const cursor = input.value.length - dictationSuffix.length;
+    input.setSelectionRange(cursor, cursor);
+    autosize();
+    updateSend();
+    writingDictation = false;
+  };
+  async function toggleDictation() {
+    if (!micBtn) return;
+    if (A.voice?.dictating) {
+      dictationGen += 1;
+      await A.voice.stopDictation();
+      setMic(false);
+      return;
+    }
+    if (!A.native) { hint('听写需要在桌面应用里使用。文字输入不受影响。', true); return; }
+    const gen = ++dictationGen;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    dictationPrefix = input.value.slice(0, start);
+    dictationSuffix = input.value.slice(end);
+    micBtn.classList.add('pending');
+    try {
+      await A.voice.startDictation({
+        onPartial: text => { if (gen === dictationGen) applySpoken(text); },
+        onFinal: text => { if (gen === dictationGen) applySpoken(text); },
+        onError: message => { if (gen === dictationGen) hint(message, true, 6500); },
+        onEnd: () => { if (gen === dictationGen) setMic(false); },
+      });
+      if (gen === dictationGen) setMic(true);
+    } catch (err) {
+      setMic(false);
+      hint((err && err.message) || String(err || '听写暂时没能开始。文字输入不受影响。'), true, 6500);
+    }
+  }
+
   function doSend() {
     if (C.generating || A.S.model === 'none') return;
+    if (A.voice?.dictating) {
+      dictationGen += 1;
+      A.voice.stopDictation();
+    }
     const text = input.value.trim();
     if (!text && !atts.length) return;
     const images = atts; atts = []; input.value = ''; autosize(); renderAtts(); hintEl.hidden = true;
     C.send(text, images);
     C.refreshComposer();
   }
-  input.addEventListener('input', () => { autosize(); updateSend(); });
+  input.addEventListener('input', () => {
+    autosize();
+    updateSend();
+    if (!writingDictation && A.voice?.dictating) {
+      dictationGen += 1;
+      A.voice.stopDictation();
+      setMic(false);
+    }
+  });
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); doSend(); }
   });
@@ -134,11 +214,19 @@
   });
   sendBtn.addEventListener('click', () => (C.generating ? C.stop() : doSend()));
   imgBtn.addEventListener('click', () => {
-    if (!imgOk()) { hint('请先连接 DeepSeek Harness 后再添加图片', true); return; }
+    if (!imgOk()) { hint('请先连接智能核心后再添加图片', true); return; }
     fileIn.click();
   });
   fileIn.addEventListener('change', () => { const f = Array.from(fileIn.files); fileIn.value = ''; C.addFiles(f); });
   shotBtn.addEventListener('click', shoot);
+  if (micBtn) micBtn.addEventListener('click', () => { toggleDictation(); });
+  A.on('panel', open => {
+    if (!open && A.voice?.dictating) {
+      dictationGen += 1;
+      A.voice.stopDictation();
+      setMic(false);
+    }
+  });
   if (voiceBtn) {
     voiceBtn.addEventListener('click', () => {
       const next = !(A.S.voice.enabled && A.S.voice.autoReply);
@@ -152,7 +240,7 @@
       A.save(); A.emit('set:voice', A.S.voice); C.refreshComposer();
       const mimoReady = A.S.voice.hasKey;
       A.toast(next
-        ? (mimoReady ? '已开启回复自动朗读（小米 MiMo 语音）' : '已开启回复自动朗读（请先在语音设置填写 MiMo Key）')
+        ? (mimoReady ? '已开启回复自动朗读' : '已开启回复自动朗读（请先在设置 → 语音中配置语音密钥）')
         : '已关闭回复自动朗读');
     });
   }
@@ -163,9 +251,8 @@
       const st = A.dshState;
       if (!st || !st.connected) {
         A.menu.open([
-          { head: 'DeepSeek Harness 未连接' },
+          { head: '智能核心未连接' },
           { label: '重新检测连接', fn: () => A.agent?.reconnect?.() },
-          { label: '打开 DSH 模型控制台…', fn: () => A.agent?.openConsole?.() },
           { label: '智能核心设置…', fn: () => A.openSettings?.('agent') },
         ], r.left, r.top - 8);
         return;
@@ -213,6 +300,41 @@
       } catch (err) {
         A.toast(String(err), 4000);
       }
+    });
+  }
+  if (effortTag) {
+    let effortOpen = false;
+    effortTag.addEventListener('click', () => {
+      if (effortOpen && A.menu.isOpen()) { A.menu.close(); return; }
+      const st = A.dshState;
+      const efforts = st && st.connected && Array.isArray(st.reasoning?.efforts) ? st.reasoning.efforts : [];
+      if (efforts.length <= 1 || !st.provider || !st.model) return;
+      const curId = st.reasoningEffort || st.reasoning?.defaultEffort || efforts[0].id;
+      const r = effortTag.getBoundingClientRect();
+      const items = [
+        { head: '思考强度' },
+        ...efforts.map(e => {
+          const active = e.id === curId;
+          const label = formatReasoningEffortLabel(e.id, e.name);
+          return {
+            label,
+            check: active,
+            fn: async () => {
+              if (active) return;
+              try {
+                await A.agent?.selectModel?.(st.provider, st.model, e.id);
+                A.toast(e.id === 'off' || e.id === 'none' ? '已关闭深度思考' : `已将思考强度设为「${label}」`);
+              } catch (err) {
+                A.toast(String(err), 4500);
+              }
+            },
+          };
+        }),
+      ];
+      effortOpen = true;
+      A.menu.open(items, r.left, Math.max(8, r.top - Math.min(items.length * 30 + 24, 240)), {
+        onClose: () => { effortOpen = false; },
+      });
     });
   }
   C.focusInput = () => { if (!input.disabled) input.focus({ preventScroll: true }); };

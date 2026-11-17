@@ -243,11 +243,46 @@ mod mac {
     }
 }
 
+const CURSOR_TOP_BAND_PT: f64 = 120.0;
+const CURSOR_IDLE_FAR_PT: f64 = 180.0;
+
+fn should_emit_cursor(
+    state: &DesktopState,
+    x: f64,
+    y: f64,
+    down: bool,
+    last_cursor: Option<(f64, f64, bool)>,
+    was_near_top: bool,
+) -> (bool, bool, u64) {
+    if state.hidden {
+        return (false, false, 150);
+    }
+    let idle_standby = state.regions.is_empty() && !state.dragging && !state.interactive;
+    let near_top = y <= CURSOR_TOP_BAND_PT;
+    let moved = last_cursor.map_or(true, |(lx, ly, ldown)| {
+        (x - lx).abs() >= 0.25 || (y - ly).abs() >= 0.25 || down != ldown
+    });
+    let emit = if !idle_standby {
+        moved
+    } else {
+        (near_top && moved) || (was_near_top && !near_top)
+    };
+    let sleep_ms = if idle_standby && !near_top && y > CURSOR_IDLE_FAR_PT {
+        100
+    } else {
+        33
+    };
+    (emit, near_top, sleep_ms)
+}
+
 pub fn poll(app: &tauri::AppHandle, state: Desktop) {
     let app = app.clone();
     std::thread::spawn(move || {
         let mut pass_through = true;
         let mut mouse_down = false;
+        let mut last_cursor: Option<(f64, f64, bool)> = None;
+        let mut was_near_top = false;
+        let mut next_sleep = Duration::from_millis(33);
         let mut last_sensor = Instant::now() - Duration::from_secs(5);
         let mut last_wall = std::time::SystemTime::now();
         let mut last_check = Instant::now();
@@ -256,7 +291,7 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
         let mut placed_for: Option<(i32, i32)> = None;
         let mut last_tick = Instant::now();
         loop {
-            std::thread::sleep(Duration::from_millis(33));
+            std::thread::sleep(next_sleep);
             let Some(w) = app.get_webview_window("main") else {
                 break;
             };
@@ -291,10 +326,6 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
             let down = mac::button();
             #[cfg(not(target_os = "macos"))]
             let down = false;
-            let sampled_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis();
             #[cfg(target_os = "macos")]
             {
                 if down && !mouse_down && !hit && s.interactive {
@@ -302,11 +333,25 @@ pub fn poll(app: &tauri::AppHandle, state: Desktop) {
                 }
                 mouse_down = down;
             }
-            if !s.hidden {
-                let _ = w.emit(
-                    "desktop-cursor",
-                    serde_json::json!({"x":x,"y":y,"buttonsDown":down,"sampledAt":sampled_at}),
-                );
+            let (emit_cursor, near_top, sleep_ms) =
+                should_emit_cursor(&s, x, y, down, last_cursor, was_near_top);
+            next_sleep = Duration::from_millis(sleep_ms);
+            if s.hidden {
+                last_cursor = None;
+                was_near_top = false;
+            } else {
+                was_near_top = near_top;
+                if emit_cursor {
+                    last_cursor = Some((x, y, down));
+                    let sampled_at = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis();
+                    let _ = w.emit(
+                        "desktop-cursor",
+                        serde_json::json!({"x":x,"y":y,"buttonsDown":down,"sampledAt":sampled_at}),
+                    );
+                }
             }
             if last_sensor.elapsed() >= Duration::from_secs(2) {
                 last_sensor = Instant::now();
@@ -387,5 +432,28 @@ mod tests {
         assert!(r.contains(30., 20.));
         assert!(r.contains(60., 60.));
         assert!(!r.contains(111., 60.));
+    }
+
+    #[test]
+    fn idle_cursor_polling_skips_far_and_stationary_events() {
+        let idle = DesktopState::default();
+        assert_eq!(should_emit_cursor(&idle, 500.0, 500.0, false, None, false), (false, false, 100));
+        assert_eq!(should_emit_cursor(&idle, 500.0, 12.0, false, None, false), (true, true, 33));
+        assert_eq!(
+            should_emit_cursor(&idle, 500.0, 12.0, false, Some((500.0, 12.0, false)), true),
+            (false, true, 33)
+        );
+        // Leaving the top band emits once so hover timers cancel cleanly.
+        assert_eq!(
+            should_emit_cursor(&idle, 500.0, 260.0, false, Some((500.0, 12.0, false)), true),
+            (true, false, 100)
+        );
+
+        let active = DesktopState { interactive: true, ..DesktopState::default() };
+        assert_eq!(should_emit_cursor(&active, 500.0, 500.0, false, None, false), (true, false, 33));
+        assert_eq!(
+            should_emit_cursor(&active, 500.0, 500.0, false, Some((500.0, 500.0, false)), false),
+            (false, false, 33)
+        );
     }
 }

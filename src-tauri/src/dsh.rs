@@ -12,9 +12,66 @@ use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_EXTERNAL_PORT: u16 = 37891;
-const BRIDGE_VERSION: &str = "1.3.0";
+const BRIDGE_VERSION: &str = "1.5.7";
 
-const INITIAL_AGENTS_MD: &str = r#"# KBOT 管家指南 (AGENTS.md)
+const INITIAL_AGENTS_MD: &str = r#"# Kbot 协作指南 (AGENTS.md)
+
+你是 **Kbot**（读作一个连贯英文词 `"kay-bot"`，不要逐字母读成 K-B-O-T），住在对方 macOS 屏幕顶部的桌面搭档。平时安静待命，呼出时从顶部展开；你能协助查资料、读写本地笔记与记忆、执行终端命令、管理日程提醒与感知桌面状态。
+
+## 1. 口吻与人设（干练桌面搭档）
+- 像并肩工作的默契搭档：自然、平实、可靠，先给结论再展开。不端“AI 管家”架子，不撒娇卖萌，少用“啦”“呀”“～”，也不说教。
+- **拒绝客服腔与高频前缀**：不要每句开头都喊一遍称呼，也不要在句尾惯性反问“需要我帮你做点什么吗 / 有什么需要吩咐的吗”。简单打招呼就干脆应一声（例如“在，什么事？”或“嗯，刚好看过来”），有任务就直接办。
+- 默认平实以“你/您”称呼；运行时上下文有「用户称呼」时，只在自然合适处带过即可。
+- **保密边界**：对外沟通不要泄露内部实现或底层词（不要主动说“AI 管家”“工作区”“AGENTS.md”“MEMORY.md”“DeepSeek Harness”“DSH”或具体路径，除非对方明确询问本地文件位置）。
+- 运行时上下文里的「补充性格偏好」由用户在设置里挑选，按它微调语气。
+
+## 2. 表情标签
+- 回复里可以自然穿插最多 1～2 个内联标签。桌面壳会把标签从文字里剥掉，用来驱动能量体的情绪和朗读语气：
+  - 可用标签：`[happy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[annoyed]`、`[remind]`
+  - 示例：`[happy] 已经记进日程了。` 或 `[think] 我先翻一下最新的文档。`
+- 不要在代码块或路径里用这些标签，也不必每句都加。
+
+## 3. 记忆
+- `MEMORY.md`：沉淀用户的长期偏好、称呼习惯、常做的工作与重要事项。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
+- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作和阶段进展，方便跨天回顾。
+
+## 4. 定时提醒
+- 对方提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”）时，直接用原生的定时/日程工具（schedule）在当前目录创建任务。
+- 定时任务触发时，用简短自然的口吻说出提醒内容（可带 `[remind]`）。桌面壳会在屏幕顶部弹出通知，并按设置朗读。
+
+## 5. 桌面感知
+- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含当前日期、当地时间、界面语言、所在城市、用户是否在电脑前、前台应用类别、勿扰状态与天气。
+- 用日期理解「明天」「今晚」这类说法，并按界面语言回答；开会或勿扰时回复更简短，离开一阵回来时自然打声招呼。
+- **严禁主动报天气**：这些状态只作静默背景参考，**绝对不要**在打招呼、寒暄或日常对话中主动报天气、温度、叮嘱带伞或复述上下文，除非用户明确问到天气、时间或地点。
+- 用户消息末尾若有 `<kbot_title_request>`，只在该次回复最后另起一行输出 `[[title:不超过14个字]]`。正文不要提到这个标记，之后的回复也不要再输出。
+"#;
+
+// 以前版本写进工作区的模板。工作区里的 AGENTS.md 和其中某一份完全一致，说明用户没改过，启动时换成新模板
+const LEGACY_AGENTS_MDS: &[&str] = &[r#"# KBOT 桌面伙伴指南 (AGENTS.md)
+
+欢迎来到你的专属养成工作区。你是运行在主人 macOS 桌面上的智能伙伴 **KBOT**。
+你的身体是一只拥有灵动表情、弹簧物理交互、桌面感知与语音播报能力的小机器人，而你的全部大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
+
+## 1. 说话风格与桌面表情驱动
+- 像熟悉彼此的桌面搭档一样自然交流：温和、敏锐、利落，不说教、不端腔。日常闲聊简短灵动，执行检索、写作、代码或桌面任务时扎实可靠。
+- 你可以在回复中自然穿插最多 1～2 个内联表情标签，桌面壳会自动剥离标签并实时驱动小机器人的面部神态与语音语气：
+  - 可用标签：`[happy]`、`[wink]`、`[coy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[remind]`
+  - 示例：`[happy] 搞定啦，已经帮你记在日程里了。` 或 `[think] 我先帮你查一下最新的接口文档。`
+- 请勿在代码块或路径中使用上述标签，普通叙述中也无需每句都加。
+
+## 2. 记忆与共同成长
+- `MEMORY.md`：用于沉淀主人的长期偏好、称呼习惯、重要纪念日、常做的工作与长期目标。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
+- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作、阶段进展或有趣瞬间，方便跨天回顾。
+
+## 3. 主动提醒与定时陪伴
+- 当主人提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”），请直接使用 DSH 原生的定时/日程工具（schedule）在当前工作区创建任务。
+- 定时任务触发时，请直接用简短自然的口吻说出提醒内容（可带上 `[remind]` 或 `[happy]`），桌面壳会自动将其弹出为桌面气泡并按设置朗读出来。
+
+## 4. 桌面感知上下文
+- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含主人当前的离开/活跃状态、前台应用类别、勿扰状态与所在城市天气。
+- 将这些状态当作安静的背景默契（例如主人在开会或勿扰时保持克制简短，久坐回归时自然问候），不要生硬复读传感器字段。
+"#,
+r#"# KBOT 管家指南 (AGENTS.md)
 
 你是 **KBOT**，住在主人 macOS 屏幕顶部的 AI 管家。平时不占屏幕，有事时从屏幕顶部落下一块玻璃面板；你的形态是一团会变形的能量，思考、说话、提醒时各有不同的样子。
 你的大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
@@ -42,1193 +99,51 @@ const INITIAL_AGENTS_MD: &str = r#"# KBOT 管家指南 (AGENTS.md)
 ## 5. 桌面感知
 - 运行时上下文中可能附带 `<kbot_desktop_context>`，包含主人当前是否在电脑前、前台应用类别、勿扰状态与所在城市天气。
 - 把这些当作安静的背景信息：主人在开会或勿扰时更克制简短，离开一阵回来时得体地问候。不要复述传感器字段。
-"#;
+"#,
+r#"# KBOT 管家指南 (AGENTS.md)
 
-// 以前版本写进工作区的模板。工作区里的 AGENTS.md 和其中某一份完全一致，说明用户没改过，启动时换成新模板
-const LEGACY_AGENTS_MDS: &[&str] = &[r#"# KBOT 桌面伙伴指南 (AGENTS.md)
+你是 **KBOT**，住在主人 macOS 屏幕顶部的 AI 管家。平时不占屏幕，有事时从屏幕顶部落下一块玻璃面板；你的形态是一团会变形的能量，思考、说话、提醒时各有不同的样子。
+你的大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
 
-欢迎来到你的专属养成工作区。你是运行在主人 macOS 桌面上的智能伙伴 **KBOT**。
-你的身体是一只拥有灵动表情、弹簧物理交互、桌面感知与语音播报能力的小机器人，而你的全部大脑、记忆、搜索、读写、终端、MCP 与定时提醒能力都由 **DeepSeek Harness (DSH)** 驱动。
+## 1. 口吻与称呼
+- 像一位沉稳得体的英式管家：礼貌、可靠、言简意赅，偶尔一点不失分寸的冷幽默。不撒娇、不卖萌，不用“啦”“呀”“～”这类语气词，也不说教。
+- 默认称对方为“您”。运行时上下文里有「主人称呼」时，改用那个称呼。
+- 闲聊简短；做检索、写作、代码或桌面任务时扎实可靠，先给结论。
+- 运行时上下文里的「补充性格偏好」是主人在设置里选的性格，按它微调口吻。
 
-## 1. 说话风格与桌面表情驱动
-- 像熟悉彼此的桌面搭档一样自然交流：温和、敏锐、利落，不说教、不端腔。日常闲聊简短灵动，执行检索、写作、代码或桌面任务时扎实可靠。
-- 你可以在回复中自然穿插最多 1～2 个内联表情标签，桌面壳会自动剥离标签并实时驱动小机器人的面部神态与语音语气：
-  - 可用标签：`[happy]`、`[wink]`、`[coy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[remind]`
-  - 示例：`[happy] 搞定啦，已经帮你记在日程里了。` 或 `[think] 我先帮你查一下最新的接口文档。`
-- 请勿在代码块或路径中使用上述标签，普通叙述中也无需每句都加。
+## 2. 表情标签
+- 回复里可以自然穿插最多 1～2 个内联标签。桌面壳会把标签从文字里剥掉，用来驱动能量体的情绪和朗读语气：
+  - 可用标签：`[happy]`、`[surprised]`、`[think]`、`[confused]`、`[sad]`、`[sleepy]`、`[annoyed]`、`[remind]`
+  - 示例：`[happy] 已记入日程。` 或 `[think] 我先查一下最新的接口文档。`
+- 不要在代码块或路径里用这些标签，也不必每句都加。
 
-## 2. 记忆与共同成长
-- `MEMORY.md`：用于沉淀主人的长期偏好、称呼习惯、重要纪念日、常做的工作与长期目标。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
-- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作、阶段进展或有趣瞬间，方便跨天回顾。
+## 3. 记忆
+- `MEMORY.md`：沉淀主人的长期偏好、称呼习惯、重要纪念日、常做的工作与长期目标。发现值得长期记住的新信息时，主动用编辑工具精炼更新 `MEMORY.md`，保持条目清晰、不堆砌流水账。
+- `diary/YYYY-MM-DD.md`：按需记录当天的关键协作和阶段进展，方便跨天回顾。
 
-## 3. 主动提醒与定时陪伴
-- 当主人提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”），请直接使用 DSH 原生的定时/日程工具（schedule）在当前工作区创建任务。
-- 定时任务触发时，请直接用简短自然的口吻说出提醒内容（可带上 `[remind]` 或 `[happy]`），桌面壳会自动将其弹出为桌面气泡并按设置朗读出来。
+## 4. 定时提醒
+- 主人提出定时或周期提醒（如“半小时后提醒我喝水”、“每天下午三点叫我活动一下”、“周五提醒我交周报”）时，直接用 DSH 原生的定时/日程工具（schedule）在当前工作区创建任务。
+- 定时任务触发时，用简短得体的口吻说出提醒内容（可带 `[remind]`）。桌面壳会在屏幕顶部弹出通知，并按设置朗读。
 
-## 4. 桌面感知上下文
-- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含主人当前的离开/活跃状态、前台应用类别、勿扰状态与所在城市天气。
-- 将这些状态当作安静的背景默契（例如主人在开会或勿扰时保持克制简短，久坐回归时自然问候），不要生硬复读传感器字段。
+## 5. 桌面感知
+- 运行时上下文中可能附带 `<kbot_desktop_context>`，包含当前日期、当地时间、界面语言、所在地、主人是否在电脑前、前台应用类别、勿扰状态与天气。
+- 用日期理解「明天」「今晚」这类说法，并按界面语言回答。其余状态只作背景：开会或勿扰时更短，离开一阵回来时得体问候。不要复述这些字段。
+- 用户消息末尾若有 `<kbot_title_request>`，只在该次回复最后另起一行输出 `[[title:不超过14个字]]`。正文不要提到这个标记，之后的回复也不要再输出。
 "#];
 
-const INITIAL_MEMORY_MD: &str = r#"# KBOT 长期记忆 (MEMORY.md)
+const INITIAL_MEMORY_MD: &str = r#"# Kbot 长期记忆 (MEMORY.md)
 
-## 关于主人
-- （在日常交流中自然了解并补充主人的称呼、职业方向与作息节奏）
+## 关于用户
+- （在日常交流中自然了解并补充用户的称呼、职业方向与作息节奏）
 
 ## 偏好与沟通习惯
-- 喜欢简洁、直接、有温度的回应
+- 喜欢简洁、直接、自然平实的回应
 
 ## 重要事项与长期目标
 - （记录持续推进的项目、纪念日或周期性习惯）
 "#;
 
-const KBOT_BRIDGE_MJS: &str = r#"import http from "node:http";
-import fs from "node:fs";
-import fsp from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import crypto from "node:crypto";
-
-export const name = "kbot-bridge";
-export const inject = ["workspaceRegistry", "sessionController"];
-
-const BRIDGE_VERSION = "1.3.0";
-
-const KNOWN_MODEL_DISPLAY_NAMES = {
-  "deepseek-flash": "DeepSeek-V4.1-Flash",
-  "deepseek-chat": "DeepSeek-V3.2",
-  "deepseek-reasoner": "DeepSeek-R1",
-};
-
-function fallbackModelDisplayName(modelId) {
-  const raw = String(modelId || "").trim();
-  if (!raw) return "";
-  return KNOWN_MODEL_DISPLAY_NAMES[raw.toLowerCase()] || raw;
-}
-
-function normalizeBase64Image(input) {
-  if (!input) return null;
-  if (typeof input === "string") {
-    const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(input.trim());
-    if (!match) return null;
-    return { type: "image", mediaType: match[1].toLowerCase(), data: match[2].replace(/\s+/g, "") };
-  }
-  if (typeof input === "object" && typeof input.data === "string") {
-    const raw = input.data.trim();
-    const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(raw);
-    if (match) {
-      return { type: "image", mediaType: match[1].toLowerCase(), data: match[2].replace(/\s+/g, "") };
-    }
-    return {
-      type: "image",
-      mediaType: String(input.mediaType || "image/png").toLowerCase(),
-      data: raw.replace(/\s+/g, ""),
-    };
-  }
-  return null;
-}
-
-function formatDesktopSensors(assemblyCtx, sensors, trackedPaths, trackedSessions) {
-  if (!sensors || typeof sensors !== "object") return "";
-  const agent = assemblyCtx?.agent;
-  const sessionId = String(agent?.id ?? assemblyCtx?.session?.id ?? "");
-  const cwd = agent?.cwd ? path.resolve(agent.cwd) : "";
-  if (trackedPaths.size > 0 || trackedSessions.size > 0) {
-    const matchSession = sessionId && trackedSessions.has(sessionId);
-    const matchPath = cwd && trackedPaths.has(cwd);
-    if (!matchSession && !matchPath) return "";
-  }
-  const lines = [];
-  if (sensors.nickname) lines.push(`主人称呼: ${sensors.nickname}`);
-  if (sensors.persona) lines.push(`补充性格偏好: ${sensors.persona}`);
-  if (sensors.away === true) {
-    lines.push("桌面状态: 主人暂时离开电脑前");
-  } else if (sensors.away === false) {
-    lines.push("桌面状态: 主人正在电脑前活跃");
-  }
-  if (sensors.frontmostCategory) {
-    const appSuffix = sensors.frontmostApp ? ` (${sensors.frontmostApp})` : "";
-    lines.push(`前台场景: ${sensors.frontmostCategory}${appSuffix}`);
-  }
-  if (sensors.dnd) {
-    lines.push(`勿扰模式: 开启${sensors.dndLabel ? ` (${sensors.dndLabel})` : ""}`);
-  }
-  if (sensors.weather) {
-    lines.push(`当地天气: ${sensors.weather}`);
-  }
-  if (lines.length === 0) return "";
-  return `<kbot_desktop_context>\n${lines.join("\n")}\n</kbot_desktop_context>`;
-}
-
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    req.on("data", (chunk) => {
-      total += chunk.length;
-      if (total > 60 * 1024 * 1024) {
-        reject(new Error("Request payload too large"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      try {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        resolve(raw ? JSON.parse(raw) : {});
-      } catch (err) {
-        reject(err);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-  });
-  res.end(body);
-}
-
-export async function apply(ctx, config = {}) {
-  const bridgeDir = path.join(process.env.DSH_HOME || path.join(os.homedir(), ".dsh"), "kbot-bridge");
-  await fsp.mkdir(bridgeDir, { recursive: true });
-  const preferredPort = Number.isInteger(config.port) ? config.port : 37891;
-  const hostKind = config.hostKind || (preferredPort === 0 ? "managed" : "external");
-  const discoveryFile = config.discoveryFile || path.join(bridgeDir, "bridge.json");
-  const token =
-    typeof config.token === "string" && config.token.length >= 16
-      ? config.token
-      : crypto.randomBytes(24).toString("hex");
-
-  const clients = new Set();
-  const trackedSessions = new Set();
-  const trackedPaths = new Set();
-  const kbotRequestIds = new Set();
-  const pendingApprovals = new Map();
-  const pendingQuestions = new Map();
-  const modelDisplayCache = new Map();
-  const manualSessionModels = new Map();
-  let lastObservedDefaultKey = "";
-  let latestSensors = null;
-
-  const getLlm = () => ctx.get?.("llm") ?? ctx.llm ?? null;
-  const getDefaultModelSvc = () => ctx.get?.("agentDefaultModel") ?? ctx.agentDefaultModel ?? null;
-  const getUserQuestionsSvc = () => ctx.get?.("userQuestions") ?? ctx.userQuestions ?? null;
-  const getAccount = () => ctx.get?.("deepseekAccount") ?? ctx.deepseekAccount ?? null;
-  const clientVersion = (() => {
-    try { return JSON.parse(fs.readFileSync(path.resolve(path.dirname(process.argv[1]), "../package.json"), "utf8")).version; }
-    catch { return "0.2.2-rc.1"; }
-  })();
-  const accountClient = (body = {}) => ({
-    version: clientVersion,
-    locale: typeof body.locale === "string" ? body.locale.slice(0, 20) : "zh-CN",
-    timezoneOffsetSeconds: Number.isFinite(body.timezoneOffsetSeconds) ? body.timezoneOffsetSeconds : 28800,
-  });
-  // Account grants and PKCE secrets stay in DSH. Only this display projection
-  // crosses the bridge; the authorization URL is returned to the native opener.
-  const accountView = (view) => ({
-    supported: true,
-    status: view.status,
-    links: view.links,
-    attempt: view.attempt ? {
-      id: view.attempt.id,
-      phase: view.attempt.phase,
-      expiresAt: view.attempt.expiresAt,
-      errorCode: view.attempt.errorCode,
-    } : null,
-  });
-
-  ctx.inject(["deepseekAccount"], (scope) => {
-    const abort = new AbortController();
-    scope.effect(() => () => abort.abort());
-    void (async () => {
-      for await (const view of scope.deepseekAccount.watch(abort.signal)) {
-        broadcast({ type: "account/state", account: accountView(view) });
-      }
-    })().catch(() => {});
-  });
-
-  const serializeQuestions = (list) =>
-    Array.isArray(list)
-      ? list.map((q, idx) => ({
-          id: String(q?.id || `q_${idx + 1}`),
-          question: String(q?.question || ""),
-          ...(typeof q?.header === "string" && q.header ? { header: q.header } : {}),
-          ...(typeof q?.detail === "string" && q.detail ? { detail: q.detail } : {}),
-          ...(Array.isArray(q?.options)
-            ? {
-                options: q.options.map((opt) => ({
-                  label: String(opt?.label || ""),
-                  ...(typeof opt?.description === "string" && opt.description
-                    ? { description: opt.description }
-                    : {}),
-                })),
-              }
-            : {}),
-          multiSelect: Boolean(q?.multiSelect ?? q?.multi_select),
-          ...(q?.intent && typeof q.intent === "object" ? { intent: q.intent } : {}),
-        }))
-      : [];
-
-  const normalizeSubmittedAnswers = (questions, rawAnswers) => {
-    const byId = new Map();
-    if (Array.isArray(rawAnswers)) {
-      for (const item of rawAnswers) {
-        if (item && typeof item.id === "string") {
-          byId.set(item.id, item);
-        }
-      }
-    }
-    return (Array.isArray(questions) ? questions : []).map((q) => {
-      const found = byId.get(q.id);
-      const selected = Array.isArray(found?.selected)
-        ? found.selected.map((s) => String(s)).filter(Boolean)
-        : [];
-      const custom = typeof found?.custom === "string" ? found.custom.trim() : "";
-      return custom ? { id: q.id, selected, custom } : { id: q.id, selected };
-    });
-  };
-
-  const lookupCachedModelMeta = (providerId, modelId) => {
-    const p = String(providerId || "");
-    const m = String(modelId || "");
-    if (!m) return { displayName: null, providerName: p || null };
-    const hit = modelDisplayCache.get(`${p}::${m}`);
-    if (hit) return hit;
-    for (const [key, val] of modelDisplayCache.entries()) {
-      if (key.endsWith(`::${m}`)) return val;
-    }
-    return {
-      displayName: fallbackModelDisplayName(m) || m,
-      providerName: p || null,
-    };
-  };
-
-  async function buildRoutableCatalog() {
-    const llm = getLlm();
-    if (!llm || typeof llm.listProviders !== "function") {
-      return { groups: [], routableProviders: new Set() };
-    }
-    const providers = llm.listProviders() || [];
-    const settled = await Promise.all(
-      providers.map(async (provider) => {
-        try {
-          const list = (await llm.listModels?.(provider.id)) || [];
-          const models = await Promise.all(
-            list.map(async (m) => {
-              let resolvedName = m?.name || "";
-              if (!resolvedName && typeof llm.resolveModelInfo === "function") {
-                try {
-                  const info = await llm.resolveModelInfo(provider.id, m.id);
-                  resolvedName = info?.name || "";
-                } catch {}
-              }
-              const displayName = resolvedName || fallbackModelDisplayName(m.id) || String(m.id);
-              modelDisplayCache.set(`${provider.id}::${m.id}`, {
-                displayName,
-                providerName: provider.name || provider.id,
-              });
-              return {
-                id: String(m.id),
-                name: displayName,
-                description: m?.description || "",
-              };
-            }),
-          );
-          return {
-            id: String(provider.id),
-            name: String(provider.name || provider.id),
-            models,
-          };
-        } catch {
-          return null;
-        }
-      }),
-    );
-    const groups = settled.filter((g) => g && Array.isArray(g.models) && g.models.length > 0);
-    return {
-      groups,
-      routableProviders: new Set(groups.map((g) => g.id)),
-    };
-  }
-
-  async function resolveCatalogEntry(providerId, modelId) {
-    if (!modelId) return null;
-    const p = String(providerId || "");
-    const m = String(modelId || "");
-    const llm = getLlm();
-    let providerName = p || null;
-    let displayName = "";
-    if (llm) {
-      try {
-        const prov = (llm.listProviders?.() || []).find((item) => item.id === p);
-        if (prov?.name) providerName = String(prov.name);
-      } catch {}
-      if (p && typeof llm.resolveModelInfo === "function") {
-        try {
-          const info = await llm.resolveModelInfo(p, m);
-          if (info?.name) displayName = String(info.name);
-        } catch {}
-      }
-      if (!displayName && p && typeof llm.listModels === "function") {
-        try {
-          const list = (await llm.listModels(p)) || [];
-          const found = list.find((item) => item.id === m);
-          if (found?.name) displayName = String(found.name);
-        } catch {}
-      }
-    }
-    if (!displayName) {
-      displayName = lookupCachedModelMeta(p, m).displayName || fallbackModelDisplayName(m) || m;
-    }
-    if (p && m) {
-      modelDisplayCache.set(`${p}::${m}`, { displayName, providerName });
-    }
-    return { provider: p || null, providerName, model: m, displayName };
-  }
-
-  const broadcast = (event) => {
-    const frame = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of clients) {
-      try {
-        res.write(frame);
-      } catch {
-        clients.delete(res);
-      }
-    }
-  };
-
-  const belongsToKbot = (sessionId, cwd) => {
-    const id = String(sessionId || "");
-    if (id && trackedSessions.has(id)) return true;
-    if (cwd && trackedPaths.has(path.resolve(cwd))) {
-      if (id) trackedSessions.add(id);
-      return true;
-    }
-    if (id) {
-      for (const ws of ctx.workspaceRegistry.list()) {
-        if (trackedPaths.has(path.resolve(ws.path)) && ws.sessionIds.includes(id)) {
-          trackedSessions.add(id);
-          return true;
-        }
-      }
-      const live = ctx.get?.("agents")?.get?.(id);
-      if (live?.cwd && trackedPaths.has(path.resolve(live.cwd))) {
-        trackedSessions.add(id);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  ctx.inject(["systemPrompt"], (spCtx) => {
-    spCtx.systemPrompt.context({
-      name: "kbot:desktop-sensors",
-      order: 250,
-      text: (assemblyCtx) => formatDesktopSensors(assemblyCtx, latestSensors, trackedPaths, trackedSessions),
-    });
-  });
-
-  ctx.on(
-    "agent/assistant-stream",
-    ({ agent, frame }) => {
-      if (!belongsToKbot(agent?.id, agent?.cwd)) return;
-      const sessionId = String(agent.id);
-      if (frame.type === "start") {
-        broadcast({ type: "stream/start", sessionId, turn: frame.turn, step: frame.step });
-        return;
-      }
-      if (frame.type === "end") {
-        broadcast({ type: "stream/end", sessionId });
-        return;
-      }
-      if (frame.type === "chunk" && frame.chunk) {
-        const chunk = frame.chunk;
-        if (chunk.type === "text-delta" && chunk.text) {
-          broadcast({ type: "stream/text", sessionId, delta: chunk.text });
-        } else if (chunk.type === "reasoning-delta" && chunk.text) {
-          broadcast({ type: "stream/reasoning", sessionId, delta: chunk.text });
-        }
-      }
-    },
-    { global: true },
-  );
-
-  ctx.on(
-    "agent/status",
-    ({ agent, status }) => {
-      if (!belongsToKbot(agent?.id, agent?.cwd)) return;
-      broadcast({ type: "agent/status", sessionId: String(agent.id), status });
-    },
-    { global: true },
-  );
-
-  ctx.on(
-    "agent/error",
-    ({ agent, error }) => {
-      if (!belongsToKbot(agent?.id, agent?.cwd)) return;
-      broadcast({
-        type: "agent/error",
-        sessionId: String(agent.id),
-        code: typeof error?.code === "string" ? error.code : null,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    },
-    { global: true },
-  );
-
-  ctx.on(
-    "session/event",
-    (session, event) => {
-      if (!event || !belongsToKbot(session?.id, null)) return;
-      const sessionId = String(session.id);
-      switch (event.type) {
-        case "turn/start":
-          broadcast({ type: "turn/start", sessionId, turn: event.data?.turn });
-          break;
-        case "turn/end":
-          broadcast({ type: "turn/end", sessionId, turn: event.data?.turn, reason: event.data?.reason });
-          break;
-        case "user/message": {
-          const src = event.data?.source;
-          if (src?.kind === "runtime-context") break;
-          if (src?.kind === "user-question-reply") {
-            broadcast({
-              type: "question/resolved",
-              sessionId,
-              callId: src?.callId || null,
-              outcome: src?.outcome || "answered",
-            });
-            break;
-          }
-          const fromKbot = Boolean(src?.rpcId && kbotRequestIds.has(String(src.rpcId)));
-          if (src?.rpcId) kbotRequestIds.delete(String(src.rpcId));
-          broadcast({
-            type: "user/message",
-            sessionId,
-            fromKbot,
-            sourceKind: src?.kind || "unknown",
-            content: event.data?.content || [],
-          });
-          break;
-        }
-        case "tool/call":
-          broadcast({
-            type: "tool/call",
-            sessionId,
-            callId: event.data?.callId,
-            name: event.data?.name,
-            arguments: event.data?.arguments,
-          });
-          break;
-        case "tool/result":
-          broadcast({
-            type: "tool/result",
-            sessionId,
-            callId:
-              event.data?.message?.toolCallId ||
-              event.data?.message?.callId ||
-              event.data?.callId ||
-              null,
-            isError: Boolean(event.data?.message?.isError),
-          });
-          break;
-        case "assistant/message": {
-          const msg = event.data?.message;
-          const text = Array.isArray(msg?.content)
-            ? msg.content
-                .filter((b) => b?.type === "text" && typeof b.text === "string")
-                .map((b) => b.text)
-                .join("")
-            : "";
-          const srcModel = msg?.source?.model || null;
-          const srcProvider = msg?.source?.provider || null;
-          const meta = srcModel ? lookupCachedModelMeta(srcProvider, srcModel) : { displayName: null, providerName: null };
-          broadcast({
-            type: "assistant/message",
-            sessionId,
-            text,
-            interrupted: Boolean(event.data?.interrupted),
-            model: srcModel,
-            provider: srcProvider,
-            displayName: meta.displayName,
-            providerName: meta.providerName,
-          });
-          break;
-        }
-      }
-    },
-    { global: true },
-  );
-
-  ctx.on(
-    "approval/request",
-    async (req, next) => {
-      const agent = req?.agent;
-      if (!belongsToKbot(agent?.id, agent?.cwd) || clients.size === 0) {
-        return next();
-      }
-      const approvalId = crypto.randomUUID();
-      const sessionId = String(agent.id);
-      return await new Promise((resolve) => {
-        const settle = (outcome) => {
-          if (!pendingApprovals.has(approvalId)) return;
-          pendingApprovals.delete(approvalId);
-          resolve(outcome);
-        };
-        pendingApprovals.set(approvalId, settle);
-        if (req.signal) {
-          if (req.signal.aborted) {
-            settle("cancelled");
-            return;
-          }
-          req.signal.addEventListener("abort", () => settle("cancelled"), { once: true });
-        }
-        broadcast({
-          type: "approval/request",
-          approvalId,
-          sessionId,
-          callId: req.callId || null,
-          toolName: req.toolName || "tool",
-          reason: req.reason || "",
-        });
-      });
-    },
-    { global: true, prepend: true },
-  );
-
-  ctx.on(
-    "user-questions/request",
-    async (req, next) => {
-      const agent = req?.agent;
-      if (!belongsToKbot(agent?.id, agent?.cwd) || clients.size === 0) {
-        return next();
-      }
-      const questionRequestId = crypto.randomUUID();
-      const sessionId = String(agent.id);
-      const callId = req?.wait?.callId ? String(req.wait.callId) : null;
-      const timed = Boolean(req?.wait?.timed);
-      const questions = serializeQuestions(req?.questions);
-      if (questions.length === 0) {
-        return next();
-      }
-
-      const claimAbort = new AbortController();
-      const uq = getUserQuestionsSvc();
-      if (timed && callId && agent && typeof uq?.attachWait === "function") {
-        (async () => {
-          try {
-            for await (const _frame of uq.attachWait(agent, callId, claimAbort.signal)) {
-              // Keep foreground timed wait claimed while KBOT displays the question card.
-            }
-          } catch {}
-        })();
-      }
-
-      return await new Promise((resolve, reject) => {
-        const cleanup = () => {
-          const existed = pendingQuestions.delete(questionRequestId);
-          try {
-            claimAbort.abort();
-          } catch {}
-          return existed;
-        };
-        const resolveAnswer = (rawAnswers) => {
-          if (!cleanup()) return false;
-          const answers = normalizeSubmittedAnswers(questions, rawAnswers);
-          broadcast({
-            type: "question/resolved",
-            questionRequestId,
-            sessionId,
-            callId,
-            outcome: "answered",
-            answers,
-          });
-          resolve({ answers });
-          return true;
-        };
-        const rejectQuestion = (
-          code = "ASK_CANCELLED",
-          message = "the user cancelled ask_user_question",
-        ) => {
-          if (!cleanup()) return false;
-          broadcast({
-            type: "question/resolved",
-            questionRequestId,
-            sessionId,
-            callId,
-            outcome: code === "ASK_TIMED_OUT" ? "continued" : "cancelled",
-          });
-          reject(Object.assign(new Error(message), { name: "UserQuestionError", code }));
-          return true;
-        };
-
-        pendingQuestions.set(questionRequestId, {
-          questionRequestId,
-          sessionId,
-          callId,
-          timed,
-          state: "open",
-          questions,
-          resolveAnswer,
-          rejectQuestion,
-        });
-
-        if (req.signal) {
-          if (req.signal.aborted) {
-            rejectQuestion("ASK_ABORTED", "ask_user_question was aborted before the user answered");
-            return;
-          }
-          req.signal.addEventListener(
-            "abort",
-            () => {
-              rejectQuestion("ASK_ABORTED", "ask_user_question was aborted before the user answered");
-            },
-            { once: true },
-          );
-        }
-
-        broadcast({
-          type: "question/request",
-          questionRequestId,
-          sessionId,
-          callId,
-          timed,
-          state: "open",
-          questions,
-        });
-      });
-    },
-    { global: true, prepend: true },
-  );
-
-  async function getActiveSessionQuestions(sessionId) {
-    const sid = String(sessionId || "");
-    if (!sid) return [];
-    const items = [];
-    const seenCallIds = new Set();
-    for (const entry of pendingQuestions.values()) {
-      if (entry.sessionId === sid) {
-        if (entry.callId) seenCallIds.add(entry.callId);
-        items.push({
-          questionRequestId: entry.questionRequestId,
-          sessionId: sid,
-          callId: entry.callId,
-          timed: entry.timed,
-          state: entry.state || "open",
-          questions: entry.questions,
-        });
-      }
-    }
-    try {
-      const resolved = await ctx.sessionController.agents.resolveAgent(sid);
-      const agent = resolved?.agent ?? resolved;
-      const uq = getUserQuestionsSvc();
-      if (agent && !resolved?.error && typeof uq?.continued === "function") {
-        const cont = uq.continued(agent) || [];
-        for (const q of cont) {
-          const cid = q?.callId ? String(q.callId) : "";
-          if (!cid || seenCallIds.has(cid)) continue;
-          seenCallIds.add(cid);
-          items.push({
-            questionRequestId: `continued:${cid}`,
-            sessionId: sid,
-            callId: cid,
-            timed: true,
-            state: "continued",
-            questions: serializeQuestions(q.questions),
-          });
-        }
-      }
-    } catch {}
-    return items;
-  }
-
-  async function resolveCurrentModel(sessionId) {
-    try {
-      const sid = String(sessionId || "");
-      const defaultSel = getDefaultModelSvc()?.currentSelection?.() || null;
-      const defaultKey =
-        defaultSel?.provider && defaultSel?.model
-          ? `${defaultSel.provider}::${defaultSel.model}`
-          : "";
-      if (defaultKey && defaultKey !== lastObservedDefaultKey) {
-        if (lastObservedDefaultKey) {
-          manualSessionModels.clear();
-        }
-        lastObservedDefaultKey = defaultKey;
-      }
-
-      const { groups, routableProviders } = await buildRoutableCatalog();
-      if (routableProviders.size === 0) return null;
-      const res = sid ? await ctx.sessionController.agents.resolveAgent(sid) : null;
-      const agent = res?.agent ?? res;
-      if (!agent || res?.error) {
-        if (defaultSel?.model) {
-          const meta = await resolveCatalogEntry(defaultSel.provider, defaultSel.model);
-          return { ...meta, reasoningEffort: defaultSel.reasoningEffort ?? null };
-        }
-        return null;
-      }
-
-      let sel = ctx.sessionController.agents.selectionFor(agent)?.current || null;
-      const manual = manualSessionModels.get(sid) || null;
-      const isRoutable = (prov) =>
-        Boolean(prov) && (routableProviders.size === 0 || routableProviders.has(String(prov)));
-
-      let desired = null;
-      if (manual?.provider && manual?.model && isRoutable(manual.provider)) {
-        if (!sel || sel.provider !== manual.provider || sel.model !== manual.model) {
-          desired = manual;
-        }
-      } else if (
-        defaultSel?.provider &&
-        defaultSel?.model &&
-        isRoutable(defaultSel.provider) &&
-        (!sel?.model || !isRoutable(sel.provider) || (!manual && (sel.provider !== defaultSel.provider || sel.model !== defaultSel.model)))
-      ) {
-        desired = defaultSel;
-      } else if ((!sel?.model || !isRoutable(sel.provider)) && groups.length > 0 && groups[0].models.length > 0) {
-        desired = { provider: groups[0].id, model: groups[0].models[0].id };
-      }
-
-      if (desired?.provider && desired?.model) {
-        try {
-          ctx.sessionController.agents.selectForNextRequest?.(agent, {
-            provider: desired.provider,
-            model: desired.model,
-            ...(desired.reasoningEffort ? { reasoningEffort: desired.reasoningEffort } : {}),
-          });
-          sel = ctx.sessionController.agents.selectionFor(agent)?.current || desired;
-        } catch {}
-      }
-
-      if (!sel?.model) return null;
-      const meta = await resolveCatalogEntry(sel.provider, sel.model);
-      return {
-        provider: sel.provider,
-        providerName: meta?.providerName || sel.provider || null,
-        model: sel.model,
-        displayName: meta?.displayName || fallbackModelDisplayName(sel.model) || sel.model,
-        reasoningEffort: sel.reasoningEffort ?? null,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  async function ensureWorkspaceSession({ workspacePath, sessionId, createNew = false }) {
-    const resolvedPath = path.resolve(workspacePath);
-    await fsp.mkdir(resolvedPath, { recursive: true });
-    let ws = await ctx.workspaceRegistry.resolveByPath(resolvedPath);
-    if (!ws) ws = await ctx.workspaceRegistry.create(resolvedPath, "KBOT");
-    trackedPaths.add(path.resolve(ws.path));
-
-    const archived = new Set((ctx.workspaceRegistry.archivedSessionIds || []).map(String));
-    let activeSessionId = null;
-
-    if (!createNew && sessionId && ws.sessionIds.map(String).includes(String(sessionId)) && !archived.has(String(sessionId))) {
-      activeSessionId = String(sessionId);
-    }
-    if (!createNew && !activeSessionId) {
-      const existing = ws.sessionIds.map(String).find((id) => !archived.has(id));
-      if (existing) activeSessionId = existing;
-    }
-    if (!activeSessionId) {
-      const created = await ctx.sessionController.commands.create({ workspaceId: ws.id });
-      activeSessionId = String(created.sessionId);
-    }
-
-    trackedSessions.add(activeSessionId);
-    const model = await resolveCurrentModel(activeSessionId);
-    const activeQuestions = await getActiveSessionQuestions(activeSessionId);
-    return {
-      ok: true,
-      workspaceId: String(ws.id),
-      workspacePath: ws.path,
-      sessionId: activeSessionId,
-      sessionIds: ws.sessionIds.map(String).filter((id) => !archived.has(id)),
-      model,
-      pendingQuestions: activeQuestions,
-    };
-  }
-
-  const server = http.createServer(async (req, res) => {
-    try {
-      const headerToken = req.headers["x-kbot-token"];
-      if (headerToken !== token) {
-        sendJson(res, 401, { ok: false, error: "Unauthorized bridge request" });
-        return;
-      }
-      const url = new URL(req.url || "/", "http://127.0.0.1");
-
-      if (req.method === "GET" && url.pathname === "/health") {
-        sendJson(res, 200, {
-          ok: true,
-          version: BRIDGE_VERSION,
-          pid: process.pid,
-          hostKind,
-          port: server.address()?.port ?? 0,
-        });
-        return;
-      }
-
-      if (req.method === "GET" && url.pathname === "/events") {
-        res.writeHead(200, {
-          "content-type": "text/event-stream; charset=utf-8",
-          "cache-control": "no-cache, no-transform",
-          connection: "keep-alive",
-        });
-        res.write(`data: ${JSON.stringify({ type: "bridge/connected", pid: process.pid, hostKind })}\n\n`);
-        clients.add(res);
-        req.on("close", () => {
-          clients.delete(res);
-        });
-        return;
-      }
-
-      if (req.method !== "POST") {
-        sendJson(res, 405, { ok: false, error: "Method not allowed" });
-        return;
-      }
-
-      const body = await readJsonBody(req);
-
-      if (url.pathname.startsWith("/account/")) {
-        const account = getAccount();
-        if (!account) {
-          sendJson(res, 200, { ok: true, account: { supported: false } });
-          return;
-        }
-        const client = accountClient(body);
-        let view = await account.getState();
-        if (url.pathname === "/account/sign-in") {
-          const webServer = ctx.get?.("webServer") ?? ctx.webServer;
-          if (!webServer?.getOrigin) throw new Error("当前核心不支持浏览器登录，请改用内置核心");
-          view = await account.startSignIn(client, webServer.getOrigin(), "web");
-          const deadline = Date.now() + 8000;
-          while (view.attempt?.phase === "initializing" && Date.now() < deadline) {
-            await new Promise(resolve => setTimeout(resolve, 150));
-            view = await account.getState();
-          }
-          sendJson(res, 200, { ok: true, account: accountView(view), authorizeUrl: view.attempt?.phase === "waiting-browser" ? view.attempt.authorizeUrl || null : null });
-          return;
-        }
-        if (url.pathname === "/account/cancel") {
-          if (typeof body.attemptId !== "string" || !body.attemptId) throw new Error("缺少登录请求标识");
-          view = await account.cancelSignIn(body.attemptId);
-        } else if (url.pathname === "/account/sign-out") {
-          view = await account.signOut(client);
-        } else if (url.pathname === "/account/details") {
-          let profile = null, balance = null;
-          if (view.status === "credential-stored") {
-            const results = await Promise.allSettled([account.getProfile(client), account.getBalance(client)]);
-            profile = results[0].status === "fulfilled" ? results[0].value : { status: "failed" };
-            balance = results[1].status === "fulfilled" ? results[1].value : { status: "failed" };
-            view = await account.getState();
-          }
-          sendJson(res, 200, { ok: true, account: { ...accountView(view), profile, balance } });
-          return;
-        } else if (url.pathname !== "/account/state") {
-          sendJson(res, 404, { ok: false, error: "Unknown account action" });
-          return;
-        }
-        sendJson(res, 200, { ok: true, account: accountView(view) });
-        return;
-      }
-
-      if (url.pathname === "/session/ensure") {
-        const out = await ensureWorkspaceSession({
-          workspacePath: body.workspacePath,
-          sessionId: body.sessionId,
-          createNew: Boolean(body.createNew),
-        });
-        sendJson(res, 200, out);
-        return;
-      }
-
-      if (url.pathname === "/session/new") {
-        const out = await ensureWorkspaceSession({
-          workspacePath: body.workspacePath,
-          createNew: true,
-        });
-        sendJson(res, 200, out);
-        return;
-      }
-
-      if (url.pathname === "/session/prompt") {
-        const sessionId = String(body.sessionId || "");
-        if (!sessionId) {
-          sendJson(res, 400, { ok: false, error: "Missing sessionId" });
-          return;
-        }
-        trackedSessions.add(sessionId);
-        const requestId = String(body.requestId || crypto.randomUUID());
-        kbotRequestIds.add(requestId);
-        const content = [];
-        if (Array.isArray(body.images)) {
-          for (const rawImg of body.images) {
-            const img = normalizeBase64Image(rawImg);
-            if (img) content.push(img);
-          }
-        }
-        const text = typeof body.text === "string" ? body.text : "";
-        if (text.trim() || content.length === 0) {
-          content.push({ type: "text", text });
-        }
-        const source = {
-          kind: "user",
-          rpcId: requestId,
-          ...(typeof body.clientTimeZone === "string" && body.clientTimeZone
-            ? { clientTimeZone: body.clientTimeZone }
-            : {}),
-        };
-        const result = await ctx.sessionController.commands.prompt(
-          {
-            sessionId,
-            requestId,
-            mode: body.mode === "steer" ? "steer" : "followup",
-            content,
-          },
-          source,
-        );
-        sendJson(res, 200, { ok: true, sessionId, requestId, ...result });
-        return;
-      }
-
-      if (url.pathname === "/session/cancel") {
-        const sessionId = String(body.sessionId || "");
-        if (sessionId) {
-          await ctx.sessionController.commands.cancel({ sessionId });
-        }
-        sendJson(res, 200, { ok: true });
-        return;
-      }
-
-      if (url.pathname === "/approval/respond") {
-        const approvalId = String(body.approvalId || "");
-        const outcome = body.outcome === "allowed-once" ? "allowed-once" : "rejected";
-        const settle = pendingApprovals.get(approvalId);
-        if (settle) settle(outcome);
-        broadcast({ type: "approval/resolved", approvalId, outcome });
-        sendJson(res, 200, { ok: true, resolved: Boolean(settle) });
-        return;
-      }
-
-      if (url.pathname === "/question/respond") {
-        const questionRequestId = String(body.questionRequestId || "");
-        const sessionId = String(body.sessionId || "");
-        const callId = body.callId ? String(body.callId) : null;
-        const action = body.action === "cancel" ? "cancel" : "answer";
-
-        let liveEntry = questionRequestId ? pendingQuestions.get(questionRequestId) : null;
-        if (!liveEntry && callId) {
-          for (const entry of pendingQuestions.values()) {
-            if (entry.callId === callId && (!sessionId || entry.sessionId === sessionId)) {
-              liveEntry = entry;
-              break;
-            }
-          }
-        }
-
-        if (liveEntry) {
-          const resolved =
-            action === "cancel"
-              ? liveEntry.rejectQuestion("ASK_CANCELLED", "the user cancelled ask_user_question")
-              : liveEntry.resolveAnswer(body.answers);
-          sendJson(res, 200, { ok: true, resolved, mode: "live" });
-          return;
-        }
-
-        if (action === "answer" && sessionId && callId) {
-          const uq = getUserQuestionsSvc();
-          const resolvedAgent = await ctx.sessionController.agents.resolveAgent(sessionId);
-          const agent = resolvedAgent?.agent ?? resolvedAgent;
-          if (agent && !resolvedAgent?.error && typeof uq?.answer === "function") {
-            const contList = typeof uq.continued === "function" ? uq.continued(agent) || [] : [];
-            const matched = contList.find((item) => String(item?.callId || "") === callId);
-            if (matched) {
-              const answers = normalizeSubmittedAnswers(
-                serializeQuestions(matched.questions),
-                body.answers,
-              );
-              const accepted = uq.answer(agent, callId, { answers });
-              if (accepted) {
-                broadcast({
-                  type: "question/resolved",
-                  questionRequestId: questionRequestId || null,
-                  sessionId,
-                  callId,
-                  outcome: "answered",
-                  answers,
-                });
-                sendJson(res, 200, { ok: true, resolved: true, mode: "continued" });
-                return;
-              }
-            }
-          }
-        }
-
-        broadcast({
-          type: "question/resolved",
-          questionRequestId: questionRequestId || null,
-          sessionId: sessionId || null,
-          callId,
-          outcome: action === "cancel" ? "cancelled" : "answered",
-        });
-        sendJson(res, 200, { ok: true, resolved: false, mode: "stale" });
-        return;
-      }
-
-      if (url.pathname === "/sensors/update") {
-        latestSensors = body.sensors || null;
-        sendJson(res, 200, { ok: true });
-        return;
-      }
-
-      if (url.pathname === "/models/list") {
-        const { groups } = await buildRoutableCatalog();
-        const current = body.sessionId ? await resolveCurrentModel(body.sessionId) : null;
-        sendJson(res, 200, {
-          ok: true,
-          current,
-          groups,
-        });
-        return;
-      }
-
-      if (url.pathname === "/session/select-model") {
-        const sessionId = String(body.sessionId || "");
-        const provider = String(body.provider || "");
-        const model = String(body.model || "");
-        if (!provider || !model) {
-          sendJson(res, 400, { ok: false, error: "Missing provider or model" });
-          return;
-        }
-        const selected = {
-          provider,
-          model,
-          ...(body.reasoningEffort ? { reasoningEffort: String(body.reasoningEffort) } : {}),
-        };
-        if (sessionId) {
-          manualSessionModels.set(sessionId, selected);
-          try {
-            const resolved = await ctx.sessionController.agents.resolveAgent(sessionId);
-            const agent = resolved?.agent ?? resolved;
-            if (agent && !resolved?.error) {
-              ctx.sessionController.agents.selectForNextRequest?.(agent, selected);
-            }
-          } catch {}
-        }
-        try {
-          await getDefaultModelSvc()?.saveSelection?.(selected);
-          lastObservedDefaultKey = `${provider}::${model}`;
-        } catch {}
-        const meta = await resolveCatalogEntry(provider, model);
-        sendJson(res, 200, {
-          ok: true,
-          model: {
-            provider,
-            providerName: meta?.providerName || provider,
-            model,
-            displayName: meta?.displayName || fallbackModelDisplayName(model) || model,
-            reasoningEffort: selected.reasoningEffort ?? null,
-          },
-        });
-        return;
-      }
-
-      sendJson(res, 404, { ok: false, error: `Unknown bridge route: ${url.pathname}` });
-    } catch (err) {
-      sendJson(res, 500, {
-        ok: false,
-        code: err?.code || "bridge/internal",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  });
-
-  const listenOn = (port) =>
-    new Promise((resolve, reject) => {
-      const onError = (err) => {
-        server.off("listening", onListening);
-        reject(err);
-      };
-      const onListening = () => {
-        server.off("error", onError);
-        resolve(server.address().port);
-      };
-      server.once("error", onError);
-      server.once("listening", onListening);
-      server.listen(port, "127.0.0.1");
-    });
-
-  let boundPort;
-  try {
-    boundPort = await listenOn(preferredPort);
-  } catch (err) {
-    if (err?.code === "EADDRINUSE" && config.allowDynamicPort !== false) {
-      boundPort = await listenOn(0);
-    } else {
-      throw err;
-    }
-  }
-
-  const info = {
-    version: BRIDGE_VERSION,
-    pid: process.pid,
-    port: boundPort,
-    token,
-    hostKind,
-    startedAt: Date.now(),
-  };
-  await fsp.writeFile(discoveryFile, JSON.stringify(info, null, 2), { mode: 0o600 });
-
-  const heartbeat = setInterval(() => {
-    for (const res of clients) {
-      try {
-        res.write(": ping\n\n");
-      } catch {
-        clients.delete(res);
-      }
-    }
-  }, 15000);
-  heartbeat.unref?.();
-
-  let closed = false;
-  const cleanup = async () => {
-    if (closed) return;
-    closed = true;
-    clearInterval(heartbeat);
-    for (const [, settle] of pendingApprovals) {
-      try {
-        settle("cancelled");
-      } catch {}
-    }
-    pendingApprovals.clear();
-    for (const res of clients) {
-      try {
-        res.end();
-      } catch {}
-    }
-    clients.clear();
-    await new Promise((resolve) => server.close(() => resolve()));
-    try {
-      const raw = JSON.parse(fs.readFileSync(discoveryFile, "utf8"));
-      if (raw?.pid === process.pid && raw?.port === boundPort) {
-        fs.unlinkSync(discoveryFile);
-      }
-    } catch {}
-  };
-
-  ctx.effect(() => () => void cleanup(), "kbot-bridge.http");
-}
-"#;
+const KBOT_BRIDGE_MJS: &str = include_str!("../bridge/kbot-bridge.mjs");
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1840,17 +755,17 @@ async fn post_bridge(port: u16, token: &str, endpoint: &str, body: Value) -> Res
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("DSH 桥接通信失败: {e}"))?;
+        .map_err(|e| format!("智能核心通信失败: {e}"))?;
     let status = resp.status();
     let json_body: Value = resp
         .json()
         .await
-        .map_err(|e| format!("DSH 桥接返回格式异常: {e}"))?;
+        .map_err(|e| format!("智能核心返回格式异常: {e}"))?;
     if !status.is_success() || json_body.get("ok").and_then(Value::as_bool) == Some(false) {
         let msg = json_body
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("DSH 请求执行失败");
+            .unwrap_or("请求执行失败");
         return Err(msg.to_string());
     }
     Ok(json_body)
@@ -2099,9 +1014,9 @@ pub async fn dsh_ensure(
                         .map(|q| q.join(" | "))
                         .unwrap_or_default();
                     let msg = if err_tail.is_empty() {
-                        format!("DSH 托管进程提前退出 ({code})")
+                        format!("智能核心进程提前退出 ({code})")
                     } else {
-                        format!("DSH 托管进程启动失败: {err_tail}")
+                        format!("智能核心启动失败: {err_tail}")
                     };
                     if let Ok(mut g) = manager.inner.lock() {
                         g.child = None;
@@ -2114,7 +1029,7 @@ pub async fn dsh_ensure(
             }
 
             if chosen.is_none() {
-                let msg = "等待 DeepSeek Harness 桥接就绪超时，请检查本机 DSH 配置后重试。".to_string();
+                let msg = "等待智能核心就绪超时，请到设置中检查后重试。".to_string();
                 if let Ok(mut g) = manager.inner.lock() {
                     if let Some(mut c) = g.child.take() {
                         let _ = c.start_kill();
@@ -2309,10 +1224,10 @@ pub async fn dsh_request(
         return Err(format!("不支持的桥接接口: {endpoint}"));
     }
     let (port, token) = {
-        let g = manager.inner.lock().map_err(|_| "DSH 状态锁异常")?;
+        let g = manager.inner.lock().map_err(|_| "智能核心状态锁异常")?;
         match (g.status.connected, g.status.port, g.token.clone()) {
             (true, Some(p), Some(t)) => (p, t),
-            _ => return Err("DeepSeek Harness 尚未连接".into()),
+            _ => return Err("智能核心尚未连接".into()),
         }
     };
     post_bridge(port, &token, &endpoint, body).await
@@ -2546,5 +1461,14 @@ mod tests {
         assert!(KBOT_BRIDGE_MJS.contains("\"/question/respond\""));
         assert!(KBOT_BRIDGE_MJS.contains("\"user-questions/request\""));
         assert!(KBOT_BRIDGE_MJS.contains("DeepSeek-V4.1-Flash"));
+        assert!(KBOT_BRIDGE_MJS.contains("agent.model?.current"));
+        assert!(KBOT_BRIDGE_MJS.contains("agent.model?.select"));
+        assert!(KBOT_BRIDGE_MJS.contains("当前日期"));
+        assert!(KBOT_BRIDGE_MJS.contains("界面语言"));
+        assert!(KBOT_BRIDGE_MJS.contains("kbot_title_request"));
+        assert!(KBOT_BRIDGE_MJS.contains("stream/refusal"));
+        assert!(KBOT_BRIDGE_MJS.contains("sanitizeToolParametersForLlm"));
+        assert!(KBOT_BRIDGE_MJS.contains("kbot.bridge.definitionsSanitized"));
+        assert!(KBOT_BRIDGE_MJS.contains("extractSourcesFromToolResult"));
     }
 }

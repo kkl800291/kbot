@@ -21,7 +21,7 @@ export function onboarding(A: any) {
     A.off('account:state', redraw); A.off('dsh:state', redraw);
     overlay.remove(); A.emit('onboarded');
     if (openAgentSettings) A.openSettings('agent');
-    else { A.releaseWindow(); A.say('您好，我是 KBOT。从现在起，随时为您效劳。', { pri: 'mid', expr: 'happy' }); }
+    else { A.releaseWindow(); A.say('你好，我是 Kbot。有事随时找我。', { pri: 'mid', expr: 'happy' }); }
   };
   const accountSlot = h('div', { class: 'welcome-account' });
   const skip = h('button', { class: 'btn secondary', onclick: () => finish(false) }, '稍后登录');
@@ -54,9 +54,9 @@ export function onboarding(A: any) {
   const overlay = h('div', { id: 'onboarding', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'welcome-title' },
     h('div', { class: 'welcome-card' }, [
       h('div', { class: 'welcome-mark' }, energyMark(72, { palette: A.S.palette, tone: 'dark' })),
-      h('div', { class: 'welcome-eyebrow' }, '很荣幸为您效劳'),
-      h('h1', { id: 'welcome-title' }, '您好，我是 KBOT。'),
-      h('p', {}, `我是您的 AI 管家。登录后就能聊天、记住您的偏好和设置提醒。需要我时，按 ${A.S.hotkey.label} 召唤即可。`),
+      h('div', { class: 'welcome-eyebrow' }, '很高兴认识你'),
+      h('h1', { id: 'welcome-title' }, '你好，我是 Kbot。'),
+      h('p', {}, `我是你的桌面搭档。登录后就能随时对话、记事备忘和设提醒，按 ${A.S.hotkey.label} 就能呼出我。`),
       accountSlot,
       h('details', { class: 'welcome-preferences' }, [h('summary', {}, '陪伴设置（可选）'), h('div', { class: 'welcome-options' }, [
         option('senseIdle', '知道您是否离开', '只读取键鼠空闲时长，您离开时我不打扰。'),

@@ -1,4 +1,5 @@
 import { accountDescription, loginPending } from '../services/account';
+import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
 
 /* KBOT · 对话：会话数据、历史列表、消息渲染、工具授权卡、主动发言 */
 (function () {
@@ -7,12 +8,21 @@ import { accountDescription, loginPending } from '../services/account';
   const C = A.chat = { convs: [], cur: null, generating: false };
   const box = $('#messages'), hist = $('#history'), hl = $('.h-list', hist), hs = $('input', hist);
   const DAY = 86400000;
-  const EXAMPLES = [
-    '20 分钟后提醒我站起来喝口水',
-    '帮我搜索一下今天有什么值得看的科技动态',
-    '记住我平时喜欢简洁直接、少客套的回复',
-    '看看我的养成目录里现在都记了什么',
-  ];
+  let openers = null;
+  let openersPending = false;
+
+  function requestOpeners() {
+    if (openers || openersPending || !A.agent?.suggestOpeners) return;
+    openersPending = true;
+    A.agent.suggestOpeners().then(list => {
+      openersPending = false;
+      openers = Array.isArray(list) ? list.slice(0, 4) : [];
+      if (C.cur && !C.cur.messages.length && A.S.model !== 'none') C.render();
+    }).catch(() => {
+      openersPending = false;
+      openers = [];
+    });
+  }
 
   const citationLinks = (text, _citations, sources) => {
     if (!text || !Array.isArray(sources) || !sources.length) return text || '';
@@ -30,11 +40,13 @@ import { accountDescription, loginPending } from '../services/account';
   C.find = find;
 
   C.serialize = () => C.convs.filter(c => c.messages.length).map(c => ({
-    id: c.id, title: c.title, t: c.t, dshSessionId: c.dshSessionId || null,
+    id: c.id, title: c.title, titleLocked: !!c.titleLocked, titleSource: c.titleSource || null, t: c.t, dshSessionId: c.dshSessionId || null,
     messages: c.messages.map(m => {
       const o = {
-        id: m.id, role: m.role, text: m.text, time: m.time, kind: m.kind, proactive: m.proactive, via: m.via, title: m.title, error: m.error, needModelConfig: !!m.needModelConfig,
-        sources: m.sources, citations: m.citations, steps: m.steps, chips: m.chips, card: m.card, done: m.done, accountAction: m.accountAction,
+        id: m.id, role: m.role, text: m.text, time: m.time, startedAt: m.startedAt ?? null, durationMs: m.durationMs ?? null,
+        kind: m.kind, proactive: m.proactive, via: m.via, title: m.title, error: m.error, needModelConfig: !!m.needModelConfig,
+        sources: m.sources, citations: m.citations, steps: m.steps, chips: m.chips, card: m.card, done: m.done, accountAction: m.accountAction, refused: !!m.refused,
+        ...(typeof m.traceOpen === 'boolean' ? { traceOpen: m.traceOpen } : {}),
         status: m.status === 'streaming' || m.status === 'thinking' ? 'stopped' : m.status,
       };
       if (m.images) o.images = m.images.map(i => ({ src: i.src, thumb: i.thumb || i.src, ow: i.ow, oh: i.oh }));
@@ -49,11 +61,10 @@ import { accountDescription, loginPending } from '../services/account';
     if (!text) {
       const st = A.dshState;
       if (A.S.model === 'none') {
-        if (st && st.status === 'connecting') { text = '正在连接 DeepSeek Harness…'; cls = 'busy'; }
-        else { text = '未连接 DeepSeek Harness · 请检查智能核心设置'; cls = 'off'; }
+        if (st && st.status === 'connecting') { text = '正在准备智能核心…'; cls = 'busy'; }
+        else { text = '尚未就绪 · 请在设置中检查连接'; cls = 'off'; }
       } else {
-        const mode = st && st.activeMode === 'external' ? '外部 DSH' : st && st.activeMode === 'managed' ? '内置 DSH' : 'DSH';
-        text = A.dndLabel() || `已连接 ${mode} · 随时可聊`;
+        text = A.dndLabel() || '在线 · 随时可聊';
         cls = '';
       }
     }
@@ -106,6 +117,7 @@ import { accountDescription, loginPending } from '../services/account';
     } else if (text) {
       if (C.cur.messages.length) C.newConv(false);
       C.cur.title = text.slice(0, 18);
+      C.cur.titleSource = 'auto';
       C.cur.messages.push({ id: A.uid(), role: 'assistant', proactive: true, text, status: 'done', time: Date.now() });
       C.render();
       A.save();
@@ -118,13 +130,17 @@ import { accountDescription, loginPending } from '../services/account';
   // ---------- 渲染 ----------
   const ico = (n, s = 14) => A.icon(n, s);
   const abtn = (icon, title, a) => h('button', { title, 'aria-label': title, 'data-a': a, html: ico(icon) });
-  const renderText = m => MD.render(citationLinks(m.text, m.citations, m.sources) + (m.status === 'streaming' ? '\u2588' : '')).replace(/\u2588/g, '<span class="caret"></span>');
+  const renderText = m => MD.render(citationLinks(m.text, m.citations, m.sources));
 
   function emptyEl() {
+    if (!openers) requestOpeners();
+    const chips = Array.isArray(openers) && openers.length
+      ? h('div', { class: 'e-chips' }, openers.map(t => h('button', { class: 'chip', 'data-a': 'example', 'data-send': t }, t)))
+      : h('div', { class: 'e-tip' }, openers ? '直接输入你想聊的' : '正在准备开场建议…');
     return h('div', { class: 'empty' }, [
-      h('div', { class: 'e-title' }, '您好，我是 KBOT。'),
-      h('div', { class: 'e-sub' }, '智能核心由 DeepSeek Harness 驱动。查资料、看图片、记日记和记忆、设定时提醒，都可以直接吩咐我。'),
-      h('div', { class: 'e-chips' }, EXAMPLES.map(t => h('button', { class: 'chip', 'data-a': 'example', 'data-send': t }, t))),
+      h('div', { class: 'e-title' }, '你好，我是 Kbot。'),
+      h('div', { class: 'e-sub' }, '查资料、看图片、记笔记或设定时提醒，直接说就好。'),
+      chips,
     ]);
   }
   function guideEl() {
@@ -134,12 +150,12 @@ import { accountDescription, loginPending } from '../services/account';
     const pending = loginPending(A.accountState);
     const ws = st.workspacePath || (A.S.dsh && A.S.dsh.workspace) || '~/KBOT';
     return h('div', { class: 'guide' }, [
-      h('div', { class: 'e-title' }, connecting ? '正在准备智能核心…' : signedIn ? '正在检查模型连接' : '登录后，随时为您效劳。'),
+      h('div', { class: 'e-title' }, connecting ? '正在准备智能核心…' : signedIn ? '正在检查模型连接' : '登录后就可以开始使用。'),
       h('div', { class: 'e-sub' }, connecting
-        ? 'KBOT 正在启动自带的智能核心，您无需另外安装软件。'
+        ? 'KBOT 正在启动智能核心，稍候片刻即可开始。'
         : (st.error || accountDescription(A.accountState))),
       h('div', { style: 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap' }, [
-        st.connected && !signedIn ? h('button', { class: 'btn primary', 'data-a': 'account-login', disabled: pending || A.accountState?.busy || !A.native }, pending ? '等待浏览器授权…' : '登录 DeepSeek') : null,
+        st.connected && !signedIn ? h('button', { class: 'btn primary', 'data-a': 'account-login', disabled: pending || A.accountState?.busy || !A.native }, pending ? '等待浏览器授权…' : '登录账号') : null,
         !connecting && (!st.connected || signedIn) ? h('button', { class: 'btn primary', 'data-a': 'dsh-retry' }, '重新连接') : null,
         pending ? h('button', { class: 'btn', 'data-a': 'account-cancel' }, '取消登录') : null,
         h('button', { class: 'btn', 'data-a': 'cfg' }, '账号与高级设置'),
@@ -366,64 +382,152 @@ import { accountDescription, loginPending } from '../services/account';
     return el;
   }
 
-  function traceEl(m) {
+  function isTraceActive(m) {
     const steps = Array.isArray(m.steps) ? m.steps : [];
-    const toolSteps = steps.filter(s => s && s.kind !== 'note');
-    const runningStep = toolSteps.find(s => !s.done);
-    const doneCount = toolSteps.filter(s => s.done).length;
-    const totalTools = toolSteps.length;
-    const totalItems = totalTools || steps.length;
-    const active = Boolean(runningStep) || (m.status === 'thinking' && !m.text);
-    const hasPendingCard = m.card && (m.card.state === 'pending' || m.card.state === 'submitting');
-    const defaultOpen = active && !(hasPendingCard && steps.length <= 1);
-    const open = typeof m.traceOpen === 'boolean' ? m.traceOpen : defaultOpen;
+    const hasRunningStep = steps.some(s => s && s.kind !== 'note' && !s.done);
+    return hasRunningStep || m.status === 'thinking' || (m.status === 'streaming' && steps.length > 0);
+  }
 
-    let headText;
-    if (runningStep) {
-      headText = runningStep.t;
-    } else if (active) {
-      headText = '正在整理结果…';
-    } else if (totalTools === 1) {
-      headText = `已完成 · ${toolSteps[0].t}`;
-    } else if (totalTools > 1) {
-      const lastLabel = toolSteps[toolSteps.length - 1]?.t || '';
-      headText = lastLabel ? `已完成 ${totalTools} 步 · ${lastLabel}` : `已完成 ${totalTools} 步操作`;
+  function traceDefaultOpen(m) {
+    const steps = Array.isArray(m.steps) ? m.steps.filter(s => s && s.t) : [];
+    const active = isTraceActive(m);
+    const hasPendingCard = m.card && (m.card.state === 'pending' || m.card.state === 'submitting');
+    if (active) return !(hasPendingCard && steps.length <= 1);
+    return steps.length > 0 && steps.length <= 8;
+  }
+
+  function inferStepIcon(s) {
+    const valid = new Set(['think', 'globe', 'terminal', 'file', 'clock', 'sparkle', 'tool']);
+    if (s?.icon && valid.has(s.icon)) return s.icon;
+    const text = String(s?.t || '');
+    if (s?.kind === 'reasoning' || /思考/.test(text)) return 'think';
+    if (/技能/.test(text)) return 'tool';
+    if (/搜索|网页/.test(text)) return 'globe';
+    if (/命令/.test(text)) return 'terminal';
+    if (/文件|记忆|角色|日记/.test(text)) return 'file';
+    if (/定时|提醒/.test(text)) return 'clock';
+    return 'tool';
+  }
+
+  function traceGridEl() {
+    return h('span', { class: 'trace-grid', 'aria-hidden': 'true' },
+      Array.from({ length: 9 }, (_, i) => h('i', { style: `--d:${((i % 3) * 0.14 + Math.floor(i / 3) * 0.12).toFixed(2)}s` })),
+    );
+  }
+
+  let elapsedTimer = 0;
+  function syncElapsedTimer() {
+    const nodes = box.querySelectorAll('.trace.running .trace-elapsed[data-start]');
+    if (!nodes.length) {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = 0; }
+      return;
+    }
+    const update = () => {
+      const now = Date.now();
+      let alive = 0;
+      box.querySelectorAll('.trace.running .trace-elapsed[data-start]').forEach(node => {
+        const start = Number(node.dataset.start);
+        if (!Number.isFinite(start)) return;
+        alive++;
+        node.textContent = `正在执行 ${formatElapsedDuration(now - start, true)}`;
+      });
+      if (!alive && elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = 0; }
+    };
+    if (!elapsedTimer) elapsedTimer = setInterval(update, 1000);
+  }
+
+  function stepDetailText(s) {
+    if (!s || typeof s !== 'object') return '';
+    const detail = typeof s.detail === 'string' ? s.detail.trim() : '';
+    const output = typeof s.output === 'string' ? s.output.trim() : '';
+    if (detail && output) return `${detail}\n\n${s.isError ? '错误：' : '结果：'}${output}`;
+    return detail || (output ? `${s.isError ? '错误：' : '结果：'}${output}` : '');
+  }
+
+  function traceEl(m) {
+    const rawSteps = Array.isArray(m.steps) ? m.steps : [];
+    const steps = rawSteps.map((s, idx) => ({ s, idx })).filter(item => item.s && item.s.t);
+    const active = isTraceActive(m);
+    const open = typeof m.traceOpen === 'boolean' ? m.traceOpen : traceDefaultOpen(m);
+    const hasSteps = steps.length > 0;
+    const started = typeof m.startedAt === 'number' ? m.startedAt : (typeof m.time === 'number' ? m.time : Date.now());
+
+    const wrap = h('div', {
+      class: 'trace' + (open ? ' open' : '') + (active ? ' running' : ' done') + (hasSteps ? ' has-steps' : ''),
+    });
+
+    if (active) {
+      const elapsed = formatElapsedDuration(Date.now() - started, true);
+      wrap.append(h('button', {
+        type: 'button',
+        class: 'trace-head',
+        'data-a': 'trace-toggle',
+        'aria-expanded': String(open),
+        title: open ? '收起执行过程' : '展开查看执行过程',
+      }, [
+        traceGridEl(),
+        h('span', { class: 'trace-title trace-elapsed', 'data-start': String(started) }, `正在执行 ${elapsed}`),
+        hasSteps ? h('span', { class: 'trace-chev', html: ico('chevron', 13) }) : null,
+      ].filter(Boolean)));
     } else {
-      headText = '思考过程';
+      const dur = typeof m.durationMs === 'number'
+        ? m.durationMs
+        : (typeof m.startedAt === 'number' && typeof m.time === 'number' ? Math.max(0, m.time - m.startedAt) : null);
+      const durText = dur != null ? ` ${formatElapsedDuration(dur, false)}` : '';
+      const countText = !open && hasSteps ? ` · ${steps.length} 步` : '';
+      const headText = m.status === 'stopped'
+        ? `已停止${durText}${countText}`
+        : m.status === 'error'
+          ? `执行中断${durText}${countText}`
+          : `任务已完成${durText}${countText}`;
+      wrap.append(h('button', {
+        type: 'button',
+        class: 'trace-head',
+        'data-a': 'trace-toggle',
+        'aria-expanded': String(open),
+        title: open ? '收起任务过程' : '展开任务过程',
+      }, [
+        h('span', { class: 'trace-title' }, headText),
+        hasSteps ? h('span', { class: 'trace-chev', html: ico('chevron', 13) }) : null,
+      ].filter(Boolean)));
     }
 
-    const badgeText = active && totalTools > 0
-      ? `${Math.min(doneCount + 1, totalTools)}/${totalTools}`
-      : (!active && totalItems > 1 ? `${totalTools || totalItems} 步` : '');
-
-    const wrap = h('div', { class: 'trace' + (open ? ' open' : '') + (active ? ' running' : ' done') });
-    wrap.append(h('button', {
-      type: 'button',
-      class: 'trace-head',
-      'data-a': 'trace-toggle',
-      'aria-expanded': String(open),
-      title: open ? '收起任务执行过程' : '展开查看任务执行过程',
-    }, [
-      active ? h('i', { class: 'spin' }) : h('span', { class: 'trace-ok', html: ico('check', 11) }),
-      h('span', { class: 'trace-title' }, headText),
-      badgeText ? h('span', { class: 'trace-badge' }, badgeText) : null,
-      h('span', { class: 'trace-chev', html: ico('chevron', 13) }),
-    ]));
-
-    if (open) {
+    if (open && hasSteps) {
       const body = h('div', { class: 'trace-body' });
-      steps.forEach(s => {
-        if (!s || !s.t) return;
+      steps.forEach(({ s, idx }) => {
         if (s.kind === 'note') {
           body.append(h('div', { class: 'trace-note' }, [
             h('span', { class: 'tn-dot' }),
             h('span', { class: 'tn-text' }, s.t),
           ]));
         } else {
-          body.append(h('div', { class: 'trace-step' + (s.done ? ' done' : ' running') }, [
-            s.done ? h('span', { class: 'ts-ico', html: ico('check', 11) }) : h('i', { class: 'spin sm' }),
-            h('span', { class: 'ts-text' }, s.t),
-          ]));
+          const iconName = inferStepIcon(s);
+          const detailText = stepDetailText(s);
+          const hasDetail = Boolean(detailText);
+          const stepOpen = hasDetail && Boolean(s.open);
+          const rowChildren = [
+            s.done
+              ? h('span', { class: 'ts-ico', html: ico(iconName, 14) })
+              : h('span', { class: 'ts-ico spin-ico' }, [h('i', { class: 'spin sm' })]),
+            h('span', { class: 'ts-text' }, s.isError ? `${s.t}（失败）` : s.t),
+            hasDetail ? h('span', { class: 'ts-chev', html: ico('chevron', 11) }) : null,
+          ].filter(Boolean);
+          const stepRow = hasDetail
+            ? h('button', {
+                type: 'button',
+                class: 'trace-step-head',
+                'data-a': 'trace-step-toggle',
+                'data-i': String(idx),
+                'aria-expanded': String(stepOpen),
+                title: stepOpen ? '收起详情' : '点击查看详情',
+              }, rowChildren)
+            : h('div', { class: 'trace-step-head static' }, rowChildren);
+          body.append(h('div', {
+            class: 'trace-step' + (s.done ? ' done' : ' running') + (stepOpen ? ' open' : '') + (s.isError ? ' is-err' : ''),
+          }, [
+            stepRow,
+            stepOpen ? h('pre', { class: 'trace-step-detail' }, detailText) : null,
+          ].filter(Boolean)));
         }
       });
       wrap.append(body);
@@ -433,34 +537,53 @@ import { accountDescription, loginPending } from '../services/account';
 
   function assistantEl(m) {
     const el = h('div', { class: 'msg assistant', 'data-id': m.id });
-    if (m.via) el.append(h('div', { class: 'm-via' }, m.via));
-    if (m.steps && m.steps.length) {
+    const hasSteps = Boolean(m.steps && m.steps.length);
+    const showTrace = hasSteps || (m.status === 'thinking' && !m.card) || (m.status === 'streaming' && hasSteps);
+    if (showTrace) {
       el.append(traceEl(m));
     }
     const cardBeforeText =
       m.card && m.card.type === 'question' && m.card.state !== 'pending' && m.card.state !== 'submitting';
     if (cardBeforeText) el.append(cardEl(m));
-    if (m.status === 'thinking' && !(m.steps && m.steps.length) && !m.card) {
-      el.append(h('div', { class: 'typing' }, [h('i'), h('i'), h('i')]));
+    if (m.text || m.status === 'streaming') {
+      const streaming = m.status === 'streaming';
+      const mdEl = h('div', { class: 'md' + (streaming ? ' streaming' : ''), html: renderText(m) });
+      if (streaming) {
+        requestAnimationFrame(() => {
+          if (mdEl.isConnected && mdEl.classList.contains('streaming')) {
+            mdEl.classList.toggle('is-tall', mdEl.scrollHeight > 54);
+          }
+        });
+      }
+      el.append(mdEl);
     }
-    if (m.text || m.status === 'streaming') el.append(h('div', { class: 'md', html: renderText(m) }));
-    if (m.sources && m.sources.length) {
-      el.append(h('div', { class: 'sources' }, [
-        h('div', { class: 's-title' }, `来源 · ${m.sources.length}`),
-        ...m.sources.map((s, i) => h('a', { class: 'src', href: s.url, target: '_blank', rel: 'noopener noreferrer' }, [h('b', {}, String(i + 1)), h('span', { class: 's-t' }, s.title), h('span', { class: 's-d' }, s.site)])),
-      ]));
+    const sourceLinks = summarizeSourceLinks(m.sources);
+    if (sourceLinks.length) {
+      const nodes = [h('span', { class: 's-label' }, '来源：')];
+      sourceLinks.forEach((s, idx) => {
+        if (idx > 0) nodes.push(h('span', { class: 's-sep' }, '、'));
+        nodes.push(h('a', {
+          class: 'src-link',
+          href: s.url,
+          title: s.title,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        }, s.label));
+      });
+      el.append(h('div', { class: 'sources-inline' }, nodes));
     }
     if (m.chips && m.chips.length && C.cur.messages[C.cur.messages.length - 1] === m) {
       el.append(h('div', { class: 'chips' }, m.chips.map(c => h('button', { class: 'chip', 'data-a': 'chip', 'data-send': c.send }, c.label))));
     }
     if (m.card && !cardBeforeText) el.append(cardEl(m));
+    if (m.refused && m.status === 'done') el.append(h('div', { class: 'm-status' }, '模型未回答这条请求'));
     if (m.status === 'stopped') el.append(h('div', { class: 'm-status' }, '已停止生成'));
     if (m.status === 'error') {
       el.append(h('div', { class: 'm-status err' }, [
         h('span', {}, m.error || '回复中断，已保留已输出的内容'),
         h('span', { style: 'display:inline-flex;gap:6px;flex-shrink:0;align-items:center' }, [
           m.needModelConfig ? h('button', { class: 'btn sm primary', 'data-a': 'dsh-console' }, '配置模型') : null,
-          m.accountAction === 'sign-in' ? h('button', { class: 'btn sm primary', 'data-a': 'account-login' }, '登录 DeepSeek') : null,
+          m.accountAction === 'sign-in' ? h('button', { class: 'btn sm primary', 'data-a': 'account-login' }, '登录账号') : null,
           m.accountAction === 'top-up' ? h('button', { class: 'btn sm primary', 'data-a': 'account-top-up' }, '充值额度') : null,
           h('button', { class: 'btn sm', 'data-a': 'retry' }, '重试'),
         ].filter(Boolean)),
@@ -501,6 +624,7 @@ import { accountDescription, loginPending } from '../services/account';
     else if (!c.messages.length) box.append(emptyEl());
     else c.messages.forEach(m => box.append(msgEl(m)));
     if (c.messages.length) toBottom(); else box.scrollTo({ top: 0, behavior: 'auto' });
+    syncElapsedTimer();
     if (!C.generating) C.status();
     if (C.refreshComposer) C.refreshComposer();
   };
@@ -508,19 +632,39 @@ import { accountDescription, loginPending } from '../services/account';
     const near = nearBottom();
     const first = box.querySelector('.empty, .guide'); if (first) first.remove();
     box.append(msgEl(m));
+    syncElapsedTimer();
     if (near || m.role === 'user') toBottom();
   };
   // 每次重画一条消息都广播出去，召唤态的字幕跟着它走
   C.paint = m => {
     A.emit('chat:msg', m);
     const el = box.querySelector(`[data-id="${m.id}"]`); if (!el) return;
-    const near = nearBottom(); el.replaceWith(msgEl(m)); if (near) toBottom();
+    const near = nearBottom(); el.replaceWith(msgEl(m)); syncElapsedTimer(); if (near) toBottom();
+  };
+  C.paintTrace = m => {
+    const el = elOf(m.id), oldTrace = el && el.querySelector(':scope > .trace');
+    if (!oldTrace) return C.paint(m);
+    const oldBody = oldTrace.querySelector('.trace-body');
+    const bodyScroll = oldBody ? oldBody.scrollTop : 0;
+    A.emit('chat:msg', m);
+    const near = nearBottom();
+    const nextTrace = traceEl(m);
+    oldTrace.replaceWith(nextTrace);
+    const newBody = nextTrace.querySelector('.trace-body');
+    if (newBody && bodyScroll > 0) newBody.scrollTop = bodyScroll;
+    syncElapsedTimer();
+    if (near) toBottom();
   };
   C.paintText = m => {
     const el = elOf(m.id), md = el && el.querySelector(':scope > .md');
     if (!md) return C.paint(m);
     A.emit('chat:msg', m);
-    const near = nearBottom(); md.innerHTML = renderText(m); if (near) toBottom();
+    const near = nearBottom();
+    const streaming = m.status === 'streaming';
+    md.classList.toggle('streaming', streaming);
+    md.innerHTML = renderText(m);
+    md.classList.toggle('is-tall', streaming && md.scrollHeight > 54);
+    if (near) toBottom();
   };
   /** 滚到某条消息的开头（从召唤态的“查看全文”进来时用）。 */
   C.reveal = id => {
@@ -605,6 +749,20 @@ import { accountDescription, loginPending } from '../services/account';
     }
   }
 
+  // 召唤态字幕里的快捷操作：不打开窗口也能批准工具、回答选项题
+  C.approve = (m, allow) => cardAction(m, allow ? 'allow-once' : 'deny');
+  C.answerOption = (m, label) => {
+    const c = m?.card;
+    if (!c || c.type !== 'question' || c.state !== 'pending') return;
+    const curQ = c.questions?.[c.index || 0];
+    if (!curQ || curQ.multiSelect) return;
+    c.drafts = c.drafts || {};
+    c.drafts[curQ.id] = { selected: [label], custom: '', skipped: false };
+    advanceOrSubmitQuestion(m, false);
+  };
+  C.cancelQuestion = m => cancelQuestionCard(m);
+  C.optLabel = opt => opt.displayLabel || cleanOptLabel(opt.label);
+
   box.addEventListener('input', e => {
     const ta = e.target.closest('.q-input');
     if (!ta) return;
@@ -663,13 +821,17 @@ import { accountDescription, loginPending } from '../services/account';
     else if (a === 'img' && m) A.lightbox(m.images[+t.dataset.i].src);
     else if (a === 'chip' || a === 'example') C.send(t.dataset.send, []);
     else if (a === 'trace-toggle' && m) {
-      const steps = Array.isArray(m.steps) ? m.steps : [];
-      const active = steps.some(s => s && s.kind !== 'note' && !s.done) || (m.status === 'thinking' && !m.text);
-      const hasPendingCard = m.card && (m.card.state === 'pending' || m.card.state === 'submitting');
-      const defaultOpen = active && !(hasPendingCard && steps.length <= 1);
-      const curOpen = typeof m.traceOpen === 'boolean' ? m.traceOpen : defaultOpen;
+      const curOpen = typeof m.traceOpen === 'boolean' ? m.traceOpen : traceDefaultOpen(m);
       m.traceOpen = !curOpen;
-      C.paint(m);
+      C.paintTrace(m);
+      A.save();
+    }
+    else if (a === 'trace-step-toggle' && m) {
+      const step = m.steps?.[+t.dataset.i];
+      if (!step) return;
+      step.open = !step.open;
+      C.paintTrace(m);
+      A.save();
     }
     else if (a === 'q-opt' && m && m.card?.type === 'question' && m.card.state === 'pending') {
       const c = m.card;
@@ -740,6 +902,7 @@ import { accountDescription, loginPending } from '../services/account';
       ])));
     });
   }
+  C.refreshHistory = () => { if (hist.classList.contains('open')) renderHistory(); };
   hs.addEventListener('input', renderHistory);
   hl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('h-item')) C.switchTo(e.target.dataset.id); });
   hl.addEventListener('click', e => {
@@ -749,7 +912,7 @@ import { accountDescription, loginPending } from '../services/account';
     if (act.dataset.h === 'del') { C.deleteConv(c.id); return; }
     const span = $('span', it), inp = h('input', { class: 'h-rename', value: c.title, maxlength: '40' });
     let finished = false;
-    const done = ok => { if (finished) return; finished = true; if (ok && inp.value.trim()) { c.title = inp.value.trim(); A.save(); } renderHistory(); };
+    const done = ok => { if (finished) return; finished = true; if (ok && inp.value.trim()) { c.title = inp.value.trim(); c.titleLocked = true; c.titleSource = 'manual'; A.save(); } renderHistory(); };
     span.replaceWith(inp); inp.focus(); inp.select();
     inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') done(true); else if (ev.key === 'Escape') { ev.stopPropagation(); done(false); } });
     inp.addEventListener('blur', () => done(true));

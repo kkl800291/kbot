@@ -21,10 +21,11 @@ describe('butler persona', () => {
     expect(personaHint('warm')).toBe(personaHint('gentle'));
   });
 
-  it('reads replies in a butler tone that follows the persona', () => {
+  it('reads replies in a partner tone that follows the persona and preserves Kbot pronunciation', () => {
     const S = { persona: 'witty', voice: { enabled: true, hasKey: true, style: '' } };
     expect(speechPlan(S, '好的。').mimo?.style).toBe(personaVoiceStyle('lively'));
-    expect(personaVoiceStyle('quiet')).toContain('管家');
+    expect(personaVoiceStyle('quiet')).toContain('搭档');
+    expect(personaVoiceStyle('quiet')).toContain('Kbot');
   });
 
   it('addresses the user as 您 unless a nickname is set', () => {

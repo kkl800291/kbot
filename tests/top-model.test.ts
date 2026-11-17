@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
   arrival, barTarget, captionOf, contentSize, createNoteQueue, energyMode, energyPlacement, gazeAt, hotkeyRoute, inHotzone, layout,
-  plainText, settleState, shouldAutoClose, shouldWait, SPEECH_TTL, SUMMON, SUMMON_IDLE, talkMs, WIN,
+  plainText, settleState, shouldAutoClose, shouldWait, SPEECH_TTL, SUMMON, SUMMON_IDLE, shouldStartFresh, talkMs, waitLine, WIN,
 } from '../src/ui/top-model.js';
+
+describe('summon fresh conversation', () => {
+  it('starts over only after a long enough pause', () => {
+    const base = { lastTime: 1_000_000, afterMin: 30 };
+    expect(shouldStartFresh({ ...base, now: 1_000_000 + 10 * 60_000 })).toBe(false);
+    expect(shouldStartFresh({ ...base, now: 1_000_000 + 31 * 60_000 })).toBe(true);
+    expect(shouldStartFresh({ ...base, now: 1_000_000 + 31 * 60_000, generating: true })).toBe(false);
+    expect(shouldStartFresh({ ...base, afterMin: 0, now: 1_000_000 + 999 * 60_000 })).toBe(false);
+    expect(shouldStartFresh({ lastTime: NaN, afterMin: 30, now: 5 })).toBe(false);
+  });
+});
+
+describe('summon wait line', () => {
+  it('adds elapsed time, then suggests stopping when the wait drags on', () => {
+    expect(waitLine(1200)).toBe('正在思考…');
+    expect(waitLine(7400)).toBe('正在思考… 7 秒');
+    expect(waitLine(26000)).toBe('还在等回复… 26 秒，太久可以点右侧停止');
+  });
+});
 
 describe('top layout', () => {
   it('sizes each state as in the design', () => {
@@ -14,7 +33,6 @@ describe('top layout', () => {
     expect(contentSize('note')).toEqual([440, 116]);
     expect(contentSize('summon')).toEqual([1100, 506]);
     expect(contentSize('chat')).toEqual([540, 440]);
-    expect(contentSize('chat', { expanded: true })).toEqual([760, 620]);
   });
 
   it('grows the standby content with its caption up to 646 tall', () => {
@@ -40,24 +58,34 @@ describe('top layout', () => {
     expect(s.box).toEqual([56, 58, 888, 360]);
     expect(s.energyOffset).toEqual({ x: 0, y: 17 });
     expect(s.band).toBeNull();
-    expect(layout('chat').box).toEqual([240, 16, 40, 40]);
-    expect(layout('chat', { expanded: true }).box).toEqual([130, 16, 40, 40]);
+    expect(layout('chat').box).toEqual([240, 157, 40, 40]);
+    expect(layout('chat', { expanded: true }).content).toEqual({ x: 10, y: 10, w: 980, h: 720 });
     expect(layout('peek').box).toEqual([340, 17, 26, 26]);
     expect(layout('compact', { act: { kind: 'talk' } }).box).toEqual([370, 17, 26, 26]);
   });
 
+  it('opens the chat in the middle and fills the screen after it is expanded', () => {
+    const frame = { x: 10, y: 42, w: 980, h: 688 };
+    const normal = layout('chat', { safeTop: 32 });
+    expect(normal.content).toEqual({ x: frame.x + (frame.w - 540) / 2, y: frame.y + (frame.h - 440) / 2, w: 540, h: 440 });
+    const bounds = { x: -212, y: 40, w: 1424, h: 852 };
+    const full = layout('chat', { expanded: true, safeTop: 32, bounds, chatOffset: { x: 80, y: 120 } });
+    expect(full.content).toEqual(bounds);
+    expect(full.energyOffset).toEqual({ x: 0, y: 0 });
+  });
+
   it('moves the chat, backdrop and avatar target together, keeping other states anchored', () => {
     const chatOffset = { x: 300, y: 180 };
-    for (const expanded of [false, true]) {
-      const before = layout('chat', { expanded, safeTop: 32 });
-      const moved = layout('chat', { expanded, safeTop: 32, chatOffset });
-      expect(moved.content).toEqual({ ...before.content, x: before.content.x + 300, y: before.content.y + 180 });
-      expect(moved.halo).toEqual({ ...before.halo, x: before.halo.x + 300, y: before.halo.y + 180 });
-      expect(moved.box).toEqual(before.box);
-      expect(moved.energyOffset).toEqual(chatOffset);
-      expect(moved.box[0] + moved.energyOffset.x).toBe(moved.content.x + 10);
-      expect(moved.box[1] + moved.energyOffset.y).toBe(moved.content.y + 6);
-    }
+    const before = layout('chat', { safeTop: 32 });
+    const moved = layout('chat', { safeTop: 32, chatOffset });
+    expect(moved.content).toEqual({ ...before.content, x: before.content.x + 300, y: before.content.y + 180 });
+    expect(moved.halo).toEqual({ ...before.halo, x: before.halo.x + 300, y: before.halo.y + 180 });
+    expect(moved.box).toEqual(before.box);
+    expect(moved.energyOffset).toEqual(chatOffset);
+    expect(moved.box[0] + moved.energyOffset.x).toBe(moved.content.x + 10);
+    expect(moved.box[1] + moved.energyOffset.y).toBe(moved.content.y + 7);
+    const expanded = layout('chat', { expanded: true, safeTop: 32, chatOffset });
+    expect(expanded.content).toEqual(layout('chat', { expanded: true, safeTop: 32 }).content);
     for (const state of ['hidden', 'peek', 'compact', 'note', 'summon']) {
       expect(layout(state, { chatOffset })).toEqual(layout(state));
     }
@@ -68,7 +96,7 @@ describe('top layout', () => {
       for (const chatOffset of [{ x: 420, y: 360 }, { x: -600, y: 100 }]) {
         const L = layout('chat', { chatOffset });
         const placed = energyPlacement(L, origin);
-        expect(placed.box).toEqual([origin.x + L.content.x + 10, origin.y + L.content.y + 6, 40, 40]);
+        expect(placed.box).toEqual([origin.x + L.content.x + 10, origin.y + L.content.y + 7, 40, 40]);
         expect(placed.band).toBeNull();
       }
     }
@@ -84,20 +112,19 @@ describe('top layout', () => {
 
   it('keeps a dragged or expanded chat inside the screen, including outside the fixed stage', () => {
     const bounds = { x: -212, y: 40, w: 1424, h: 852 };
-    for (const expanded of [false, true]) {
-      const base = layout('chat', { expanded, safeTop: 32 });
-      const left = layout('chat', { expanded, safeTop: 32, chatOffset: { x: -9999, y: -9999 }, bounds });
-      expect(left.content).toEqual({ ...base.content, x: bounds.x, y: bounds.y });
-      const right = layout('chat', { expanded, safeTop: 32, chatOffset: { x: 9999, y: 9999 }, bounds });
-      expect(right.content.x + right.content.w).toBe(bounds.x + bounds.w);
-      expect(right.content.y + right.content.h).toBe(bounds.y + bounds.h);
-      expect(right.box).toEqual(base.box);
-      expect(right.halo).toMatchObject(right.content);
-      for (const moved of [left, right]) {
-        expect(moved.box[0] + moved.energyOffset.x).toBe(moved.content.x + 10);
-        expect(moved.box[1] + moved.energyOffset.y).toBe(moved.content.y + 6);
-      }
+    const base = layout('chat', { safeTop: 32 });
+    const left = layout('chat', { safeTop: 32, chatOffset: { x: -9999, y: -9999 }, bounds });
+    expect(left.content).toEqual({ ...base.content, x: bounds.x, y: bounds.y });
+    const right = layout('chat', { safeTop: 32, chatOffset: { x: 9999, y: 9999 }, bounds });
+    expect(right.content.x + right.content.w).toBe(bounds.x + bounds.w);
+    expect(right.content.y + right.content.h).toBe(bounds.y + bounds.h);
+    expect(right.box).toEqual(layout('chat', { safeTop: 32, bounds }).box);
+    expect(right.halo).toMatchObject(right.content);
+    for (const moved of [left, right]) {
+      expect(moved.box[0] + moved.energyOffset.x).toBe(moved.content.x + 10);
+      expect(moved.box[1] + moved.energyOffset.y).toBe(moved.content.y + 7);
     }
+    expect(layout('chat', { expanded: true, bounds, chatOffset: { x: 9999, y: 9999 } }).content).toEqual(bounds);
     const small = layout('chat', { bounds: { x: 8, y: 8, w: 300, h: 300 }, chatOffset: { x: 500, y: 500 } });
     expect(small.content).toMatchObject({ x: 8, y: 8 });
   });
@@ -220,13 +247,14 @@ describe('top summon and routing', () => {
     expect(settleState({ kind: 'think', source: 'agent', surface: 'summon' })).toBe('compact');
   });
 
-  it('auto-closes summon 30s after a reply only when nobody is hovering, typing or waiting', () => {
-    const base = { idle: SUMMON_IDLE, hovering: false, empty: true, generating: false };
+  it('auto-closes summon 30s after a reply only when nobody is hovering, typing, speaking or waiting', () => {
+    const base = { idle: SUMMON_IDLE, hovering: false, empty: true, generating: false, voiceActive: false };
     expect(shouldAutoClose(base)).toBe(true);
     expect(shouldAutoClose({ ...base, idle: SUMMON_IDLE - 1 })).toBe(false);
     expect(shouldAutoClose({ ...base, hovering: true })).toBe(false);
     expect(shouldAutoClose({ ...base, empty: false })).toBe(false);
     expect(shouldAutoClose({ ...base, generating: true })).toBe(false);
+    expect(shouldAutoClose({ ...base, voiceActive: true })).toBe(false);
   });
 });
 

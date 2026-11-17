@@ -2,16 +2,36 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSubmittedAnswersFromCard,
   classifyFrontmostApp,
+  classifyToolStep,
   createExpressionStreamParser,
   createQuestionCardState,
   extractExpressions,
+  formatElapsedDuration,
   formatModelDisplayName,
+  formatReasoningEffortLabel,
+  formatToolStepDetail,
   formatToolStepLabel,
+  buildDesktopSensorSnapshot,
+  chooseSessionTitle,
+  createSessionTitleFilter,
+  extractSessionTitle,
+  formatDesktopWhen,
+  isRefusalSignal,
+  mergeChatSources,
   normalizeDshError,
+  parseOpeners,
+  shouldRefreshSessionTitle,
+  suggestSessionTitle,
+  summarizeSourceLinks,
   parseRecommendedOptionLabel,
   summarizeReplyForBubble,
 } from '../src/services/agent';
-import { buildDueProactiveEvents, dayKey, parseClock } from '../src/services/proactive';
+import {
+  buildDueProactiveEvents,
+  dayKey,
+  nextRoutineRemainingMinutes,
+  parseClock,
+} from '../src/services/proactive';
 import { summarizeUpdateNotes } from '../src/services/updater';
 
 describe('DSH expression parser and desktop sensor helpers', () => {
@@ -45,6 +65,29 @@ describe('DSH expression parser and desktop sensor helpers', () => {
       fired: { water: true },
       active: true,
     }).some(event => event.key === 'water')).toBe(false);
+
+    // Repeating water/eye intervals continue to fire on subsequent cycles and report remaining time.
+    const quietNow = new Date(2026, 10, 12, 14, 0).getTime();
+    const routineSettings = { aiCompanion: true, params: { waterEvery: 45, eyeEvery: 20 } };
+    expect(buildDueProactiveEvents({
+      now: quietNow,
+      activeMinutes: 40,
+      settings: routineSettings,
+      lastRoutineMinutes: { eye: 20 },
+      active: true,
+    }).map(event => event.key)).toEqual(['eye']);
+    expect(buildDueProactiveEvents({
+      now: quietNow,
+      activeMinutes: 90,
+      settings: routineSettings,
+      lastRoutineMinutes: { water: 45, eye: 80 },
+      active: true,
+    }).map(event => event.key)).toEqual(['water']);
+    expect(nextRoutineRemainingMinutes({
+      settings: routineSettings,
+      activeMinutes: 50,
+      lastRoutineMinutes: { water: 45, eye: 40 },
+    })).toBe(10);
   });
   it('strips inline expression tags while keeping non-expression brackets and code blocks intact', () => {
     const raw = '[happy] 早安呀！参考链接 [1] 和数组 `arr[0]`：\n```ts\nconst tag = "[wink]";\n```\n最后祝你顺利 [wink]';
@@ -181,10 +224,22 @@ describe('DSH expression parser and desktop sensor helpers', () => {
     ]);
   });
 
+  it('keeps at most four short opener lines from a model reply', () => {
+    const raw = '1. 看看今天的日程\n2. 「帮我记下一件待办」\n- 太长的一条建议不应该被收进来因为超过了三十二个字的限制所以要丢掉\n3. 看看今天的日程\n4. 整理一下养成目录\n5. 提醒我下午喝水';
+    expect(parseOpeners(raw)).toEqual(['看看今天的日程', '帮我记下一件待办', '整理一下养成目录', '提醒我下午喝水']);
+    expect(parseOpeners('没有可用的建议')).toEqual(['没有可用的建议']);
+  });
+
   it('maps raw DSH model IDs to friendly display names while respecting catalog displayName', () => {
     expect(formatModelDisplayName('deepseek-flash')).toBe('DeepSeek-V4.1-Flash');
     expect(formatModelDisplayName('deepseek-chat')).toBe('DeepSeek-V3.2');
     expect(formatModelDisplayName('deepseek-reasoner')).toBe('DeepSeek-R1');
+    expect(formatReasoningEffortLabel('off')).toBe('不思考');
+    expect(formatReasoningEffortLabel('low')).toBe('低');
+    expect(formatReasoningEffortLabel('medium')).toBe('中');
+    expect(formatReasoningEffortLabel('high')).toBe('高');
+    expect(formatReasoningEffortLabel('max')).toBe('最高');
+    expect(formatReasoningEffortLabel('custom', 'Custom')).toBe('Custom');
     expect(formatModelDisplayName('custom-id', 'Claude Sonnet 4.6')).toBe('Claude Sonnet 4.6');
   });
 
@@ -217,5 +272,98 @@ describe('DSH expression parser and desktop sensor helpers', () => {
     const networkErr = normalizeDshError('Connection reset by peer');
     expect(networkErr.needModelConfig).toBe(false);
     expect(networkErr.message).toBe('Connection reset by peer');
+  });
+
+  it('tells the model the date, local time, city and interface language', () => {
+    const when = formatDesktopWhen(new Date('2026-11-16T02:07:00Z'), 'Asia/Shanghai');
+    expect(when.date).toContain('2026年11月16日');
+    expect(when.date).toContain('星期一');
+    expect(when.time).toBe('10:07');
+    const snap = buildDesktopSensorSnapshot({
+      now: new Date('2026-11-16T02:07:00Z'),
+      timeZone: 'Asia/Shanghai',
+      city: '上海',
+      weather: '上海，晴',
+      language: '简体中文',
+    });
+    expect(snap.city).toBe('上海');
+    expect(snap.language).toBe('简体中文');
+    expect(snap.timeZone).toBe('Asia/Shanghai');
+    expect(snap.date).toBe(when.date);
+  });
+
+  it('replaces the provisional title once, and keeps a manual rename', () => {
+    expect(suggestSessionTitle('帮我查一下明天上海的天气')).toBe('查一下明天上海的天气');
+    expect(chooseSessionTitle('查天气', '帮我查一下明天上海的天气')).toBe('查天气');
+    const conv = { title: '帮我查一下明天上海的', titleSource: 'auto', messages: [{ role: 'user', id: 'u1' }] };
+    expect(shouldRefreshSessionTitle(conv, { id: 'u1' })).toBe(true);
+    expect(shouldRefreshSessionTitle(conv, { id: 'u2' })).toBe(false);
+    expect(shouldRefreshSessionTitle({ ...conv, titleLocked: true }, { id: 'u1' })).toBe(false);
+    expect(shouldRefreshSessionTitle({ title: '旧对话', messages: [{ role: 'user', id: 'u1' }] }, { id: 'u1' })).toBe(false);
+  });
+
+  it('hides a split session-title tag and keeps expression tags', () => {
+    let titled = '';
+    const filter = createSessionTitleFilter(title => { titled = title; });
+    const visible = filter.push('好的。[[ti') + filter.push('tle:查天气]]');
+    expect(visible + filter.flush()).toBe('好的。');
+    expect(titled).toBe('查天气');
+    expect(extractSessionTitle('[happy] 已记下\n[[title:记日程]]')).toEqual({ text: '[happy] 已记下\n', title: '记日程' });
+  });
+
+  it('recognizes a model refusal without treating ordinary errors as one', () => {
+    expect(isRefusalSignal({ reason: 'refusal' })).toBe(true);
+    expect(isRefusalSignal({ code: 'content_filter' })).toBe(true);
+    expect(isRefusalSignal({ refusal: true })).toBe(true);
+    expect(isRefusalSignal({ message: 'Connection reset by peer' })).toBe(false);
+  });
+
+  it('classifies tool steps, formats elapsed durations, and summarizes inline web sources', () => {
+    expect(formatToolStepLabel('web_search', { queries: ['英伟达市值'] })).toBe('搜索「英伟达市值」');
+    expect(formatToolStepLabel('skill', { name: 'web-search' })).toBe('使用技能: web-search');
+
+    expect(classifyToolStep('skill', { name: 'web-search' })).toEqual({
+      icon: 'tool',
+      t: '使用技能: web-search',
+      doneT: '已使用技能: web-search',
+    });
+    expect(classifyToolStep('bash', { command: 'ls -la' })).toEqual({
+      icon: 'terminal',
+      t: '执行命令 · ls',
+      doneT: '已执行命令 · ls',
+    });
+    expect(classifyToolStep('web_search', { queries: ['英伟达'] }).icon).toBe('globe');
+    expect(classifyToolStep('read_file', { path: 'MEMORY.md' }).doneT).toBe('已读取长期记忆 MEMORY.md');
+    expect(formatToolStepDetail('bash', { command: 'open -a DingTalk', description: '打开钉钉' })).toBe(
+      '打开钉钉\n$ open -a DingTalk',
+    );
+    expect(formatToolStepDetail('web_search', { queries: ['成都天气', '降雨概率'] })).toBe(
+      '搜索：成都天气\n搜索：降雨概率',
+    );
+    expect(classifyToolStep('mcp_load', { server: 'rea' })).toMatchObject({ t: '加载外部工具 · rea', doneT: '已加载外部工具' });
+    expect(classifyToolStep('mcp__rea__read_binary', {})).toMatchObject({ icon: 'tool', t: '调用 rea · read_binary', doneT: '已调用 rea · read_binary' });
+    expect(formatToolStepDetail('mcp__rea__read_binary', { path: '/tmp/a' })).toBe('{\n  "path": "/tmp/a"\n}');
+    expect(formatToolStepDetail('web_fetch', { url: 'https://example.com/news' })).toBe(
+      '网址：https://example.com/news',
+    );
+
+    expect(formatElapsedDuration(400, true)).toBe('0 秒');
+    expect(formatElapsedDuration(400, false)).toBe('1 秒');
+    expect(formatElapsedDuration(23400, false)).toBe('23 秒');
+    expect(formatElapsedDuration(75000, false)).toBe('1 分 15 秒');
+
+    const merged = mergeChatSources(
+      [{ url: 'https://xueqiu.com/S/NVDA', title: '英伟达 - 雪球', site: 'xueqiu.com' }],
+      [
+        { url: 'https://xueqiu.com/S/NVDA', title: '英伟达 - 雪球', site: 'xueqiu.com' },
+        { url: 'https://xueqiu.com/post/2', title: '雪球讨论', site: 'xueqiu.com' },
+        { url: 'https://quote.eastmoney.com/nvda.html', title: '英伟达行情 - 东方财富', site: 'quote.eastmoney.com' },
+      ],
+    );
+    expect(merged).toHaveLength(3);
+    expect(summarizeSourceLinks(merged)).toEqual([
+      { url: 'https://xueqiu.com/S/NVDA', label: '雪球', title: '英伟达 - 雪球' },
+      { url: 'https://quote.eastmoney.com/nvda.html', label: '东方财富', title: '英伟达行情 - 东方财富' },
+    ]);
   });
 });

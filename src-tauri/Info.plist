@@ -4,4 +4,6 @@
   <key>LSUIElement</key><false/>
   <key>NSCalendarsFullAccessUsageDescription</key><string>读取日历中的会议时间，在会议中保持安静，并提前提醒你。不会修改你的日历。</string>
   <key>NSCalendarsUsageDescription</key><string>读取会议时间，以便提前提醒并自动勿扰。</string>
+  <key>NSMicrophoneUsageDescription</key><string>把你说的话转成输入框里的文字。声音只在这台 Mac 上识别，不会发给对话模型。</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>在本机把语音转成文字，填入对话输入框。不会自动发送，也不会把声音发给对话模型。</string>
 </dict></plist>

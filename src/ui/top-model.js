@@ -25,7 +25,7 @@ export const GAZE_R = 420;
  * @param {string} state
  * @param {LayoutOpts} [opts]
  */
-export function contentSize(state, { act = null, expanded = false, caption = 0 } = {}) {
+export function contentSize(state, { act = null, caption = 0 } = {}) {
   if (state === 'peek') return [340, 40];
   if (state === 'compact') {
     if (act?.kind === 'task') return [340, 52];
@@ -33,8 +33,27 @@ export function contentSize(state, { act = null, expanded = false, caption = 0 }
   }
   if (state === 'note') return [440, 116];
   if (state === 'summon') return [SUMMON.w, Math.min(SUMMON.max, SUMMON.h + Math.max(0, Math.round(caption)))];
-  if (state === 'chat') return expanded ? [760, 620] : [540, 440];
+  if (state === 'chat') return [540, 440];
   return [300, 0];
+}
+
+/** 对话窗口可活动的屏幕范围。传入 bounds 时用它，否则用视口减去顶边和四周留白。 */
+export function chatFrame({ safeTop = 0, bounds, viewport = { x: 0, y: 0, w: WIN.w, h: WIN.h } } = {}) {
+  if (bounds) return bounds;
+  return {
+    x: viewport.x + GAP,
+    y: viewport.y + GAP + safeTop,
+    w: Math.max(0, viewport.w - GAP * 2),
+    h: Math.max(0, viewport.h - GAP * 2 - safeTop),
+  };
+}
+
+/** 未放大时，对话窗口在可活动范围内水平、垂直居中。 */
+export function chatRest(w, h, frame) {
+  return {
+    x: frame.x + Math.max(0, (frame.w - w) / 2),
+    y: frame.y + Math.max(0, (frame.h - h) / 2),
+  };
 }
 
 /**
@@ -47,7 +66,7 @@ export function energyBox(state, c) {
     const w = Math.min(960, c.w - 64), h = Math.min(360, Math.max(100, c.h - 146));
     return [c.x + (c.w - w) / 2, c.y + 16, w, h];
   }
-  if (state === 'chat') return [c.x + 10, c.y + 6, 40, 40];
+  if (state === 'chat') return [c.x + 10, c.y + 7, 40, 40];
   if (state === 'note') return [c.x + 14, c.y + 14, 88, 88];
   return [c.x + 10, c.y + 7, 26, 26];
 }
@@ -71,7 +90,12 @@ export const SUMMON_CARD = { x: 120, y: 320, w: 520, input: 48, r: 24 };
  * @param {LayoutOpts} [opts]
  */
 export function layout(state, { act = null, expanded = false, safeTop = 0, caption = 0, chatOffset = { x: 0, y: 0 }, bounds, viewport = { x: 0, y: 0, w: WIN.w, h: WIN.h } } = {}) {
-  let [w, h] = contentSize(state, { act, expanded, caption });
+  let [w, h] = contentSize(state, { act, caption });
+  const frame = chatFrame({ safeTop, bounds, viewport });
+  if (state === 'chat' && expanded) {
+    w = frame.w;
+    h = frame.h;
+  }
   let summon = null, summonTop = 0;
   if (state === 'summon') {
     w = Math.min(w, Math.max(280, viewport.w - 48));
@@ -84,11 +108,13 @@ export function layout(state, { act = null, expanded = false, safeTop = 0, capti
     summon = { inputY, captionMax };
     h = inputY + SUMMON.input + SUMMON.bottom + Math.min(captionMax, Math.max(0, Math.round(caption)));
   }
-  const content = { x: (WIN.w - w) / 2, y: GAP + safeTop, w, h };
+  const content = state === 'chat'
+    ? { ...(expanded ? { x: frame.x, y: frame.y } : chatRest(w, h, frame)), w, h }
+    : { x: (WIN.w - w) / 2, y: GAP + safeTop, w, h };
   const box = energyBox(state, summon ? { ...content, h: summon.inputY + SUMMON.input + SUMMON.bottom } : content);
   const origin = { x: content.x, y: content.y };
   if (state === 'summon') content.y = viewport.y + summonTop;
-  if (state === 'chat') {
+  if (state === 'chat' && !expanded) {
     content.x += chatOffset.x;
     content.y += chatOffset.y;
     if (bounds) {
@@ -139,9 +165,9 @@ export const hotkeyRoute = state => (state === 'summon' || state === 'chat' ? 'c
 /** 点常驻条：进行中的事来自窗口里的对话就回窗口，否则召唤。 */
 export const barTarget = act => (act?.surface === 'chat' ? 'chat' : 'summon');
 
-/** 回复结束后 30 秒没有悬停、没有输入、输入框为空，召唤态自动收起。 */
-export const shouldAutoClose = ({ idle, hovering, empty, generating }) =>
-  idle >= SUMMON_IDLE && !hovering && empty && !generating;
+/** 回复结束后 30 秒没有悬停、没有输入、没有持续语音、输入框为空，召唤态自动收起。 */
+export const shouldAutoClose = ({ idle, hovering, empty, generating, voiceActive = false }) =>
+  idle >= SUMMON_IDLE && !hovering && empty && !generating && !voiceActive;
 
 const GAZE_STATES = new Set(['summon', 'peek', 'note']);
 /** 能量体该看的点：召唤、探出、通知时，鼠标在身体 420px 以内才看，否则 null。 */
@@ -201,6 +227,20 @@ export function captionOf(m) {
     else if (step) dim = step.t;
   }
   return { text, dim, rich: rich || !!card || !!m.images?.length || m.status === 'error' };
+}
+
+/** 还没有任何输出时，字幕那一行淡色状态：先“正在思考…”，等得久了加上时间，再久就提示可以停止。 */
+export function waitLine(ms) {
+  const sec = Math.floor(Math.max(0, ms) / 1000);
+  if (sec < 5) return '正在思考…';
+  if (sec < 20) return `正在思考… ${sec} 秒`;
+  return `还在等回复… ${sec} 秒，太久可以点右侧停止`;
+}
+
+/** 重新唤起时是否另起一个新对话：当前对话有消息、没在回复，且距最后一条消息超过 afterMin 分钟。0 表示从不自动新建。 */
+export function shouldStartFresh({ lastTime, now, afterMin, generating = false }) {
+  if (!afterMin || generating || !Number.isFinite(lastTime)) return false;
+  return now - lastTime >= afterMin * 60_000;
 }
 
 /** 鼠标是否在顶边中央的感应区里。 */

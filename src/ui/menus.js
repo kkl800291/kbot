@@ -18,13 +18,11 @@
     const heads = [];
     const st = A.dshState;
     if (st && st.connected) {
-      const mode = st.activeMode === 'external' ? '外部实例' : '内置托管';
-      const mLabel = st.modelLabel || st.model;
-      heads.push({ head: `DSH 已连接 · ${mode}${mLabel ? ' · ' + mLabel : ''}` });
+      heads.push({ head: 'KBOT 已就绪' });
     } else if (st && st.status === 'connecting') {
-      heads.push({ head: '正在连接 DeepSeek Harness…' });
+      heads.push({ head: '正在唤醒智能核心…' });
     } else {
-      heads.push({ head: 'DeepSeek Harness 未连接' });
+      heads.push({ head: '智能核心未连接' });
     }
     if (A.isDnd()) heads.push({ head: A.dndLabel() });
     return heads;
@@ -59,7 +57,6 @@
       { sep: true },
       ...dndItems(),
       { sep: true },
-      { label: '打开 DSH 模型控制台…', fn: () => A.agent && A.agent.openConsole() },
       { label: '打开养成目录', fn: () => A.agent && A.agent.openWorkspace() },
       { label: '智能核心设置…', fn: () => A.openSettings && A.openSettings('agent') },
       updateMenuItem(),
@@ -80,7 +77,6 @@
       { sep: true },
       ...dndItems(),
       { sep: true },
-      { label: '打开 DSH 模型控制台…', fn: () => A.agent && A.agent.openConsole() },
       { label: '打开养成目录', fn: () => A.agent && A.agent.openWorkspace() },
       { label: '智能核心设置…', fn: () => A.openSettings && A.openSettings('agent') },
       updateMenuItem(),

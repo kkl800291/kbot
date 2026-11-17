@@ -61,7 +61,7 @@
       browser: ['Chrome', 'Safari', 'Arc'],
     },
     hotkey: { alt: true, meta: false, ctrl: false, shift: false, code: 'Space', label: '⌥ Space' },
-    retention: 0,
+    retention: 0, newChatAfter: 30,
     send: { appName: false, calTitle: false, memory: true },
     aiCompanion: true,
     dsh: {
@@ -84,6 +84,13 @@
       mimoVoice: '冰糖',
       style: '',
       hasKey: false,
+      summonVoice: false,
+      realtimeMode: 'auto',
+      realtimeBase: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+      realtimeModel: 'qwen3.5-omni-flash-realtime',
+      realtimeVoice: 'Tina',
+      realtimeHasKey: false,
+      customVoices: [],
     },
     ai: {
       chat: { provider: 'deepseek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: false },
@@ -101,11 +108,20 @@
   };
   A.defaults = () => clone(DEFAULTS);
   A.S = merge(clone(DEFAULTS), stored.S);
-  // 清理旧版 macOS 系统朗读设置，语音引擎固定为 MiMo。
+  // 清理旧版 macOS 系统朗读设置与已下线实时模型/音色。
   if (A.S.voice && typeof A.S.voice === 'object') {
     delete A.S.voice.provider;
     delete A.S.voice.sayVoice;
     delete A.S.voice.rate;
+    // 召唤时自动开麦原来是默认开启，多数人没主动选过；改为默认关闭，旧设置一次性重置
+    if (!A.S.voice.summonVoiceReset) { A.S.voice.summonVoice = false; A.S.voice.summonVoiceReset = true; }
+    if (!A.S.voice.realtimeModel || ['qwen-omni-turbo-realtime', 'qwen3-omni-flash-realtime'].includes(A.S.voice.realtimeModel)) {
+      A.S.voice.realtimeModel = 'qwen3.5-omni-flash-realtime';
+    }
+    const validRtVoices = ['Tina', 'Cindy', 'Liora Mira', 'Raymond', 'Katerina', 'Zane'];
+    if (!validRtVoices.includes(A.S.voice.realtimeVoice) || (A.S.voice.realtimeVoice === 'Zane' && !String(A.S.voice.realtimeModel).startsWith('qwen3.8'))) {
+      A.S.voice.realtimeVoice = 'Tina';
+    }
   }
   // 能量体配色只有熔金、极光、虹彩；旧的强调色一律换成熔金。桌宠时代的外观字段读到就丢掉
   if (!['molten', 'aurora', 'iri'].includes(A.S.palette)) A.S.palette = 'molten';
@@ -188,7 +204,7 @@
     },
   };
   document.addEventListener('pointerdown', e => {
-    if (menuOpen && !menuEl.contains(e.target) && !e.target.closest('#tray, #modelTag')) A.menu.close();
+    if (menuOpen && !menuEl.contains(e.target) && !e.target.closest('#tray, #modelTag, #effortTag')) A.menu.close();
   }, true);
   menuEl.addEventListener('keydown', e => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;

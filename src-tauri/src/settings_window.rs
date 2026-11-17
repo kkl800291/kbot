@@ -55,6 +55,9 @@ pub async fn open_settings_window(
     gate: State<'_, SettingsWindowGate>,
 ) -> Result<(), String> {
     let _guard = gate.0.lock().await;
+    if let Some(main) = app.get_webview_window("main") {
+        crate::backdrop::reset(&main);
+    }
     if let Some(window) = app.get_webview_window("settings") {
         if let Some(theme) = theme.as_deref().and_then(window_theme) {
             let _ = set_window_theme(&window, theme);
