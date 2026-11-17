@@ -34,9 +34,12 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
 
   const mkConv = () => ({ id: A.uid(), title: '新对话', t: Date.now(), dshSessionId: null, messages: [] });
   const find = id => C.cur && C.cur.messages.find(m => m.id === id);
-  const elOf = id => box.querySelector(`.msg[data-id="${id}"]`);
-  const nearBottom = () => box.scrollHeight - box.scrollTop - box.clientHeight < 90;
-  const toBottom = () => box.scrollTo({ top: box.scrollHeight, behavior: 'auto' });
+  const elOf = (id, root = box) => root.querySelector(`.msg[data-id="${id}"]`);
+  const nearBottomOf = el => el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+  const toBottomOf = el => el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+  const nearBottom = () => nearBottomOf(box);
+  const toBottom = () => toBottomOf(box);
+  const mirrors = new Set();
   C.find = find;
 
   C.serialize = () => C.convs.filter(c => c.messages.length).map(c => ({
@@ -416,16 +419,21 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
   }
 
   let elapsedTimer = 0;
+  function runningElapsedNodes() {
+    const roots = [box, ...Array.from(mirrors, m => m.el)];
+    const out = [];
+    for (const r of roots) out.push(...r.querySelectorAll('.trace.running .trace-elapsed[data-start]'));
+    return out;
+  }
   function syncElapsedTimer() {
-    const nodes = box.querySelectorAll('.trace.running .trace-elapsed[data-start]');
-    if (!nodes.length) {
+    if (!runningElapsedNodes().length) {
       if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = 0; }
       return;
     }
     const update = () => {
       const now = Date.now();
       let alive = 0;
-      box.querySelectorAll('.trace.running .trace-elapsed[data-start]').forEach(node => {
+      runningElapsedNodes().forEach(node => {
         const start = Number(node.dataset.start);
         if (!Number.isFinite(start)) return;
         alive++;
@@ -617,6 +625,31 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
     return h('div', { class: 'notice', 'data-id': m.id }, m.text);
   }
 
+  function renderMirror(mir) {
+    mir.el.innerHTML = '';
+    const c = C.cur;
+    if (c?.messages?.length) {
+      c.messages.forEach(m => mir.el.append(msgEl(m)));
+      toBottomOf(mir.scrollEl);
+    } else {
+      mir.scrollEl.scrollTo({ top: 0, behavior: 'auto' });
+    }
+    mir.onSync?.('render', null);
+  }
+
+  C.proElFromEvent = ev => proEl({
+    id: ev?.id || 'note', role: 'pro', kind: ev?.kind || 'speech',
+    text: ev?.text || '', title: ev?.title, ring: !!ev?.ring, actions: ev?.actions || null, time: Date.now(), done: ev?.done,
+  });
+
+  C.mountThread = (el, opts = {}) => {
+    const mir = { el, scrollEl: opts.scrollEl || el, onSync: opts.onSync };
+    mirrors.add(mir);
+    bindMessageEvents(el);
+    if (C.cur) renderMirror(mir);
+    return () => mirrors.delete(mir);
+  };
+
   C.render = () => {
     box.innerHTML = '';
     const c = C.cur;
@@ -624,6 +657,7 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
     else if (!c.messages.length) box.append(emptyEl());
     else c.messages.forEach(m => box.append(msgEl(m)));
     if (c.messages.length) toBottom(); else box.scrollTo({ top: 0, behavior: 'auto' });
+    mirrors.forEach(renderMirror);
     syncElapsedTimer();
     if (!C.generating) C.status();
     if (C.refreshComposer) C.refreshComposer();
@@ -632,46 +666,117 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
     const near = nearBottom();
     const first = box.querySelector('.empty, .guide'); if (first) first.remove();
     box.append(msgEl(m));
+    mirrors.forEach(mir => {
+      const mNear = nearBottomOf(mir.scrollEl);
+      mir.el.append(msgEl(m));
+      mir.onSync?.('append', m);
+      if (mNear || m.role === 'user') toBottomOf(mir.scrollEl);
+    });
     syncElapsedTimer();
     if (near || m.role === 'user') toBottom();
   };
-  // 每次重画一条消息都广播出去，召唤态的字幕跟着它走
+  // 每次重画一条消息都同步到对话面板和召唤态线程
   C.paint = m => {
     A.emit('chat:msg', m);
-    const el = box.querySelector(`[data-id="${m.id}"]`); if (!el) return;
-    const near = nearBottom(); el.replaceWith(msgEl(m)); syncElapsedTimer(); if (near) toBottom();
+    const el = elOf(m.id);
+    if (el) {
+      const near = nearBottom();
+      el.replaceWith(msgEl(m));
+      if (near) toBottom();
+    }
+    mirrors.forEach(mir => {
+      const mEl = elOf(m.id, mir.el);
+      if (!mEl) return;
+      const mNear = nearBottomOf(mir.scrollEl);
+      mEl.replaceWith(msgEl(m));
+      mir.onSync?.('paint', m);
+      if (mNear) toBottomOf(mir.scrollEl);
+    });
+    syncElapsedTimer();
   };
   C.paintTrace = m => {
     const el = elOf(m.id), oldTrace = el && el.querySelector(':scope > .trace');
-    if (!oldTrace) return C.paint(m);
-    const oldBody = oldTrace.querySelector('.trace-body');
-    const bodyScroll = oldBody ? oldBody.scrollTop : 0;
+    if (!oldTrace && el) return C.paint(m);
     A.emit('chat:msg', m);
-    const near = nearBottom();
-    const nextTrace = traceEl(m);
-    oldTrace.replaceWith(nextTrace);
-    const newBody = nextTrace.querySelector('.trace-body');
-    if (newBody && bodyScroll > 0) newBody.scrollTop = bodyScroll;
+    if (oldTrace) {
+      const oldBody = oldTrace.querySelector('.trace-body');
+      const bodyScroll = oldBody ? oldBody.scrollTop : 0;
+      const near = nearBottom();
+      const nextTrace = traceEl(m);
+      oldTrace.replaceWith(nextTrace);
+      const newBody = nextTrace.querySelector('.trace-body');
+      if (newBody && bodyScroll > 0) newBody.scrollTop = bodyScroll;
+      if (near) toBottom();
+    }
+    mirrors.forEach(mir => {
+      const mEl = elOf(m.id, mir.el);
+      if (!mEl) return;
+      const mOldTrace = mEl.querySelector(':scope > .trace');
+      const mNear = nearBottomOf(mir.scrollEl);
+      if (!mOldTrace) {
+        mEl.replaceWith(msgEl(m));
+        mir.onSync?.('trace', m);
+        if (mNear) toBottomOf(mir.scrollEl);
+        return;
+      }
+      const prevBody = mOldTrace.querySelector('.trace-body');
+      const prevScroll = prevBody ? prevBody.scrollTop : 0;
+      const nextTrace = traceEl(m);
+      mOldTrace.replaceWith(nextTrace);
+      const nextBody = nextTrace.querySelector('.trace-body');
+      if (nextBody && prevScroll > 0) nextBody.scrollTop = prevScroll;
+      mir.onSync?.('trace', m);
+      if (mNear) toBottomOf(mir.scrollEl);
+    });
     syncElapsedTimer();
-    if (near) toBottom();
   };
   C.paintText = m => {
     const el = elOf(m.id), md = el && el.querySelector(':scope > .md');
-    if (!md) return C.paint(m);
+    if (!md && el) return C.paint(m);
     A.emit('chat:msg', m);
-    const near = nearBottom();
     const streaming = m.status === 'streaming';
-    md.classList.toggle('streaming', streaming);
-    md.innerHTML = renderText(m);
-    md.classList.toggle('is-tall', streaming && md.scrollHeight > 54);
-    if (near) toBottom();
+    const html = renderText(m);
+    if (md) {
+      const near = nearBottom();
+      md.classList.toggle('streaming', streaming);
+      md.innerHTML = html;
+      md.classList.toggle('is-tall', streaming && md.scrollHeight > 54);
+      if (near) toBottom();
+    }
+    mirrors.forEach(mir => {
+      const mEl = elOf(m.id, mir.el);
+      if (!mEl) return;
+      const mMd = mEl.querySelector(':scope > .md');
+      const mNear = nearBottomOf(mir.scrollEl);
+      if (!mMd) {
+        mEl.replaceWith(msgEl(m));
+        mir.onSync?.('text', m);
+        if (mNear) toBottomOf(mir.scrollEl);
+        return;
+      }
+      mMd.classList.toggle('streaming', streaming);
+      mMd.innerHTML = html;
+      mMd.classList.toggle('is-tall', streaming && mMd.scrollHeight > 54);
+      mir.onSync?.('text', m);
+      if (mNear) toBottomOf(mir.scrollEl);
+    });
   };
-  /** 滚到某条消息的开头（从召唤态的“查看全文”进来时用）。 */
+  /** 滚到某条消息的开头（从召唤态跳进窗口查看上下文时用）。 */
   C.reveal = id => {
     const el = elOf(id); if (!el) return;
     box.scrollTo({ top: Math.max(0, el.offsetTop - box.offsetTop - 8), behavior: 'auto' });
   };
-  C.dropChips = () => { C.cur.messages.forEach(m => { if (m.chips) { m.chips = null; const e = elOf(m.id); const c = e && e.querySelector('.chips'); if (c) c.remove(); } }); };
+  C.dropChips = () => {
+    C.cur.messages.forEach(m => {
+      if (!m.chips) return;
+      m.chips = null;
+      [box, ...Array.from(mirrors, x => x.el)].forEach(root => {
+        const e = elOf(m.id, root);
+        const c = e && e.querySelector('.chips');
+        if (c) c.remove();
+      });
+    });
+  };
 
   // 对话面板打开时，主动发言以“KBOT 主动说”的形式出现在对话里
   C.pushPro = ev => {
@@ -763,117 +868,121 @@ import { formatElapsedDuration, summarizeSourceLinks } from '../services/agent';
   C.cancelQuestion = m => cancelQuestionCard(m);
   C.optLabel = opt => opt.displayLabel || cleanOptLabel(opt.label);
 
-  box.addEventListener('input', e => {
-    const ta = e.target.closest('.q-input');
-    if (!ta) return;
-    const mEl = ta.closest('.msg'), m = mEl && find(mEl.dataset.id);
-    const c = m?.card;
-    if (!c || c.type !== 'question' || c.state !== 'pending') return;
-    const curQ = c.questions?.[c.index || 0];
-    if (!curQ) return;
-    c.drafts = c.drafts || {};
-    const d = c.drafts[curQ.id] = c.drafts[curQ.id] || { selected: [], custom: '', skipped: false };
-    d.custom = ta.value;
-    if (ta.value.trim()) d.skipped = false;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(96, ta.scrollHeight) + 'px';
-    const customWrap = ta.closest('.q-custom');
-    if (customWrap) customWrap.classList.toggle('active', Boolean(ta.value.trim()));
-    if (!curQ.multiSelect) {
-      const hasText = Boolean(ta.value.trim());
-      mEl.querySelectorAll('.q-opt').forEach((btn, i) => {
-        const opt = curQ.options?.[i];
-        const rawSel = opt && Array.isArray(d.selected) && d.selected.includes(opt.label);
-        btn.classList.toggle('on', Boolean(rawSel && !hasText));
-        btn.classList.toggle('shadowed', Boolean(rawSel && hasText));
-      });
-    }
-  });
-
-  box.addEventListener('keydown', e => {
-    const ta = e.target.closest('.q-input');
-    if (!ta) return;
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
+  function bindMessageEvents(root) {
+    root.addEventListener('input', e => {
+      const ta = e.target.closest('.q-input');
+      if (!ta) return;
       const mEl = ta.closest('.msg'), m = mEl && find(mEl.dataset.id);
-      if (m) advanceOrSubmitQuestion(m, false);
-    }
-  });
-
-  box.addEventListener('click', e => {
-    const link = e.target.closest('a[href]');
-    if (link) { e.preventDefault(); A.openUrl(link.getAttribute('href')); return; }
-    const t = e.target.closest('[data-a]'); if (!t) return;
-    const a = t.dataset.a, mEl = t.closest('.msg'), m = mEl && find(mEl.dataset.id);
-    if (a === 'copy' && m) { A.copy(m.text || ''); A.toast('已复制'); }
-    else if (a === 'speak' && m && m.text) {
-      // 正在朗读时再点一次就是停
-      if (A.voice?.speaking) A.voice.stop();
-      else A.voice?.speakText?.(m.text, { force: true }).catch(err => A.toast(String(err), 4000));
-    }
-    else if (a === 'code-copy') {
-      A.copy(t.closest('.code').querySelector('pre').textContent);
-      t.textContent = '已复制'; setTimeout(() => { t.textContent = '复制'; }, 1300);
-    }
-    else if (a === 'edit' && m) C.edit(m.id);
-    else if (a === 'regen' && m) C.regenerate(m.id);
-    else if (a === 'retry' && m) C.regenerate(m.id);
-    else if (a === 'img' && m) A.lightbox(m.images[+t.dataset.i].src);
-    else if (a === 'chip' || a === 'example') C.send(t.dataset.send, []);
-    else if (a === 'trace-toggle' && m) {
-      const curOpen = typeof m.traceOpen === 'boolean' ? m.traceOpen : traceDefaultOpen(m);
-      m.traceOpen = !curOpen;
-      C.paintTrace(m);
-      A.save();
-    }
-    else if (a === 'trace-step-toggle' && m) {
-      const step = m.steps?.[+t.dataset.i];
-      if (!step) return;
-      step.open = !step.open;
-      C.paintTrace(m);
-      A.save();
-    }
-    else if (a === 'q-opt' && m && m.card?.type === 'question' && m.card.state === 'pending') {
-      const c = m.card;
+      const c = m?.card;
+      if (!c || c.type !== 'question' || c.state !== 'pending') return;
       const curQ = c.questions?.[c.index || 0];
-      const opt = curQ?.options?.[+t.dataset.i];
-      if (!curQ || !opt) return;
+      if (!curQ) return;
       c.drafts = c.drafts || {};
       const d = c.drafts[curQ.id] = c.drafts[curQ.id] || { selected: [], custom: '', skipped: false };
-      d.skipped = false;
-      if (curQ.multiSelect) {
-        const cur = Array.isArray(d.selected) ? d.selected : [];
-        d.selected = cur.includes(opt.label) ? cur.filter(x => x !== opt.label) : [...cur, opt.label];
-      } else {
-        d.selected = [opt.label];
-        d.custom = '';
+      d.custom = ta.value;
+      if (ta.value.trim()) d.skipped = false;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(96, ta.scrollHeight) + 'px';
+      const customWrap = ta.closest('.q-custom');
+      if (customWrap) customWrap.classList.toggle('active', Boolean(ta.value.trim()));
+      if (!curQ.multiSelect) {
+        const hasText = Boolean(ta.value.trim());
+        mEl.querySelectorAll('.q-opt').forEach((btn, i) => {
+          const opt = curQ.options?.[i];
+          const rawSel = opt && Array.isArray(d.selected) && d.selected.includes(opt.label);
+          btn.classList.toggle('on', Boolean(rawSel && !hasText));
+          btn.classList.toggle('shadowed', Boolean(rawSel && hasText));
+        });
       }
-      C.paint(m);
-      A.save();
-    }
-    else if ((a === 'q-prev' || a === 'q-next') && m && m.card?.type === 'question' && m.card.state === 'pending') {
-      const c = m.card;
-      const total = Array.isArray(c.questions) ? c.questions.length : 1;
-      const delta = a === 'q-prev' ? -1 : 1;
-      c.index = Math.max(0, Math.min(total - 1, (Number(c.index) || 0) + delta));
-      C.paint(m);
-    }
-    else if (a === 'q-skip' && m) advanceOrSubmitQuestion(m, true);
-    else if (a === 'q-submit' && m) advanceOrSubmitQuestion(m, false);
-    else if (a === 'q-cancel' && m) cancelQuestionCard(m);
-    else if (a === 'card' && m) cardAction(m, t.dataset.do);
-    else if (a === 'cfg') A.openSettings && A.openSettings('agent');
-    else if (a === 'dsh-retry') A.agent?.reconnect?.();
-    else if (a === 'dsh-console') A.agent?.openConsole?.();
-    else if (a === 'account-login') A.account?.signIn?.();
-    else if (a === 'account-cancel') A.account?.cancelSignIn?.();
-    else if (a === 'account-top-up') A.account?.openTopUp?.();
-    else if (a === 'pro' && m) {
-      const act = m.actions && m.actions[+t.dataset.i]; if (!act) return;
-      m.done = act.label; C.paint(m);
-      if (act.fn) act.fn();
-    }
-  });
+    });
+
+    root.addEventListener('keydown', e => {
+      const ta = e.target.closest('.q-input');
+      if (!ta) return;
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        const mEl = ta.closest('.msg'), m = mEl && find(mEl.dataset.id);
+        if (m) advanceOrSubmitQuestion(m, false);
+      }
+    });
+
+    root.addEventListener('click', e => {
+      const link = e.target.closest('a[href]');
+      if (link) { e.preventDefault(); A.openUrl(link.getAttribute('href')); return; }
+      const t = e.target.closest('[data-a]'); if (!t) return;
+      const a = t.dataset.a, mEl = t.closest('.msg'), m = mEl && find(mEl.dataset.id);
+      if (a === 'copy' && m) { A.copy(m.text || ''); A.toast('已复制'); }
+      else if (a === 'speak' && m && m.text) {
+        // 正在朗读时再点一次就是停
+        if (A.voice?.speaking) A.voice.stop();
+        else A.voice?.speakText?.(m.text, { force: true }).catch(err => A.toast(String(err), 4000));
+      }
+      else if (a === 'code-copy') {
+        A.copy(t.closest('.code').querySelector('pre').textContent);
+        t.textContent = '已复制'; setTimeout(() => { t.textContent = '复制'; }, 1300);
+      }
+      else if (a === 'edit' && m) C.edit(m.id, mEl);
+      else if (a === 'regen' && m) C.regenerate(m.id);
+      else if (a === 'retry' && m) C.regenerate(m.id);
+      else if (a === 'img' && m) A.lightbox(m.images[+t.dataset.i].src);
+      else if (a === 'chip' || a === 'example') C.send(t.dataset.send, []);
+      else if (a === 'trace-toggle' && m) {
+        const curOpen = typeof m.traceOpen === 'boolean' ? m.traceOpen : traceDefaultOpen(m);
+        m.traceOpen = !curOpen;
+        C.paintTrace(m);
+        A.save();
+      }
+      else if (a === 'trace-step-toggle' && m) {
+        const step = m.steps?.[+t.dataset.i];
+        if (!step) return;
+        step.open = !step.open;
+        C.paintTrace(m);
+        A.save();
+      }
+      else if (a === 'q-opt' && m && m.card?.type === 'question' && m.card.state === 'pending') {
+        const c = m.card;
+        const curQ = c.questions?.[c.index || 0];
+        const opt = curQ?.options?.[+t.dataset.i];
+        if (!curQ || !opt) return;
+        c.drafts = c.drafts || {};
+        const d = c.drafts[curQ.id] = c.drafts[curQ.id] || { selected: [], custom: '', skipped: false };
+        d.skipped = false;
+        if (curQ.multiSelect) {
+          const cur = Array.isArray(d.selected) ? d.selected : [];
+          d.selected = cur.includes(opt.label) ? cur.filter(x => x !== opt.label) : [...cur, opt.label];
+        } else {
+          d.selected = [opt.label];
+          d.custom = '';
+        }
+        C.paint(m);
+        A.save();
+      }
+      else if ((a === 'q-prev' || a === 'q-next') && m && m.card?.type === 'question' && m.card.state === 'pending') {
+        const c = m.card;
+        const total = Array.isArray(c.questions) ? c.questions.length : 1;
+        const delta = a === 'q-prev' ? -1 : 1;
+        c.index = Math.max(0, Math.min(total - 1, (Number(c.index) || 0) + delta));
+        C.paint(m);
+      }
+      else if (a === 'q-skip' && m) advanceOrSubmitQuestion(m, true);
+      else if (a === 'q-submit' && m) advanceOrSubmitQuestion(m, false);
+      else if (a === 'q-cancel' && m) cancelQuestionCard(m);
+      else if (a === 'card' && m) cardAction(m, t.dataset.do);
+      else if (a === 'cfg') A.openSettings && A.openSettings('agent');
+      else if (a === 'dsh-retry') A.agent?.reconnect?.();
+      else if (a === 'dsh-console') A.agent?.openConsole?.();
+      else if (a === 'account-login') A.account?.signIn?.();
+      else if (a === 'account-cancel') A.account?.cancelSignIn?.();
+      else if (a === 'account-top-up') A.account?.openTopUp?.();
+      else if (a === 'pro' && m) {
+        const act = m.actions && m.actions[+t.dataset.i]; if (!act) return;
+        m.done = act.label; C.paint(m);
+        if (act.fn) act.fn();
+      }
+    });
+  }
+
+  bindMessageEvents(box);
 
   // ---------- 历史对话 ----------
   C.closeHistory = () => hist.classList.remove('open');

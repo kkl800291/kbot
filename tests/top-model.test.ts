@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  arrival, barTarget, captionOf, contentSize, createNoteQueue, energyMode, energyPlacement, gazeAt, hotkeyRoute, inHotzone, layout,
-  plainText, settleState, shouldAutoClose, shouldWait, SPEECH_TTL, SUMMON, SUMMON_IDLE, shouldStartFresh, talkMs, waitLine, WIN,
+  arrival, barTarget, captionOf, CHAT, contentSize, createNoteQueue, energyMode, energyPlacement, gazeAt, hotkeyRoute, inHotzone, layout,
+  plainText, resizeChatRect, settleState, shouldAutoClose, shouldWait, SPEECH_TTL, SUMMON, SUMMON_IDLE, shouldStartFresh, talkMs, waitLine, WIN,
 } from '../src/ui/top-model.js';
 
 describe('summon fresh conversation', () => {
@@ -31,16 +31,16 @@ describe('top layout', () => {
     expect(contentSize('compact', { act: { kind: 'error' } })).toEqual([300, 40]);
     expect(contentSize('compact', { act: { kind: 'task' } })).toEqual([340, 52]);
     expect(contentSize('note')).toEqual([440, 116]);
-    expect(contentSize('summon')).toEqual([1100, 506]);
+    expect(contentSize('summon')).toEqual([1100, SUMMON.h]);
     expect(contentSize('chat')).toEqual([540, 440]);
   });
 
-  it('grows the standby content with its caption up to 646 tall', () => {
-    expect(contentSize('summon', { caption: 52 })).toEqual([1100, 558]);
-    expect(contentSize('summon', { caption: 139.6 })).toEqual([1100, 646]);
-    expect(contentSize('summon', { caption: 400 })).toEqual([1100, 646]);
-    expect(contentSize('summon', { caption: -5 })).toEqual([1100, 506]);
-    // 字幕只影响召唤态
+  it('grows the standby content with its conversation card up to SUMMON.max tall', () => {
+    expect(contentSize('summon', { caption: 52 })).toEqual([1100, SUMMON.h + 52]);
+    expect(contentSize('summon', { caption: 459.6 })).toEqual([1100, SUMMON.max]);
+    expect(contentSize('summon', { caption: 999 })).toEqual([1100, SUMMON.max]);
+    expect(contentSize('summon', { caption: -5 })).toEqual([1100, SUMMON.h]);
+    // 对话高度只影响召唤态
     expect(contentSize('chat', { caption: 80 })).toEqual([540, 440]);
   });
 
@@ -54,9 +54,9 @@ describe('top layout', () => {
 
   it('makes the energy body the lead in summon and an avatar in the window', () => {
     const s = layout('summon', { caption: 60, safeTop: 32 });
-    expect(s.content).toEqual({ x: 24, y: 59, w: 952, h: 566 });
+    expect(s.content).toEqual({ x: 24, y: 42, w: 952, h: SUMMON.h + 60 });
     expect(s.box).toEqual([56, 58, 888, 360]);
-    expect(s.energyOffset).toEqual({ x: 0, y: 17 });
+    expect(s.energyOffset).toEqual({ x: 0, y: 0 });
     expect(s.band).toBeNull();
     expect(layout('chat').box).toEqual([240, 157, 40, 40]);
     expect(layout('chat', { expanded: true }).content).toEqual({ x: 10, y: 10, w: 980, h: 720 });
@@ -126,7 +126,23 @@ describe('top layout', () => {
     }
     expect(layout('chat', { expanded: true, bounds, chatOffset: { x: 9999, y: 9999 } }).content).toEqual(bounds);
     const small = layout('chat', { bounds: { x: 8, y: 8, w: 300, h: 300 }, chatOffset: { x: 500, y: 500 } });
-    expect(small.content).toMatchObject({ x: 8, y: 8 });
+    expect(small.content).toMatchObject({ x: 8, y: 8, w: 300, h: 300 });
+  });
+
+  it('supports custom chat sizing and eight-way resize clamping within bounds', () => {
+    const sized = layout('chat', { chatSize: { w: 720, h: 560 }, safeTop: 32 });
+    expect(sized.content).toMatchObject({ w: 720, h: 560 });
+    expect(contentSize('chat', { chatSize: { w: 120, h: 90 } })).toEqual([CHAT.minW, CHAT.minH]);
+
+    const bounds = { x: 10, y: 40, w: 980, h: 680 };
+    const start = { x: 200, y: 120, w: 540, h: 440 };
+    expect(resizeChatRect(start, 'se', 120, 80, bounds)).toEqual({ x: 200, y: 120, w: 660, h: 520 });
+    expect(resizeChatRect(start, 'nw', -100, -50, bounds)).toEqual({ x: 100, y: 70, w: 640, h: 490 });
+    // Keeps the opposite corner anchored when shrinking past minimum size or dragging past screen bounds.
+    expect(resizeChatRect(start, 'nw', 999, 999, bounds)).toEqual({ x: 200 + 540 - CHAT.minW, y: 120 + 440 - CHAT.minH, w: CHAT.minW, h: CHAT.minH });
+    expect(resizeChatRect(start, 'nw', -999, -999, bounds)).toEqual({ x: 10, y: 40, w: 200 + 540 - 10, h: 120 + 440 - 40 });
+    expect(resizeChatRect(start, 'e', -400, 0, bounds)).toEqual({ x: 200, y: 120, w: CHAT.minW, h: 440 });
+    expect(resizeChatRect(start, 's', 0, 999, bounds)).toEqual({ x: 200, y: 120, w: 540, h: 40 + 680 - 120 });
   });
 
   it('returns the summoned body to its fixed position after showing a moved chat avatar', () => {
@@ -134,7 +150,7 @@ describe('top layout', () => {
     const chat = layout('chat', { chatOffset });
     expect(chat.energyOffset).toEqual(chatOffset);
     const summon = layout('summon', { chatOffset, safeTop: 32 });
-    expect(summon.energyOffset).toEqual({ x: 0, y: 17 });
+    expect(summon.energyOffset).toEqual({ x: 0, y: 0 });
     expect(summon.box).toEqual([56, 58, 888, 360]);
     expect(summon).toEqual(layout('summon', { safeTop: 32 }));
   });
@@ -173,7 +189,7 @@ describe('top layout', () => {
     }
   });
 
-  it('leaves enough room for the full caption instead of moving the field and clipping the reply', () => {
+  it('leaves generous room for full conversation reading and tall mode below the orb', () => {
     const shown = layout('summon', { viewport: { x: -140, y: 0, w: 1280, h: 600 }, safeTop: 74, caption: 140 });
     const frame = shown.summon!;
     expect(frame.captionMax).toBe(140);
@@ -181,6 +197,12 @@ describe('top layout', () => {
     const inputTop = shown.content.y + frame.inputY;
     expect(shown.box[1] + shown.energyOffset.y + shown.box[3]).toBeLessThan(inputTop);
     expect(inputTop + SUMMON.input + 140).toBeLessThan(600);
+
+    const desktop = layout('summon', { viewport: { x: -220, y: 0, w: 1440, h: 900 }, safeTop: 32 });
+    expect(desktop.summon!.captionMax).toBeGreaterThanOrEqual(320);
+    const desktopTall = layout('summon', { viewport: { x: -220, y: 0, w: 1440, h: 900 }, safeTop: 32, tall: true });
+    expect(desktopTall.summon!.captionMax).toBeGreaterThan(desktop.summon!.captionMax + 100);
+    expect(desktopTall.box[3] * 0.45).toBeGreaterThanOrEqual(110);
   });
 
   it('keeps the body on the left of a task bar and runs the progress band along its bottom', () => {

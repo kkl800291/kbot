@@ -46,6 +46,7 @@
     outsideClose: true, sound: false, persona: 'cute', freq: 'normal', nickname: '您',
     work: 60, rest: 5, model: 'none', webAvailable: false, webDefault: false, screenPerm: false,
     expanded: false,
+    chatSize: null,
     autostart: false,
     workFrom: '09:30', workTo: '18:30', holidays: true,
     params: { waterEvery: 45, eyeEvery: 20, lunchAt: '11:15', offworkLead: 10, nightAt: '23:30' },

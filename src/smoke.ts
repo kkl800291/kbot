@@ -1,6 +1,7 @@
 import { command } from './services/runtime';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { SUMMON } from './ui/top-model.js';
 
 // Runs only in an isolated development profile, never in a release build.
 export async function settingsViewSmoke(A: any) {
@@ -119,7 +120,7 @@ export async function nativeSmoke(A: any) {
     assert('standby centers the lifeform and input over a full-screen native backdrop', (() => {
       const r = document.querySelector('#topContent')!.getBoundingClientRect();
       const glass = document.querySelector('#halo')!.getBoundingClientRect();
-      return r.width === Math.min(1100, innerWidth - 48) && r.height === 540 && !document.querySelector('#sReply')!.textContent
+      return r.width === Math.min(1100, innerWidth - 48) && r.height === SUMMON.h && !document.querySelector('#sThread')!.textContent
         && glass.x === 0 && glass.y === 0 && glass.width === innerWidth && glass.height === innerHeight;
     })());
     A.top.hotkey();

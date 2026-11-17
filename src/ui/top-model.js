@@ -3,37 +3,52 @@
 /**
  * @typedef {{ kind: string, label?: string, aux?: string, progress?: number, source?: string, surface?: string } | null} Act
  * @typedef {{ x: number, y: number, w: number, h: number }} Rect
- * @typedef {{ act?: Act, expanded?: boolean, safeTop?: number, caption?: number, chatOffset?: { x: number, y: number }, bounds?: Rect, viewport?: Rect }} LayoutOpts
+ * @typedef {{ w: number, h: number }} Size
+ * @typedef {{ act?: Act, expanded?: boolean, safeTop?: number, caption?: number, tall?: boolean, chatSize?: Size | null, chatOffset?: { x: number, y: number }, bounds?: Rect, viewport?: Rect }} LayoutOpts
  */
 
 // 能量体的舞台固定大小；透明宿主铺满屏幕，对话窗口可以移到舞台以外
 export const WIN = { w: 1000, h: 740 };
+export const CHAT = { w: 540, h: 440, minW: 360, minH: 300 };
 // 内容区离顶边（顶边指菜单栏或刘海的下沿，不占它们的位置）
 export const GAP = 10;
 export const HOTZONE = { w: 300, h: 6 };
 export const SPEECH_TTL = 10 * 60_000;
 export const MAX_QUEUE = 5;
-// 全屏待命空间中的内容：光球占上方，字幕和输入胶囊在下方。
-// orbY：球心离内容区顶边多远；sight：球心落在屏幕高度的这个比例上（和概念图一样，约三分之一处）
-export const SUMMON = { w: 1100, h: 506, max: 646, inputY: 416, input: 48, bottom: 42, caption: 140, orbY: 185, sight: 0.33 };
+// 全屏待命空间中的内容：光球占上方，富文本对话卡片在下方。
+// orbY：球心离内容区顶边多远；sight：球心落在屏幕高度的这个比例上（上方留主视觉，下方给完整对话）
+export const SUMMON = {
+  w: 1100, h: 494, max: 954,
+  inputY: 416, tallInputY: 304, input: 48, bottom: 30, caption: 460, tallCaption: 560, orbY: 185, sight: 0.28,
+};
 export const SUMMON_IDLE = 30_000;
 // 鼠标离身体中心这么近，能量体才看向它
 export const GAZE_R = 420;
 
 /**
- * 内容区大小（宽、高）。隐身时高度为 0。caption 是召唤态字幕区的高度。
+ * 内容区大小（宽、高）。隐身时高度为 0。caption 是召唤态对话区的高度。
  * @param {string} state
  * @param {LayoutOpts} [opts]
  */
-export function contentSize(state, { act = null, caption = 0 } = {}) {
+export function contentSize(state, { act = null, caption = 0, tall = false, chatSize = null } = {}) {
   if (state === 'peek') return [340, 40];
   if (state === 'compact') {
     if (act?.kind === 'task') return [340, 52];
     return [act?.kind === 'error' ? 300 : 280, 40];
   }
   if (state === 'note') return [440, 116];
-  if (state === 'summon') return [SUMMON.w, Math.min(SUMMON.max, SUMMON.h + Math.max(0, Math.round(caption)))];
-  if (state === 'chat') return [540, 440];
+  if (state === 'summon') {
+    const base = tall ? SUMMON.tallInputY + SUMMON.input + SUMMON.bottom : SUMMON.h;
+    const cap = tall ? SUMMON.tallCaption : SUMMON.caption;
+    return [SUMMON.w, base + Math.min(cap, Math.max(0, Math.round(caption)))];
+  }
+  if (state === 'chat') {
+    const w = Number(chatSize?.w), h = Number(chatSize?.h);
+    return [
+      Number.isFinite(w) && w > 0 ? Math.max(CHAT.minW, Math.round(w)) : CHAT.w,
+      Number.isFinite(h) && h > 0 ? Math.max(CHAT.minH, Math.round(h)) : CHAT.h,
+    ];
+  }
   return [300, 0];
 }
 
@@ -63,7 +78,7 @@ export function chatRest(w, h, frame) {
  */
 export function energyBox(state, c) {
   if (state === 'summon') {
-    const w = Math.min(960, c.w - 64), h = Math.min(360, Math.max(100, c.h - 146));
+    const w = Math.min(960, c.w - 64), h = Math.min(360, Math.max(100, c.h - 134));
     return [c.x + (c.w - w) / 2, c.y + 16, w, h];
   }
   if (state === 'chat') return [c.x + 10, c.y + 7, 40, 40];
@@ -89,23 +104,30 @@ export const SUMMON_CARD = { x: 120, y: 320, w: 520, input: 48, r: 24 };
  * @param {string} state
  * @param {LayoutOpts} [opts]
  */
-export function layout(state, { act = null, expanded = false, safeTop = 0, caption = 0, chatOffset = { x: 0, y: 0 }, bounds, viewport = { x: 0, y: 0, w: WIN.w, h: WIN.h } } = {}) {
-  let [w, h] = contentSize(state, { act, caption });
+export function layout(state, { act = null, expanded = false, safeTop = 0, caption = 0, tall = false, chatSize = null, chatOffset = { x: 0, y: 0 }, bounds, viewport = { x: 0, y: 0, w: WIN.w, h: WIN.h } } = {}) {
+  let [w, h] = contentSize(state, { act, caption, tall, chatSize });
   const frame = chatFrame({ safeTop, bounds, viewport });
-  if (state === 'chat' && expanded) {
-    w = frame.w;
-    h = frame.h;
+  if (state === 'chat') {
+    if (expanded) {
+      w = frame.w;
+      h = frame.h;
+    } else {
+      if (frame.w > 0) w = Math.min(w, Math.max(1, frame.w));
+      if (frame.h > 0) h = Math.min(h, Math.max(1, frame.h));
+    }
   }
   let summon = null, summonTop = 0;
   if (state === 'summon') {
     w = Math.min(w, Math.max(280, viewport.w - 48));
     summonTop = Math.max(GAP + safeTop, Math.round(viewport.h * SUMMON.sight - SUMMON.orbY));
     const available = Math.max(0, viewport.h - summonTop - GAP);
-    // 先为整段字幕留好空间，再确定输入框的位置；步骤与正文切换时不重新挪输入框或缩放生命体。
-    // 156 = 生命体最小高度 100 + 顶边 16 + 输入框前的间距 40。
-    const captionMax = Math.min(SUMMON.caption, Math.max(0, available - 156 - SUMMON.input - SUMMON.bottom));
-    const inputY = Math.max(0, Math.min(SUMMON.inputY, available - SUMMON.input - SUMMON.bottom - captionMax));
-    summon = { inputY, captionMax };
+    // 优先保证光球舞台，下方剩余高度全部留给可滚动对话区；156 = 生命体最小高度 100 + 顶边 16 + 输入框前的间距 40。
+    const minCaption = Math.min(140, Math.max(0, available - 156 - SUMMON.input - SUMMON.bottom));
+    const baseInputY = tall ? SUMMON.tallInputY : SUMMON.inputY;
+    const inputY = Math.max(0, Math.min(baseInputY, available - SUMMON.input - SUMMON.bottom - minCaption));
+    const capLimit = tall ? SUMMON.tallCaption : SUMMON.caption;
+    const captionMax = Math.min(capLimit, Math.max(minCaption, available - inputY - SUMMON.input - SUMMON.bottom));
+    summon = { inputY, captionMax, tall: !!tall };
     h = inputY + SUMMON.input + SUMMON.bottom + Math.min(captionMax, Math.max(0, Math.round(caption)));
   }
   const content = state === 'chat'
@@ -134,6 +156,40 @@ export function energyPlacement(L, origin = { x: 0, y: 0 }) {
   const dx = origin.x + L.energyOffset.x, dy = origin.y + L.energyOffset.y;
   const move = rect => [rect[0] + dx, rect[1] + dy, rect[2], rect[3]];
   return { box: move(L.box), band: L.band ? move(L.band) : null };
+}
+
+/**
+ * 拖动对话窗口边缘/角缩放矩形，保持对侧不动并限制在最小尺寸与活动边界内。
+ * @param {Rect} start
+ * @param {string} edge
+ * @param {number} dx
+ * @param {number} dy
+ * @param {Rect | null} [bounds]
+ * @param {{ minW?: number, minH?: number }} [limits]
+ */
+export function resizeChatRect(start, edge, dx, dy, bounds = null, { minW = CHAT.minW, minH = CHAT.minH } = {}) {
+  let left = start.x, right = start.x + start.w;
+  let top = start.y, bottom = start.y + start.h;
+  const minWidth = bounds ? Math.min(minW, Math.max(1, bounds.w)) : minW;
+  const minHeight = bounds ? Math.min(minH, Math.max(1, bounds.h)) : minH;
+
+  if (edge.includes('w')) {
+    left = Math.min(right - minWidth, start.x + dx);
+    if (bounds) left = Math.max(bounds.x, left);
+  } else if (edge.includes('e')) {
+    right = Math.max(left + minWidth, start.x + start.w + dx);
+    if (bounds) right = Math.min(bounds.x + bounds.w, right);
+  }
+
+  if (edge.includes('n')) {
+    top = Math.min(bottom - minHeight, start.y + dy);
+    if (bounds) top = Math.max(bounds.y, top);
+  } else if (edge.includes('s')) {
+    bottom = Math.max(top + minHeight, start.y + start.h + dy);
+    if (bounds) bottom = Math.min(bounds.y + bounds.h, bottom);
+  }
+
+  return { x: Math.round(left), y: Math.round(top), w: Math.round(right - left), h: Math.round(bottom - top) };
 }
 
 const ACT_MODE = { think: 'think', talk: 'talk', task: 'progress', error: 'error' };

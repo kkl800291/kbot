@@ -239,62 +239,94 @@ html.reduced #topContent > * { transition-delay: 0s !important; transition-durat
 .t-note .n-acts { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .t-note .n-acts:empty { display: none; }
 
-/* ---------- 召唤态：上面是主角光纹生命体，下面是带折射顶光的光学透镜胶囊 ---------- */
-#summon { --summon-top: 416px; display: flex; flex-direction: column; align-items: center; padding-top: var(--summon-top); color: #fff; --text: #fff; --text-2: rgba(255, 255, 255, .72); --text-3: rgba(255, 255, 255, .48); --ink: #fff; }
+/* ---------- 召唤态：上方是主角光纹生命体，下方是完整对话浮层与固定底栏输入 ---------- */
+#summon { --summon-top: 416px; display: flex; flex-direction: column; align-items: center; padding-top: var(--summon-top); color: #fff; --text: rgba(255, 255, 255, .95); --text-2: rgba(255, 255, 255, .74); --text-3: rgba(255, 255, 255, .52); --ink: #e8ecf4; }
 #summon::after {
-  content: ''; position: absolute; width: min(520px, calc(100% - 48px)); top: var(--summon-top); bottom: 42px; border-radius: 24px; pointer-events: none;
-  /* 和概念图一样的乳白玻璃胶囊：没有字幕时正好是一枚 48 高的胶囊，有字幕时向下长成一张卡片 */
+  content: ''; position: absolute; z-index: 0; width: min(520px, calc(100% - 48px)); top: var(--summon-top); bottom: 30px; border-radius: 24px; pointer-events: none;
+  /* 没有对话内容时是一枚简洁的光学玻璃胶囊；展开对话后转成通透深烟灰阅读浮层 */
   background: linear-gradient(180deg, rgba(255, 255, 255, .25), rgba(255, 255, 255, .13));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3), inset 0 1px 0 rgba(255, 255, 255, .3), 0 10px 30px rgba(0, 0, 0, .16);
-  transition: box-shadow .22s var(--ease), background .22s var(--ease);
+  transition: width .28s cubic-bezier(.4, 0, .2, 1), top .44s cubic-bezier(.4, 0, .2, 1), box-shadow .22s var(--ease), background .26s var(--ease);
 }
+#summon.has-conv::after {
+  width: min(660px, calc(100% - 48px));
+  background: linear-gradient(180deg, rgba(36, 39, 49, .86), rgba(22, 24, 31, .92));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .24), 0 18px 48px rgba(0, 0, 0, .36);
+}
+.css-backdrop:not(.native-host) #summon.has-conv::after {
+  -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
+}
+html.reduced #summon::after, html.reduced .s-field { transition-duration: .12s; }
 /* 聚焦或语音激活时柔和提亮，待命空间里只有光本身的白与呼吸感 */
-#summon:has(#sInput:focus)::after {
+#summon:not(.has-conv):has(#sInput:focus)::after {
   background: linear-gradient(180deg, rgba(255, 255, 255, .29), rgba(255, 255, 255, .15));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255, 255, 255, .4), 0 10px 34px rgba(0, 0, 0, .2), 0 0 28px -8px rgba(255, 255, 255, .5);
+}
+#summon.has-conv:has(#sInput:focus)::after {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .34), inset 0 1px 0 rgba(255, 255, 255, .28), 0 18px 50px rgba(0, 0, 0, .4), 0 0 28px -10px rgba(255, 255, 255, .35);
 }
 #summon[data-voice="connecting"]::after {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .42), inset 0 1px 0 rgba(255, 255, 255, .36), 0 10px 32px rgba(0, 0, 0, .18), 0 0 26px -8px rgba(160, 215, 255, .36);
 }
-#summon[data-voice="listening"]::after {
+#summon:not(.has-conv)[data-voice="listening"]::after {
   background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(210, 242, 255, .15));
-  box-shadow: inset 0 0 0 1px rgba(175, 232, 255, .58), inset 0 1px 0 rgba(255, 255, 255, .46), 0 10px 34px rgba(0, 0, 0, .22), 0 0 36px -6px rgba(120, 222, 255, .52);
+}
+#summon[data-voice="listening"]::after {
+  box-shadow: inset 0 0 0 1px rgba(175, 232, 255, .58), inset 0 1px 0 rgba(255, 255, 255, .42), 0 12px 36px rgba(0, 0, 0, .24), 0 0 36px -6px rgba(120, 222, 255, .48);
 }
 #summon[data-voice="thinking"]::after {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255, 255, 255, .38), 0 10px 34px rgba(0, 0, 0, .2), 0 0 30px -8px rgba(185, 200, 255, .42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 36px rgba(0, 0, 0, .22), 0 0 30px -8px rgba(185, 200, 255, .4);
+}
+#summon:not(.has-conv)[data-voice="speaking"]::after {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 234, 198, .15));
 }
 #summon[data-voice="speaking"]::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 234, 198, .15));
-  box-shadow: inset 0 0 0 1px rgba(255, 225, 175, .56), inset 0 1px 0 rgba(255, 255, 255, .44), 0 10px 34px rgba(0, 0, 0, .22), 0 0 36px -6px rgba(255, 214, 150, .54);
+  box-shadow: inset 0 0 0 1px rgba(255, 225, 175, .56), inset 0 1px 0 rgba(255, 255, 255, .42), 0 12px 36px rgba(0, 0, 0, .24), 0 0 36px -6px rgba(255, 214, 150, .5);
 }
-/* 输入框在上、位置不动；字幕在它下面，卡片只往下长。文字一律左对齐，和输入的字起点对齐，行数变了也不左右跳 */
-.s-cap { flex: none; width: min(520px, calc(100% - 48px)); height: 0; overflow: hidden; }
-.s-cap-in { padding: 10px 22px 13px; text-align: left; box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, .2); }
-.s-said { margin-bottom: 4px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.s-said:empty { display: none; }
-.s-said.remind { color: var(--warm-ink); }
-.s-body { position: relative; }
-.s-reply { max-height: calc(var(--lines, 4) * 24px); overflow: hidden; font-size: 15px; line-height: 24px; color: var(--text); word-break: break-word; user-select: text; }
-/* 状态行永远只占一行：步骤的名字有长有短，高度不跟着变 */
-.s-reply .dim { display: block; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.s-reply .fresh { animation: capIn .18s ease-out both; }
-/* 截断时最后一行向右渐隐，把位置让给“查看全文” */
-.s-cap.clamped .s-reply {
-  -webkit-mask: linear-gradient(#000, #000) top / 100% calc(100% - 24px) no-repeat, linear-gradient(to right, rgba(0, 0, 0, .7), rgba(0, 0, 0, .35) 45%, transparent calc(100% - 136px)) bottom / 100% 24px no-repeat;
-  mask: linear-gradient(#000, #000) top / 100% calc(100% - 24px) no-repeat, linear-gradient(to right, rgba(0, 0, 0, .7), rgba(0, 0, 0, .35) 45%, transparent calc(100% - 136px)) bottom / 100% 24px no-repeat;
+/* 对话内容在上方可滚动区域完整展示，输入框稳稳固定在卡片最底下 */
+.s-cap { position: relative; z-index: 1; flex: none; width: min(660px, calc(100% - 48px)); height: 0; overflow: hidden; border-radius: 24px 24px 0 0; }
+.s-cap-in { display: flex; flex-direction: column; width: 100%; height: 100%; text-align: left; }
+.s-cap-bar {
+  flex: none; height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 2px 16px 0 20px; border-bottom: 0.5px solid rgba(255, 255, 255, .1);
 }
-.s-more { display: none; margin: 2px 0 0; padding: 0; border: 0; background: none; color: var(--ink); font-size: 13px; line-height: 20px; cursor: pointer; }
-.s-more:hover { text-decoration: underline; }
-.s-more:focus-visible { outline: none; text-decoration: underline; }
-.s-cap.more .s-more { display: block; }
-.s-cap.multi .s-more { margin-right: 0; }
-.s-cap.clamped .s-more { position: absolute; right: 0; bottom: 0; margin: 0; line-height: 24px; }
-.s-acts { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 6px; margin-top: 8px; }
-.s-acts:empty { display: none; }
-.s-acts .ring { width: 40px; height: 40px; }
-.s-acts .ring svg { width: 40px; height: 40px; }
+.s-cap-title { font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-cap-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.s-cap-btn {
+  height: 22px; min-width: 22px; padding: 0 6px; border: 0; border-radius: 11px;
+  background: rgba(255, 255, 255, .08); color: var(--text-2); font-size: 11.5px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .14s, color .14s;
+}
+.s-cap-btn.text { padding: 0 9px; }
+.s-cap-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .18); color: #fff; }
+.s-cap-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .2); color: #fff; }
+.s-cap-btn[hidden] { display: none; }
+.s-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 20px 12px; user-select: text; }
+.s-scroll::-webkit-scrollbar { width: 8px; }
+.s-scroll::-webkit-scrollbar-thumb { background: var(--fill-3); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+.s-thread { display: flex; flex-direction: column; gap: 14px; }
+.s-thread .msg { margin: 0; }
+.s-thread .msg.user .m-bubble { padding: 7px 13px; font-size: 13.5px; }
+.s-thread .md { font-size: 14px; line-height: 1.65; }
+.s-thread .md.streaming:empty::after { content: '正在思考…'; font-size: 13px; color: var(--text-3); }
+.s-thread .trace { margin-bottom: 10px; }
+.s-note-slot[hidden], .s-interim[hidden] { display: none; }
+.s-note-slot { margin-top: 12px; }
+.s-interim {
+  margin-top: 10px; padding: 6px 12px; border-radius: 12px;
+  background: rgba(255, 255, 255, .11); color: var(--text-2); font-size: 13px; line-height: 1.5;
+  font-style: italic; word-break: break-word;
+}
 
-.s-field { position: relative; flex: none; width: min(520px, calc(100% - 48px)); height: 48px; }
+.s-field {
+  position: relative; z-index: 1; flex: none; width: min(520px, calc(100% - 48px)); height: 48px;
+  transition: width .28s cubic-bezier(.4, 0, .2, 1), box-shadow .22s var(--ease);
+}
+#summon.has-conv .s-field {
+  width: min(660px, calc(100% - 48px));
+  border-radius: 0 0 24px 24px;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, .14);
+}
 #sInput { display: block; width: 100%; height: 100%; padding: 0 48px 0 54px; border: 0; outline: none; background: transparent; color: #fff; caret-color: #fff; font: 16px var(--font); user-select: text; }
 #sInput:focus-visible { outline: none; }
 #sInput::placeholder { color: rgba(255, 255, 255, .56); }
@@ -397,9 +429,10 @@ html.theme-dark .btn:hover { filter: brightness(1.15); }
 .chip:hover { background: rgba(var(--glow-rgb), 0.12); color: var(--ink); }
 
 /* ---------- 对话窗口：挂在顶部内容区里，生命体悬在头部左侧微光座上 ---------- */
-#panel { display: flex; flex-direction: column; overflow: hidden; color: var(--text); }
+#panel { position: relative; display: flex; flex-direction: column; overflow: hidden; color: var(--text); }
 #panel[hidden] { display: none; }
 #panel .p-head { border-bottom: 0; padding: 0 10px 0 60px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+#panel.expanded .p-head { cursor: default; }
 #panel .p-head::before {
   content: ''; position: absolute; left: 10px; top: 7px; width: 40px; height: 40px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, rgba(var(--glow-rgb), 0.16), rgba(255, 255, 255, 0.05) 58%, transparent 72%);
@@ -415,6 +448,21 @@ html.theme-dark .btn:hover { filter: brightness(1.15); }
   background: linear-gradient(90deg, transparent, var(--line-strong) 18%, var(--line-strong) 82%, transparent);
 }
 .panel-dragging #panel, .panel-dragging #panel .p-head { cursor: grabbing; }
+.panel-resizing #panel { user-select: none; -webkit-user-select: none; }
+.panel-resizing[data-resizing="n"] *, .panel-resizing[data-resizing="s"] * { cursor: ns-resize !important; }
+.panel-resizing[data-resizing="w"] *, .panel-resizing[data-resizing="e"] * { cursor: ew-resize !important; }
+.panel-resizing[data-resizing="nw"] *, .panel-resizing[data-resizing="se"] * { cursor: nwse-resize !important; }
+.panel-resizing[data-resizing="ne"] *, .panel-resizing[data-resizing="sw"] * { cursor: nesw-resize !important; }
+.p-rz { position: absolute; z-index: 6; touch-action: none; }
+.p-rz[data-rz="n"] { left: 12px; right: 12px; top: 0; height: 6px; cursor: ns-resize; }
+.p-rz[data-rz="s"] { left: 12px; right: 12px; bottom: 0; height: 6px; cursor: ns-resize; }
+.p-rz[data-rz="w"] { top: 12px; bottom: 12px; left: 0; width: 6px; cursor: ew-resize; }
+.p-rz[data-rz="e"] { top: 12px; bottom: 12px; right: 0; width: 6px; cursor: ew-resize; }
+.p-rz[data-rz="nw"] { left: 0; top: 0; width: 12px; height: 12px; z-index: 7; cursor: nwse-resize; }
+.p-rz[data-rz="ne"] { right: 0; top: 0; width: 12px; height: 12px; z-index: 7; cursor: nesw-resize; }
+.p-rz[data-rz="sw"] { left: 0; bottom: 0; width: 12px; height: 12px; z-index: 7; cursor: nesw-resize; }
+.p-rz[data-rz="se"] { right: 0; bottom: 0; width: 12px; height: 12px; z-index: 7; cursor: nwse-resize; }
+#panel.expanded .p-rz { display: none; }
 
 .p-head {
   position: relative; flex: none; height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px;
@@ -773,7 +821,7 @@ button.trace-step-head:hover { color: var(--text); }
 .web-toggle.on { color: var(--ink); background: rgba(var(--glow-rgb), 0.14); }
 .web-toggle.na { text-decoration: line-through; }
 .model-tag {
-  display: inline-flex; align-items: center; gap: 3px; max-width: 165px; height: 26px; padding: 0 9px; margin-left: 2px;
+  display: inline-flex; align-items: center; gap: 3px; min-width: 0; flex: 0 1 auto; max-width: 165px; height: 26px; padding: 0 9px; margin-left: 2px;
   border-radius: 13px; border: 0; background: transparent; color: var(--text-2);
   font-size: 11.5px; white-space: nowrap; overflow: hidden; transition: color 0.15s, background 0.15s;
 }

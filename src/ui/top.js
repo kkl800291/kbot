@@ -6,8 +6,8 @@ import { buildRealtimeInstructions, extractDshBridgeDirective, normalizeSpokenBr
 import { createEnergy } from './energy.js';
 import { uiAccent } from './accent.js';
 import {
-  arrival, barTarget, captionOf, chatRest, contentSize, createNoteQueue, energyMode, energyPlacement, GAP, gazeAt, hotkeyRoute, inHotzone, inRect, layout, plainText,
-  settleState, shouldAutoClose, shouldStartFresh, shouldWait, SUMMON, SUMMON_IDLE, talkMs, waitLine, WIN,
+  arrival, barTarget, chatRest, contentSize, createNoteQueue, energyMode, energyPlacement, GAP, gazeAt, hotkeyRoute, inHotzone, inRect, layout,
+  resizeChatRect, settleState, shouldAutoClose, shouldStartFresh, shouldWait, SUMMON, SUMMON_IDLE, talkMs, WIN,
 } from './top-model.js';
 
 (function () {
@@ -16,8 +16,10 @@ import {
   const stage = $('#stage'), contentEl = $('#topContent'), haloEl = $('#halo'), energyEl = $('#energy');
   const barLabel = $('#tLabel'), barAux = $('#tAux'), bar = $('#tBar');
   const noteEl = $('#tNote'), noteTitle = $('#tNoteTitle'), noteBody = $('#tNoteBody'), noteActs = $('#tNoteActs');
-  const summonEl = $('#summon'), capEl = $('#sCap'), capIn = $('.s-cap-in'), saidEl = $('#sSaid'), replyEl = $('#sReply');
-  const moreEl = $('#sMore'), sActs = $('#sActs'), sMic = $('#sMic'), sInput = $('#sInput'), sBtn = $('#sBtn');
+  const summonEl = $('#summon'), capEl = $('#sCap'), capBar = $('#sCapBar'), titleEl = $('#sTitle');
+  const tallBtn = $('#sTall'), newBtn = $('#sNew'), scrollEl = $('#sScroll'), threadEl = $('#sThread');
+  const noteSlot = $('#sNoteSlot'), interimEl = $('#sInterim');
+  const sMic = $('#sMic'), sInput = $('#sInput'), sBtn = $('#sBtn');
   const panel = $('#panel'), input = $('#input');
   const standbyEl = $('#standby');
   const PALETTES = ['molten', 'aurora', 'iri'];
@@ -26,8 +28,8 @@ import {
   A.dnd = { until: 0 };
   A.missed = [];
 
-  // cap：召唤态字幕区高度；surface：进行中的回复最后是在召唤态还是窗口里看的
-  const T = { state: 'hidden', act: null, chatMode: 'listen', note: null, safeTop: 0, notch: 0, area: 0, layout: null, moving: false, cap: 0, surface: 'summon', chatOffset: { x: 0, y: 0 } };
+  // cap：召唤态对话区高度；tall：是否展开更多阅读空间；surface：进行中的回复最后是在召唤态还是窗口里看的
+  const T = { state: 'hidden', act: null, chatMode: 'listen', note: null, safeTop: 0, notch: 0, area: 0, layout: null, moving: false, cap: 0, tall: false, surface: 'summon', chatOffset: { x: 0, y: 0 } };
   const V = { mode: 'off', phase: 'off', wanted: false, manualTyping: false, prompting: false, dictTimer: 0, resumeTimer: 0, rtTurn: null, bridging: null };
   const notes = createNoteQueue();
   const energy = A.energy = createEnergy(energyEl, {
@@ -85,15 +87,14 @@ import {
   function currentLayout(st) {
     const r = stage.getBoundingClientRect();
     return layout(st, {
-      act: T.act, expanded: !!A.S.expanded, safeTop: T.safeTop, caption: T.cap, chatOffset: T.chatOffset,
+      act: T.act, expanded: !!A.S.expanded, safeTop: T.safeTop, caption: T.cap, tall: T.tall, chatSize: A.S.chatSize, chatOffset: T.chatOffset,
       bounds: screenFrame(),
       viewport: { x: -r.left, y: -r.top, w: innerWidth, h: innerHeight },
     });
   }
   function rememberPanelPosition(c) {
     if (A.S.expanded) return;
-    const [w, h] = contentSize('chat');
-    const rest = chatRest(w, h, screenFrame());
+    const rest = chatRest(c.w, c.h, screenFrame());
     T.chatOffset = { x: c.x - rest.x, y: c.y - rest.y };
   }
   let motionTimer = 0, pinTimer = 0;
@@ -127,8 +128,10 @@ import {
     stage.classList.toggle('morph', swap);
     if (st === 'summon') {
       capEl.style.transition = `height ${tr}`; capEl.style.height = Math.min(T.cap, L.summon.captionMax) + 'px';
+      summonEl.style.transition = prev === 'summon' ? `opacity .3s ease, padding-top ${tr}, visibility 0s` : '';
       summonEl.style.setProperty('--summon-top', L.summon.inputY + 'px');
-    }
+      summonEl.classList.toggle('tall', !!L.summon.tall);
+    } else summonEl.style.transition = '';
     const halo = visible ? L.halo : T.layout?.halo;
     // 底板只给常驻条、通知、对话窗口用。待命空间没有底板：整片暮色画在 #standby 上，自己淡入淡出
     const plate = !!halo && !halo.standby;
@@ -176,6 +179,11 @@ import {
     }
     // 能量体还没有进度带接口时，任务条仍把整个身体铺成底边的带子
     else energy.setBox(at.band || at.box, { immediate });
+    if (energy.setEdge) {
+      if (T.state === 'summon') energy.setEdge(null, { immediate });
+      else if (T.state === 'chat' && L?.halo) energy.setEdge([r.left + L.halo.x, r.top + L.halo.y, L.halo.w, L.halo.h, L.halo.radius || 24], { immediate });
+      else energy.setEdge(false, { immediate });
+    }
   }
 
   function syncMode() {
@@ -235,7 +243,7 @@ import {
   bar.addEventListener('click', openBar);
   bar.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBar(); } });
   contentEl.addEventListener('contextmenu', e => {
-    if (T.state === 'chat' || e.target.closest('input, textarea, .s-reply')) return;
+    if (T.state === 'chat' || e.target.closest('input, textarea, .s-thread, .s-note-slot, .s-interim')) return;
     e.preventDefault();
     A.openContextMenu?.(e.clientX, e.clientY);
   });
@@ -325,7 +333,7 @@ import {
       // 召唤态里：字幕正显示着的那条回复不再重复通知；没在回复就直接成为字幕，否则排队等收起
       if (T.state === 'summon') {
         if (ev.msgId && ev.msgId === S.msg?.id) return true;
-        if (!A.chat?.generating) { showNote(ev); renderCaption(); armAuto(); return true; }
+        if (!A.chat?.generating) { showNote(ev); scheduleSummonSync(true); armAuto(); return true; }
       }
       const r = arrival(T.note && { kind: T.note.kind, pri: T.note.pri }, ev);
       if (r === 'drop') return false;
@@ -365,109 +373,159 @@ import {
     place() {},
   };
 
-  // ---------- 召唤态：能量体为主角，回答像字幕一样出现在身体下方 ----------
-  // msg：字幕跟着的那条回复；note、pro：并进来的通知和它记进对话里的那条；
-  // shown、key：已经显示的字幕，用来只给新追加的文字做淡入；replied：有过回复，可以开始计时自动收起
-  // hold：这一条回复进行中字幕区到过的最高高度
-  const S = { msg: null, note: null, pro: null, shown: '', key: '', replied: false, active: 0, hold: 0 };
-  let closeTimer = 0, focusTimer = 0, autoTimer = 0, capTimer = 0, captionFrame = 0, base = 'idle';
+  // ---------- 召唤态：光纹生命体为主角，下方承接可滚动富文本完整对话 ----------
+  // msg：当前跟进的回复；note：跨会话的外部通知（仅在指向其他会话时单独渲染）；
+  // interim：语音实时输入草稿；replied：有过回复，可以开始计时自动收起；hold：进行中对话区到过的最高高度
+  const S = { msg: null, note: null, pro: null, interim: '', replied: false, active: 0, hold: 0 };
+  let closeTimer = 0, focusTimer = 0, autoTimer = 0, capTimer = 0, captionFrame = 0, threadMounted = false, stickBottom = true, base = 'idle';
   const focusInput = () => { if (!input.disabled) input.focus({ preventScroll: true }); };
   const focusSummon = () => { if (T.state === 'summon') { sInput.focus({ preventScroll: true }); sInput.select(); } };
   const agentAct = () => ({ kind: 'think', label: base === 'talk' ? '正在回复…' : '正在思考…', source: 'agent', surface: T.surface });
   const MODS = ['Shift', 'Meta', 'Alt', 'Control', 'CapsLock', 'Escape', 'Tab'];
 
-  function follow(m) { S.msg = m || null; S.note = null; S.pro = null; S.hold = 0; S.actSig = ''; sActs.replaceChildren(); }
-
-  // 需要人拍板的卡片（工具审批、选项题）直接在字幕下给按钮，不用跳去窗口
-  function syncCardActs() {
-    if (S.note) return;
-    const m = S.msg, c = m?.card, pending = c?.state === 'pending' ? c : null;
-    let sig = '', btns = [];
-    if (pending?.type === 'approval') {
-      sig = 'a:' + pending.approvalId;
-      btns = [
-        h('button', { class: 'btn sm primary', onclick: () => A.chat.approve(m, true) }, '允许一次'),
-        h('button', { class: 'btn sm', onclick: () => A.chat.approve(m, false) }, '拒绝'),
-      ];
-    } else if (pending?.type === 'question') {
-      const idx = pending.index || 0, q = pending.questions?.[idx], opts = q && !q.multiSelect ? (q.options || []) : [];
-      sig = 'q:' + pending.questionRequestId + ':' + idx;
-      btns = opts.length && opts.length <= 3
-        ? opts.map(o => h('button', { class: 'btn sm' + (o.recommended ? ' primary' : ''), title: o.description || '', onclick: () => A.chat.answerOption(m, o.label) }, A.chat.optLabel(o)))
-        : [h('button', { class: 'btn sm primary', onclick: openFull }, '在窗口中回答')];
-    }
-    if (sig === (S.actSig || '')) return;
-    S.actSig = sig;
-    sActs.replaceChildren(...btns);
-  }
+  function follow(m) { S.msg = m || null; S.note = null; S.pro = null; S.hold = 0; renderNoteSlot(); }
   const lastReply = () => [...(A.chat.cur?.messages || [])].reverse().find(m => m.role === 'assistant' && (m.status === 'thinking' || m.status === 'streaming'));
+  const hasPendingCard = () => !!A.chat?.cur?.messages?.some(m => m?.card && (m.card.state === 'pending' || m.card.state === 'submitting'));
+
+  function syncTallBtn() {
+    if (!tallBtn) return;
+    tallBtn.innerHTML = A.icon(T.tall ? 'shrink' : 'expand', 13);
+    const tip = T.tall ? '恢复常规高度' : '展开更多阅读空间';
+    tallBtn.title = tip;
+    tallBtn.setAttribute('aria-label', tip);
+    tallBtn.setAttribute('aria-pressed', String(T.tall));
+  }
+
+  function revealSummonMsg(id) {
+    if (!id) return;
+    const el = threadEl.querySelector(`.msg[data-id="${id}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }
+
+  function renderNoteSlot() {
+    if (!noteSlot) return;
+    if (!S.note) {
+      noteSlot.hidden = true;
+      noteSlot.replaceChildren();
+      return;
+    }
+    const ev = S.note;
+    const card = A.chat?.proElFromEvent?.(ev);
+    if (!card) { noteSlot.hidden = true; return; }
+    if (ev.convId && ev.convId !== A.chat?.cur?.id) {
+      let btns = card.querySelector('.m-btns');
+      if (!btns) { btns = h('div', { class: 'm-btns' }); card.append(btns); }
+      btns.append(h('button', {
+        class: 'btn sm ghost',
+        onclick: () => {
+          S.note = null;
+          renderNoteSlot();
+          A.chat.switchTo(ev.convId);
+          if (ev.msgId) requestAnimationFrame(() => revealSummonMsg(ev.msgId));
+        },
+      }, '切换至所属对话'));
+    }
+    noteSlot.replaceChildren(card);
+    noteSlot.hidden = false;
+  }
+
+  function renderInterim() {
+    if (!interimEl) return;
+    const live = S.interim.trim();
+    interimEl.textContent = live ? `正在听：${live}` : '';
+    interimEl.hidden = !live;
+  }
 
   function showNote(ev) {
     const C = A.chat, m = ev.msgId && C.find(ev.msgId);
-    // 回复完成的通知：直接看那条回复本身
-    if (m) { follow(m); S.replied = true; S.active = Date.now(); return; }
+    // 回复完成的通知：直接滚动到那条回复
+    if (m) {
+      follow(m); S.replied = true; S.active = Date.now();
+      requestAnimationFrame(() => revealSummonMsg(m.id));
+      return;
+    }
     follow(null);
-    S.note = ev;
-    // 指向某段对话的通知已经在那段对话里了；其余记进当前对话，窗口里能看到
-    if (!ev.convId) { C.pushPro(ev); S.pro = C.cur.messages.at(-1); }
-    sActs.replaceChildren(...(ev.actions || []).slice(0, 2).map(a => h('button', {
-      class: 'btn sm' + (a.primary ? ' primary' : ''), onclick: () => noteAction(a),
-    }, a.label)));
-    if (ev.ring) sActs.append(A.makeRing());
+    if (!ev.convId || ev.convId === C.cur?.id) {
+      C.pushPro(ev);
+      S.pro = C.cur.messages.at(-1);
+    } else {
+      S.note = ev;
+      renderNoteSlot();
+    }
     S.replied = true; S.active = Date.now();
     energy.accent((ev.kind || 'speech') === 'speech' ? (ev.expr || 'happy') : 'remind');
   }
-  function noteAction(a) {
-    const pro = S.pro;
-    if (pro && !pro.done) { pro.done = a.label; A.chat.paint(pro); A.save(); }
-    follow(null);
-    renderCaption();
-    try { a.fn?.(); } finally { if (!a.quiet) energy.accent(a.expr || 'happy'); }
+
+  function syncSummonCard() {
+    ensureThreadMounted();
+    renderNoteSlot();
+    renderInterim();
+    const C = A.chat, msgs = C?.cur?.messages || [];
+    const hasConv = msgs.length > 0 || !!S.note || !!S.interim.trim();
+    summonEl.classList.toggle('has-conv', hasConv);
+
+    if (titleEl) {
+      if (C?.generating || V.phase === 'thinking') titleEl.textContent = 'KBOT 思考中…';
+      else if (V.phase === 'speaking') titleEl.textContent = 'KBOT 正在回复…';
+      else if (S.note) titleEl.textContent = S.note.title || (S.note.kind === 'remind' ? '提醒' : 'KBOT');
+      else {
+        const title = C?.cur?.title;
+        titleEl.textContent = title && title !== '新对话' ? title : 'KBOT 对话';
+      }
+    }
+    if (newBtn) {
+      newBtn.disabled = !!C?.generating;
+      newBtn.hidden = !!C?.generating || (!msgs.length && !S.note);
+    }
+    syncTallBtn();
+
+    let capH = 0;
+    if (hasConv) {
+      const L = currentLayout('summon');
+      const barH = capBar.offsetHeight || 32;
+      const rawH = Math.ceil(barH + scrollEl.scrollHeight);
+      capH = Math.min(L.summon.captionMax, Math.max(92, rawH));
+      if (C?.generating || V.phase === 'thinking' || V.phase === 'speaking') {
+        capH = S.hold = Math.max(capH, S.hold);
+      } else {
+        S.hold = 0;
+      }
+    } else {
+      S.hold = 0;
+      if (T.tall) T.tall = false;
+    }
+
+    if (capH !== T.cap) {
+      T.cap = capH;
+      if (T.state === 'summon') setState('summon');
+    }
+    if (hasConv && stickBottom) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
   }
 
-  function view() {
-    if (S.note) {
-      const ev = S.note, kind = ev.kind || 'speech';
-      return { said: ev.title || (kind === 'speech' ? '' : '提醒'), remind: kind !== 'speech', text: plainText(ev.text).text, dim: '', rich: !!ev.convId };
-    }
-    const m = S.msg;
-    if (!m) return null;
-    const msgs = A.chat.cur?.messages || [];
-    let u = msgs.indexOf(m) - 1;
-    while (u >= 0 && msgs[u].role !== 'user') u--;
-    const um = u >= 0 ? msgs[u] : null;
-    const cap = captionOf(m);
-    // 回复还在进行、此刻又没有具体步骤可说：也留一行状态，不让这一行时有时无
-    if (!cap.text && !cap.dim && (m.status === 'thinking' || m.status === 'streaming')) cap.dim = waitLine(Date.now() - (m.startedAt ?? m.time ?? Date.now()));
-    return { said: um ? um.text || (um.images?.length ? '［图片］' : '') : '', remind: false, ...cap };
+  function scheduleSummonSync(forceScroll = false) {
+    if (forceScroll) stickBottom = true;
+    if (captionFrame) return;
+    captionFrame = requestAnimationFrame(() => {
+      captionFrame = 0;
+      syncSummonCard();
+    });
   }
 
-  function renderCaption() {
-    syncCardActs();
-    const v = view(), text = v?.text || '', full = text || v?.dim || '';
-    saidEl.textContent = v?.said || '';
-    saidEl.classList.toggle('remind', !!v?.remind);
-    // 接着上次往后长，就只追加新的那段并淡入；否则整段换掉
-    const key = text || (v?.dim ? 'dim:' + v.dim : '');
-    if (text && S.shown && text.startsWith(S.shown)) {
-      const add = text.slice(S.shown.length);
-      if (add) replyEl.append(h('span', { class: 'fresh' }, add));
-    } else if (key !== S.key) {
-      replyEl.replaceChildren(...(full ? [h('span', { class: text ? 'fresh' : 'dim' }, full)] : []));
-    }
-    S.shown = text; S.key = key;
-    // 超过行数上限就截断，并给“在窗口中查看全文”。
-    const max = sActs.childElementCount ? 3 : 4;
-    replyEl.style.setProperty('--lines', String(max));
-    const lines = full ? Math.round(replyEl.scrollHeight / 24) : 0;
-    capEl.classList.toggle('multi', lines > 1);
-    capEl.classList.toggle('clamped', lines > max || (!!v?.rich && lines === max));
-    capEl.classList.toggle('more', lines > max || !!v?.rich);
-    let capH = v ? Math.min(SUMMON.caption, capIn.offsetHeight) : 0;
-    // 回复进行中只长不缩：步骤之间状态换来换去，卡片不跟着一收一放
-    if (S.msg && (S.msg.status === 'thinking' || S.msg.status === 'streaming')) capH = S.hold = Math.max(capH, S.hold);
-    else S.hold = 0;
-    if (capH !== T.cap) { T.cap = capH; if (T.state === 'summon') setState('summon'); }
+  function ensureThreadMounted() {
+    if (threadMounted || !A.chat?.mountThread) return;
+    threadMounted = true;
+    A.chat.mountThread(threadEl, {
+      scrollEl,
+      onSync: (kind, m) => {
+        if (m?.role === 'user' || kind === 'append') stickBottom = true;
+        else stickBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 90;
+        if (m && m.role === 'assistant') S.msg = m;
+        syncSummonCard();
+        if (kind === 'paint' || kind === 'text' || kind === 'append') armAuto();
+      },
+    });
   }
 
   function setVoiceUi(phase, level = 0) {
@@ -550,7 +608,7 @@ import {
     const dshMsg = A.chat.cur?.messages?.at(-1);
     if (dshMsg?.role === 'assistant') {
       follow(dshMsg);
-      renderCaption();
+      scheduleSummonSync(true);
       V.bridging = { callId, msg: dshMsg };
     } else {
       A.voice?.setRealtimeBridging?.(false);
@@ -632,15 +690,19 @@ import {
             turn.userText += text;
             const live = turn.userText.trim();
             if (live) {
-              if (!S.msg && !S.note) saidEl.textContent = live;
+              S.interim = live;
+              renderInterim();
+              scheduleSummonSync(true);
               if (!sInput.value) sInput.placeholder = `正在听：${live}`;
             }
             S.active = Date.now();
             return;
           }
           const spoken = String(text || turn.userText || '').trim();
+          S.interim = '';
+          renderInterim();
           syncField();
-          if (!spoken) return;
+          if (!spoken) { scheduleSummonSync(); return; }
           const conv = A.chat.cur;
           const um = { id: A.uid(), role: 'user', text: spoken, images: [], time: Date.now() };
           conv.messages.push(um);
@@ -666,7 +728,7 @@ import {
           turn.assistantMsg = am;
           follow(am);
           S.replied = false;
-          renderCaption();
+          scheduleSummonSync(true);
         },
         onAssistantDelta(delta) {
           if (T.state !== 'summon') return;
@@ -689,8 +751,7 @@ import {
           turn.rawText += delta;
           const parsed = extractDshBridgeDirective(turn.rawText);
           turn.assistantMsg.text = parsed.cleanText;
-          if (panel.hidden) A.emit('chat:msg', turn.assistantMsg);
-          else A.chat.paintText(turn.assistantMsg);
+          A.chat.paintText(turn.assistantMsg);
         },
         onToolCall({ callId, name, arguments: rawArgs }) {
           if (T.state !== 'summon') return;
@@ -923,7 +984,7 @@ import {
       clearTimeout(autoTimer);
       setVoiceUi('thinking');
       syncField();
-      renderCaption();
+      scheduleSummonSync(true);
       A.voice.sendRealtimeText(text).catch(err => A.toast?.(String(err), 4000));
       return;
     }
@@ -938,35 +999,38 @@ import {
       setVoiceUi('thinking');
       syncField();
     }
-    renderCaption();
+    scheduleSummonSync(true);
   }
 
-  // 回复结束后 30 秒没有悬停、没有输入、没有持续语音、输入框为空就收起
+  // 回复结束后 30 秒没有悬停、没有输入、没有持续语音、没有待操作卡片且输入框为空就收起
   function armAuto() {
     clearTimeout(autoTimer);
     if (T.state !== 'summon' || !S.replied) return;
     const voiceActive = V.phase === 'listening' || V.phase === 'speaking' || V.phase === 'connecting' || V.phase === 'thinking';
+    const busyWait = voiceActive || hasPendingCard();
     autoTimer = setTimeout(function check() {
       if (T.state !== 'summon') return;
       const idle = Date.now() - S.active;
-      const va = V.phase === 'listening' || V.phase === 'speaking' || V.phase === 'connecting' || V.phase === 'thinking';
+      const va = V.phase === 'listening' || V.phase === 'speaking' || V.phase === 'connecting' || V.phase === 'thinking' || hasPendingCard();
       if (shouldAutoClose({ idle, hovering: overContent, empty: !sInput.value.trim(), generating: !!A.chat.generating, voiceActive: va })) A.summon.close();
       else autoTimer = setTimeout(check, Math.max(1000, SUMMON_IDLE - idle));
-    }, voiceActive ? SUMMON_IDLE : Math.max(1000, SUMMON_IDLE - (Date.now() - S.active)));
+    }, busyWait ? SUMMON_IDLE : Math.max(1000, SUMMON_IDLE - (Date.now() - S.active)));
   }
 
   function leaveSummon() {
     clearTimeout(autoTimer); clearTimeout(focusTimer);
     stopSummonVoice();
     sInput.blur();
-    // 不在回复就清掉字幕，下次召唤是就绪的样子；淡出以后再把字幕区收回去，免得胶囊在淡出时跳动
-    if (!A.chat?.generating) { follow(null); renderCaption(); }
+    S.interim = '';
+    renderInterim();
+    S.hold = 0;
     S.replied = false;
     clearTimeout(capTimer);
     capTimer = setTimeout(() => { if (T.state !== 'summon') { capEl.style.transition = 'none'; capEl.style.height = T.cap + 'px'; } }, 400);
   }
   function leavePanel() {
     stopPanelDrag();
+    stopPanelResize(true);
     panel.inert = true;
     clearTimeout(focusTimer);
     A.chat.closeHistory();
@@ -976,7 +1040,6 @@ import {
   }
 
   const toWindow = () => A.panel.open();
-  const openFull = () => (S.note?.convId ? A.panel.open({ convId: S.note.convId }) : A.panel.open({ msgId: S.msg?.id }));
   sInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); toWindow(); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -1050,23 +1113,55 @@ import {
     if (speaking) A.voice.stop();
     if (!gen && !speaking) toWindow();
   });
-  moreEl.addEventListener('click', openFull);
-  summonEl.addEventListener('click', e => { if (!e.target.closest('button, input, .s-reply')) focusSummon(); });
-
-  // 一帧里可能连续收到文字、命令开始和命令结果，只展示最新状态，避免反复测量、重排和闪现中间状态。
-  A.on('chat:msg', m => {
-    if (!S.msg || m.id !== S.msg.id || captionFrame) return;
-    captionFrame = requestAnimationFrame(() => { captionFrame = 0; renderCaption(); });
+  tallBtn?.addEventListener('click', () => {
+    T.tall = !T.tall;
+    syncSummonCard();
+    if (T.state === 'summon') setState('summon');
   });
-  // 还没有任何输出时，每秒刷新一次“已等待多久”
-  setInterval(() => {
-    const m = S.msg;
-    if (T.state !== 'summon' || S.note || !m || (m.status !== 'thinking' && m.status !== 'streaming')) return;
-    if (plainText(m.text).text || m.card || (m.steps || []).some(s => s && s.kind !== 'note' && !s.done)) return;
-    renderCaption();
-  }, 1000);
+  capBar?.addEventListener('dblclick', e => {
+    if (T.state !== 'summon' || e.target.closest('button, input, a')) return;
+    T.tall = !T.tall;
+    syncSummonCard();
+    setState('summon');
+  });
+  newBtn?.addEventListener('click', () => {
+    if (A.chat?.generating) return;
+    S.note = null; S.pro = null; S.interim = ''; S.msg = null; S.hold = 0; T.tall = false; S.replied = false;
+    renderNoteSlot();
+    renderInterim();
+    A.chat.newConv(false);
+    syncSummonCard();
+    focusSummon();
+  });
+  noteSlot?.addEventListener('click', e => {
+    const t = e.target.closest('[data-a="pro"]');
+    if (!t || !S.note) return;
+    const act = S.note.actions?.[+t.dataset.i];
+    if (!act) return;
+    S.note = null;
+    renderNoteSlot();
+    syncSummonCard();
+    try { act.fn?.(); } finally { if (!act.quiet) energy.accent(act.expr || 'happy'); }
+  });
+  scrollEl?.addEventListener('scroll', () => {
+    stickBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 90;
+    S.active = Date.now();
+  }, { passive: true });
+  scrollEl?.addEventListener('load', () => scheduleSummonSync(), true);
+  capEl?.addEventListener('transitionend', e => {
+    if (e.target === capEl && e.propertyName === 'height' && stickBottom && scrollEl) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
+  });
+  summonEl.addEventListener('click', e => { if (!e.target.closest('button, input, textarea, a, .s-cap, .s-scroll')) focusSummon(); });
+
+  A.on('chat:msg', m => {
+    if (!S.msg || m.id !== S.msg.id) return;
+    scheduleSummonSync();
+  });
   A.on('generating', on => {
     syncField();
+    if (T.state === 'summon') syncSummonCard();
     if (on) return;
     if (V.bridging) {
       const br = V.bridging;
@@ -1103,7 +1198,7 @@ import {
           }
         }, 80);
       }
-    } else if (S.msg) { follow(null); renderCaption(); }
+    } else if (S.msg) { follow(null); syncSummonCard(); }
   });
   A.on('dsh:state', syncField);
   A.on('set:model', syncField);
@@ -1124,9 +1219,10 @@ import {
   });
 
   A.summon = {
-    /** opts.note：把这条通知变成字幕；opts.msgId：字幕显示这条回复。 */
+    /** opts.note：在对话卡片里展现该通知；opts.msgId：定位到这条回复。 */
     open(opts = {}) {
       if (A.hidden || !A.chat?.cur) return;
+      ensureThreadMounted();
       const C = A.chat, was = T.state;
       // 隔了很久再唤起，就从新对话开始；没隔多久就接着聊。指向某条消息、带通知的唤起，以及从窗口过来的不动
       if (was !== 'summon' && was !== 'chat' && !opts.note && !opts.msgId && !A.bubble.current()) {
@@ -1138,16 +1234,18 @@ import {
       }
       if (was === 'chat') { leavePanel(); T.surface = 'summon'; }
       else if (was !== 'summon') A.focusWindow?.();
-      // 通知并入：正在显示的那条（没有就取排队里最新的一条）成为字幕，其余放进当前对话
+      // 通知并入：正在显示的那条（没有就取排队里最新的一条）进入对话流，其余放进当前对话
       let ev = opts.note || A.bubble.takeover(false);
       const queued = A.bubble.drain();
       if (!ev) ev = queued.pop();
       queued.forEach(q => C.pushPro(q));
       if (ev) showNote(ev);
-      else if (opts.msgId) follow(C.find(opts.msgId));
+      else if (opts.msgId) {
+        follow(C.find(opts.msgId));
+        requestAnimationFrame(() => revealSummonMsg(opts.msgId));
+      }
       else if (C.generating && !S.msg) follow(lastReply());
       else if (!S.msg) {
-        // 接着上一轮聊：字幕显示上一轮的回复，让界面和模型记得的内容一致
         const last = C.cur.messages.at(-1);
         if (last?.role === 'assistant' && last.status !== 'thinking' && last.status !== 'streaming') follow(last);
       }
@@ -1155,8 +1253,9 @@ import {
       if (T.act?.source === 'agent') T.act = null;
       clearTimeout(capTimer);
       syncField();
-      renderCaption();
+      syncSummonCard();
       setState('summon');
+      if (!opts.msgId) requestAnimationFrame(() => { if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight; });
       armAuto();
       clearTimeout(focusTimer);
       focusTimer = setTimeout(focusSummon, 60);
@@ -1179,48 +1278,104 @@ import {
 
   // ---------- 对话窗口 ----------
   const panelHead = $('.p-head', panel);
-  let panelDrag = null;
+  let panelDrag = null, panelResize = null;
   function movePanel() {
     const L = currentLayout('chat'), c = L.content;
     rememberPanelPosition(c);
     T.layout = L;
     contentEl.style.transition = haloEl.style.transition = 'none';
     for (const el of [contentEl, haloEl]) Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
-    // 拖动窗口时头像直接跟手；状态切换时仍保留从大球缩进头像的飞行动画。
+    // 拖动或缩放窗口时头像直接跟手；状态切换时仍保留从大球缩进头像的飞行动画。
     placeEnergy(L, { immediate: true });
     backdrop(L.halo, true, false, true);
     A.emit('panelmove');
   }
   function stopPanelDrag() {
     if (!panelDrag) return;
-    const id = panelDrag.id;
+    const { id, moved } = panelDrag;
     panelDrag = null;
     stage.classList.remove('panel-dragging');
     if (panelHead.hasPointerCapture(id)) panelHead.releasePointerCapture(id);
+    if (moved) A.emit('paneldrag', false);
+  }
+  function applyChatRect(c) {
+    const frame = screenFrame();
+    A.S.chatSize = { w: c.w, h: c.h };
+    const rest = chatRest(c.w, c.h, frame);
+    T.chatOffset = { x: c.x - rest.x, y: c.y - rest.y };
+    movePanel();
+  }
+  function stopPanelResize(commit = false) {
+    if (!panelResize) return;
+    const { id, el } = panelResize;
+    panelResize = null;
+    stage.classList.remove('panel-resizing');
+    delete stage.dataset.resizing;
+    if (el?.hasPointerCapture?.(id)) el.releasePointerCapture(id);
+    if (commit) A.save();
     A.emit('paneldrag', false);
   }
+  function toggleExpand() {
+    stopPanelDrag();
+    stopPanelResize(true);
+    A.S.expanded = !A.S.expanded;
+    A.save();
+    syncExpand();
+    if (T.state === 'chat') setState('chat');
+  }
   panelHead.addEventListener('pointerdown', e => {
-    if (T.state !== 'chat' || A.S.expanded || !e.isPrimary || e.button !== 0 || e.target.closest('button, input, textarea, select, a, [contenteditable], [role="button"]')) return;
+    if (T.state !== 'chat' || A.S.expanded || !e.isPrimary || e.button !== 0 || e.detail >= 2 || e.target.closest('button, input, textarea, select, a, [contenteditable], [role="button"], .p-rz')) return;
     e.preventDefault();
     const r = contentEl.getBoundingClientRect(), s = stage.getBoundingClientRect();
     const c = currentLayout('chat').content;
     rememberPanelPosition({ ...c, x: r.left - s.left, y: r.top - s.top });
-    panelDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, offset: { ...T.chatOffset } };
+    panelDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, offset: { ...T.chatOffset }, moved: false };
     panelHead.setPointerCapture(e.pointerId);
-    stage.classList.add('panel-dragging');
-    movePanel();
-    A.emit('paneldrag', true);
   });
   panelHead.addEventListener('pointermove', e => {
     if (!panelDrag || panelDrag.id !== e.pointerId) return;
-    T.chatOffset = { x: panelDrag.offset.x + e.clientX - panelDrag.x, y: panelDrag.offset.y + e.clientY - panelDrag.y };
+    const dx = e.clientX - panelDrag.x, dy = e.clientY - panelDrag.y;
+    if (!panelDrag.moved) {
+      if (Math.hypot(dx, dy) < 2) return;
+      panelDrag.moved = true;
+      stage.classList.add('panel-dragging');
+      A.emit('paneldrag', true);
+    }
+    T.chatOffset = { x: panelDrag.offset.x + dx, y: panelDrag.offset.y + dy };
     movePanel();
   });
   for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) panelHead.addEventListener(name, e => {
     if (panelDrag?.id === e.pointerId) stopPanelDrag();
   });
-  addEventListener('blur', stopPanelDrag);
-  addEventListener('resize', () => { stopPanelDrag(); if (T.state !== 'hidden') setState(T.state); });
+  panelHead.addEventListener('dblclick', e => {
+    if (T.state !== 'chat' || e.target.closest('button, input, textarea, select, a, [contenteditable], [role="button"], .p-rz')) return;
+    e.preventDefault();
+    toggleExpand();
+  });
+  panel.querySelectorAll('.p-rz').forEach(rzEl => {
+    rzEl.addEventListener('pointerdown', e => {
+      if (T.state !== 'chat' || A.S.expanded || !e.isPrimary || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      stopPanelDrag();
+      const c = currentLayout('chat').content;
+      panelResize = { id: e.pointerId, el: rzEl, edge: rzEl.dataset.rz || 'se', x: e.clientX, y: e.clientY, rect: { x: c.x, y: c.y, w: c.w, h: c.h } };
+      rzEl.setPointerCapture(e.pointerId);
+      stage.classList.add('panel-resizing');
+      stage.dataset.resizing = panelResize.edge;
+      A.emit('paneldrag', true);
+    });
+    rzEl.addEventListener('pointermove', e => {
+      if (!panelResize || panelResize.id !== e.pointerId) return;
+      const next = resizeChatRect(panelResize.rect, panelResize.edge, e.clientX - panelResize.x, e.clientY - panelResize.y, screenFrame());
+      applyChatRect(next);
+    });
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) rzEl.addEventListener(name, e => {
+      if (panelResize?.id === e.pointerId) stopPanelResize(name === 'pointerup');
+    });
+  });
+  addEventListener('blur', () => { stopPanelDrag(); stopPanelResize(true); });
+  addEventListener('resize', () => { stopPanelDrag(); stopPanelResize(true); if (T.state !== 'hidden') setState(T.state); });
 
   A.panel = {
     /** opts.msgId：打开后滚到这条消息；从召唤态进来时把胶囊里没发的文字带过来。 */
@@ -1269,12 +1424,13 @@ import {
     toggle: () => (T.state === 'chat' ? A.panel.close() : A.panel.open()),
     isOpen: () => T.state === 'chat',
     isTransitioning: () => T.moving,
-    isDragging: () => !!panelDrag,
+    isDragging: () => !!panelDrag || !!panelResize,
     place() { if (T.state === 'chat') movePanel(); },
   };
 
   function syncExpand() {
     const b = $('#expandBtn');
+    panel.classList.toggle('expanded', !!A.S.expanded);
     b.innerHTML = A.icon(A.S.expanded ? 'shrink' : 'expand');
     b.title = A.S.expanded ? '还原大小' : '铺满屏幕';
   }
@@ -1284,7 +1440,7 @@ import {
     ({
       history: () => A.chat.toggleHistory(),
       new: () => A.chat.newConv(true),
-      expand: () => { A.S.expanded = !A.S.expanded; A.save(); syncExpand(); if (T.state === 'chat') setState('chat'); },
+      expand: toggleExpand,
       close: () => A.panel.close(),
     })[b.dataset.p]();
   });
@@ -1298,7 +1454,7 @@ import {
   }
   /** 点外面或窗口失焦只收起召唤态（正在弹出系统授权时不收起）。已经打开的对话框保持不动，要手动关闭。 */
   function outside() {
-    if (!A.S.outsideClose || panelDrag) return;
+    if (!A.S.outsideClose || panelDrag || panelResize) return;
     if (T.state === 'summon' && !V.prompting) A.summon.close();
   }
   standbyEl.addEventListener('pointerdown', () => outside());
@@ -1575,10 +1731,12 @@ import {
         }
       }).catch(() => {});
     }
+    ensureThreadMounted();
     A.applyLook();
     syncDnd();
     syncExpand();
     syncField();
+    syncTallBtn();
     await A.top.relayout();
     setState('hidden');
   });

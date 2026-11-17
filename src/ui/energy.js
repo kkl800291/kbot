@@ -9,12 +9,12 @@ import { PALETTES, withPalette } from './veil/palette.js';
 
 /** 待命时球心的位置和玻璃泡的半径（姿态坐标）。能量框按这个基准换算，所以倾听时凑近、出错时下沉都看得出来。 */
 export const REF = { x: 759, y: 338, r: 184 };
-/** 调用方的模式对应身体的哪个状态。倾听平时就是待命的样子，有人打字的那一会儿才转过来听。 */
-export const MODE_STATE = { idle: 'idle', listen: 'idle', think: 'think', progress: 'think', talk: 'talk', remind: 'remind', done: 'idle', error: 'error' };
+/** 调用方的模式对应身体的哪个状态。召唤着等你开口时就是倾听的样子：凑近、放大、敞开正对着你；待命是缩回去的安静样子。 */
+export const MODE_STATE = { idle: 'idle', listen: 'listen', think: 'think', progress: 'think', talk: 'talk', remind: 'remind', done: 'idle', error: 'error' };
 
 const LITE_BELOW = 56;      // 球的半径小于这么多（CSS 像素）而且停稳了：换省事的网格，降到每秒 30 帧
+const ROOM_R = 82;          // 球的半径（CSS 像素）到这么大，周围才放得下舒展开的形态（兼容笔记本屏幕与高对话区）
 const REMIND_HOLD = 3000;   // 表情触发的提醒形态放多久（毫秒）
-const ATTEND_MS = 1600;     // 停止打字多久后，从倾听回到待命
 const RESUMMON_MS = 8000;   // 刚走不久又被叫回来：用短的入场
 const PLATE_FULL = 50, PLATE_NONE = 90;   // 深色圆片只垫在小头像后面：半径 50 以内才全有，90 以上完全没有
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -54,12 +54,23 @@ function paintFlat(ctx, view, x, y, r, alpha, light) {
 }
 
 /** 把球摆进画面：身体的动态、位置大小、深浅外观 → 这一帧的画法。 */
-function compose(look, life, frame, plateAlpha) {
+function compose(look, life, frame, plateAlpha, edge) {
   const sc = frame.r / REF.r, ox = frame.x - REF.x * sc, oy = frame.y - REF.y * sc, sh = life.dyn.shell;
   tune(look, frame.r);
+  const halo = clamp(life.dyn.halo ?? 1, 0.4, 2.2);
+  look.near *= halo; look.far *= halo;
+  look.iri = LOOK.iri * clamp(life.dyn.iri ?? 1, 0.2, 2.2);
   look.time = life.clock.t; look.tint = life.dyn.tint; look.gain = life.dyn.gain;
   const pl = look.plate;
   pl.x = ox + sh.x * sc; pl.y = oy + sh.y * sc; pl.r = Math.max(frame.r, sh.r * sc) * 1.1; pl.a = plateAlpha * life.S.alpha;
+  if (edge && look.edge) {
+    Object.assign(look.edge, edge, {
+      gain: life.dyn.edge ?? 0,
+      burst: life.dyn.edgeBurst ?? 0,
+      time: life.dyn.edgePhase ?? life.clock.t,
+      tint: life.dyn.tint,
+    });
+  }
   return { scale: sc, ox, oy };
 }
 
@@ -73,7 +84,11 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   let calm = !!reduced;
   life.setReduced(calm);
   const view = { w: 0, h: 0, dpr: 1 };
-  const look = { ...LOOK, plate: { x: 0, y: 0, r: 0, a: 0 } };
+  const look = {
+    ...LOOK,
+    plate: { x: 0, y: 0, r: 0, a: 0 },
+    edge: { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0, gain: 0, burst: 0, time: 0, tint: [1, 1, 1, 0] },
+  };
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
   const layer = () => {
@@ -96,9 +111,12 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
 
   // 球此刻的位置和半径、要去的位置和半径（host 内的 CSS 像素）
   const cur = { x: 0, y: 0, r: 1 }, tgt = { x: 0, y: 0, r: 1 }, vel = { x: 0, y: 0, r: 0 };
+  const edgeCur = { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0 };
+  const edgeTgt = { x: 0, y: 0, w: 0, h: 0, r: 0, mode: 0, enable: 0 };
+  let edgeFullscreen = true;
   let origin = null, plate = 0, tone = 'dark', small = false;
   let running = false, leaving = false, raf = 0, last = 0, goneAt = -1e9, haltTimer = 0;
-  let base = 'idle', hold = null, holdUntil = 0, attendUntil = 0, voiceActive = false, lastPokeAt = 0, mode = 'idle';
+  let base = 'idle', hold = null, holdUntil = 0, voiceActive = false, lastPokeAt = 0, lastKickAt = 0, mode = 'idle';
   const perf = { sim: 0, draw: 0 };
 
   function measure() {
@@ -126,9 +144,8 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   /** 此刻该是什么状态：表情触发的思考、提醒盖在基础模式上；开启语音或刚有人打字就转过来听。 */
   function sync(now = performance.now()) {
     if (hold === 'remind' && now >= holdUntil) hold = null;
-    if (attendUntil && now >= attendUntil) attendUntil = 0;
     mode = hold || base;
-    const st = mode === 'listen' && (voiceActive || attendUntil) ? 'listen' : MODE_STATE[mode] || 'idle';
+    const st = mode === 'listen' ? 'listen' : MODE_STATE[mode] || 'idle';
     if (st !== life.state) life.setState(st);
   }
 
@@ -136,10 +153,18 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   function follow(dt) {
     const o = host.getBoundingClientRect();
     origin = { x: o.left, y: o.top };
-    if (calm) { Object.assign(cur, tgt); vel.x = vel.y = vel.r = 0; return; }
+    if (edgeFullscreen) { edgeTgt.x = 0; edgeTgt.y = 0; edgeTgt.w = view.w; edgeTgt.h = view.h; edgeTgt.r = 0; edgeTgt.mode = 0; }
+    if (calm) { Object.assign(cur, tgt); vel.x = vel.y = vel.r = 0; Object.assign(edgeCur, edgeTgt); return; }
     const w = 11;
     for (const k of ['x', 'y', 'r']) { vel[k] += (w * w * (tgt[k] - cur[k]) - 2 * w * vel[k]) * dt; cur[k] += vel[k] * dt; }
     if (cur.r < 1) cur.r = 1;
+    edgeCur.mode = edgeTgt.mode;
+    edgeCur.enable += (edgeTgt.enable - edgeCur.enable) * (1 - Math.exp(-dt * 9));
+    if (edgeFullscreen) { Object.assign(edgeCur, { x: edgeTgt.x, y: edgeTgt.y, w: edgeTgt.w, h: edgeTgt.h, r: edgeTgt.r }); }
+    else {
+      const ke = 1 - Math.exp(-dt * 14);
+      for (const k of ['x', 'y', 'w', 'h', 'r']) edgeCur[k] += (edgeTgt[k] - edgeCur[k]) * ke;
+    }
   }
 
   const plateFor = r => (tone === 'light' ? 0.94 * clamp((PLATE_NONE - r) / (PLATE_NONE - PLATE_FULL), 0, 1) : 0);
@@ -151,17 +176,18 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
   }
 
   function paint() {
-    const at = compose(look, life, cur, plate);
+    const at = compose(look, life, cur, plate, edgeCur);
     if (fallback) { if (flat) paintFlat(flat, view, look.plate.x, look.plate.y, cur.r, life.S.alpha, plate > 0.5); return; }
     gl.draw(meshFor(small).update(at, life.dyn), view, look);
   }
 
   function advance(dt, now) {
     const t0 = performance.now();
-    if ((hold === 'remind' && now >= holdUntil) || (attendUntil && now >= attendUntil)) sync(now);
+    if (hold === 'remind' && now >= holdUntil) sync(now);
     follow(dt);
     // 浅色外观下垫在小头像后面的深色圆片。大球不垫（它浮在暮色上）；正在离场时保持原样，不临走冒出一块来
     if (!leaving) plate += (plateFor(cur.r) - plate) * (calm ? 1 : 1 - Math.exp(-dt * 9));
+    life.setRoom(cur.r >= ROOM_R && tgt.r >= ROOM_R);
     life.step(dt);
     if (leaving && !calm && !life.busy) { halt(); return; }
     small = settledSmall();
@@ -271,6 +297,26 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
       else if (origin) { cur.x += origin.x - o.left; cur.y += origin.y - o.top; }
       origin = { x: o.left, y: o.top };
     },
+    /** 边缘流体回应的边界矩形：null 为全屏内缘，[x, y, w, h, r] 为对话窗口边线，false 关闭。 */
+    setEdge(rect, { immediate = false } = {}) {
+      if (rect === false) { edgeTgt.enable = 0; return; }
+      if (rect == null) {
+        const wasPanel = !edgeFullscreen;
+        edgeFullscreen = true;
+        edgeTgt.x = 0; edgeTgt.y = 0; edgeTgt.w = view.w; edgeTgt.h = view.h; edgeTgt.r = 0; edgeTgt.mode = 0; edgeTgt.enable = 1;
+        if (immediate || calm || wasPanel) Object.assign(edgeCur, { x: edgeTgt.x, y: edgeTgt.y, w: edgeTgt.w, h: edgeTgt.h, r: edgeTgt.r, mode: 0 });
+        return;
+      }
+      const wasFull = edgeFullscreen;
+      edgeFullscreen = false;
+      Object.assign(edgeTgt, {
+        x: Number(rect[0]) || 0, y: Number(rect[1]) || 0,
+        w: Math.max(0, Number(rect[2]) || 0), h: Math.max(0, Number(rect[3]) || 0),
+        r: Math.max(0, Number(rect[4]) || 0), mode: 1,
+        enable: (Number(rect[2]) || 0) > 1 && (Number(rect[3]) || 0) > 1 ? 1 : 0,
+      });
+      if (immediate || calm || !running || wasFull) Object.assign(edgeCur, edgeTgt);
+    },
     /** 进度带的矩形；null 时不画。 */
     setBand(rect) {
       const ok = rect && rect.length >= 4 && Number(rect[2]) > 0;
@@ -284,12 +330,13 @@ export function createEnergy(host, { palette = 'molten', reduced = false, gpuTim
       const sc = cur.r / REF.r;
       life.attend((x - cur.x) / sc + REF.x, (y - cur.y) / sc + REF.y);
     },
-    /** 有人打了一个字：身上起一圈涟漪，转过来听一会儿。 */
+    /** 有人打了一个字：身上起一圈节制的涟漪（节流避免连击堆叠）。 */
     kick(k = 0.6) {
       if (!running) return;
+      const now = performance.now();
+      if (now - lastKickAt < 110) return;
+      lastKickAt = now;
       life.poke(k);
-      attendUntil = performance.now() + ATTEND_MS;
-      sync();
     },
     /** 语音交流激活时保持专注倾听姿态。 */
     setVoiceActive(on) {

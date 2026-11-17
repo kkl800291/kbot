@@ -21,14 +21,30 @@ import { formatReasoningEffortLabel } from '../services/agent';
     hintEl.textContent = msg; hintEl.className = 'hint' + (warn ? ' warn' : ''); hintEl.hidden = false;
     clearTimeout(hintTimer); hintTimer = setTimeout(() => { hintEl.hidden = true; }, ms);
   }
-  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; };
+  let autosizeRaf = 0, lastSendIcon = '';
+  const autosize = () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  };
+  const scheduleAutosize = () => {
+    if (autosizeRaf) return;
+    autosizeRaf = requestAnimationFrame(() => {
+      autosizeRaf = 0;
+      autosize();
+    });
+  };
 
   function updateSend() {
     const gen = C.generating;
-    sendBtn.classList.toggle('stop', gen);
-    sendBtn.innerHTML = A.icon(gen ? 'stop' : 'send', 16);
-    sendBtn.title = gen ? '停止生成' : '发送（Enter）';
-    sendBtn.disabled = !gen && (A.S.model === 'none' || (!input.value.trim() && !atts.length));
+    const iconName = gen ? 'stop' : 'send';
+    if (iconName !== lastSendIcon) {
+      lastSendIcon = iconName;
+      sendBtn.classList.toggle('stop', gen);
+      sendBtn.innerHTML = A.icon(iconName, 16);
+      sendBtn.title = gen ? '停止生成' : '发送（Enter）';
+    }
+    const disabled = !gen && (A.S.model === 'none' || (!input.value.trim() && !atts.length));
+    if (sendBtn.disabled !== disabled) sendBtn.disabled = disabled;
   }
   C.setGenerating = b => { C.generating = b; updateSend(); A.emit('generating', b); };
   // 未连接时的提示；召唤态的输入胶囊用同一句
@@ -197,7 +213,7 @@ import { formatReasoningEffortLabel } from '../services/agent';
     C.refreshComposer();
   }
   input.addEventListener('input', () => {
-    autosize();
+    scheduleAutosize();
     updateSend();
     if (!writingDictation && A.voice?.dictating) {
       dictationGen += 1;

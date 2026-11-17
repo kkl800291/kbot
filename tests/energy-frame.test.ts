@@ -56,19 +56,21 @@ describe('energy frame placement', () => {
     } finally { energy.destroy(); }
   });
 
-  it('enters listen state when summon voice is active and reacts to voice levels', () => {
+  it('faces the user while waiting for input and reacts to voice levels', () => {
     const energy = setup();
     try {
       energy.setBox([620, 140, 360, 360]);
       energy.start();
       energy.setMode('listen');
-      expect(energy.stats().state).toBe('idle');
+      expect(energy.stats().state).toBe('listen');
       energy.setVoiceActive(true);
       expect(energy.stats()).toMatchObject({ state: 'listen', voiceActive: true });
       energy.setVoiceLevel(0.6);
       expect(energy.life.dyn.pulses.length).toBeGreaterThanOrEqual(0);
       energy.setVoiceActive(false);
-      expect(energy.stats()).toMatchObject({ state: 'idle', voiceActive: false });
+      expect(energy.stats()).toMatchObject({ state: 'listen', voiceActive: false });
+      energy.setMode('idle');
+      expect(energy.stats().state).toBe('idle');
     } finally { energy.destroy(); }
   });
 });

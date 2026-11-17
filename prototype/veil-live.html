@@ -67,15 +67,16 @@
 </div>
 <div class="side" id="side">
   <div class="grp" id="gState"><span>状态</span></div>
-  <div class="grp"><span>入场</span><button id="bIn">甩出</button><button id="bShort">短版</button></div>
-  <div class="grp"><span>退场</span><button id="bClose">散去</button><button id="bGo">领命</button></div>
+  <div class="grp" id="gFree"><span>蜕变</span></div>
+  <div class="grp" id="gAcc"><span>表情</span></div>
+  <div class="grp"><span>交互</span><button id="bPoke">脉动</button><button id="bIn">甩出</button><button id="bShort">短版</button><button id="bClose">散去</button><button id="bGo">领命</button></div>
   <div id="stats"></div>
 </div>
 <script type="module">
 import * as pose from '../src/ui/veil/pose.js';
 import { createMesh } from '../src/ui/veil/mesh.js';
 import { createRenderer, LOOK } from '../src/ui/veil/render.js';
-import { createLife, STATES } from '../src/ui/veil/life.js';
+import { createLife, STATES, ACCENTS } from '../src/ui/veil/life.js';
 
 const $ = s => document.querySelector(s);
 const q = new URLSearchParams(location.search);
@@ -93,8 +94,8 @@ canvas.width = view.w * dpr; canvas.height = view.h * dpr;
 const renderer = createRenderer(canvas, { preserve: true });
 const mesh = createMesh(pose);
 const life = createLife();
-const look = { ...LOOK };
-const NAMES = { idle: '待命', listen: '倾听', think: '思考' };
+const look = { ...LOOK, edge: { x: 0, y: 0, w: view.w, h: view.h, r: 0, mode: 0, enable: 1, gain: 0, burst: 0, time: 0, tint: [1, 1, 1, 0] } };
+const NAMES = { idle: '待命', listen: '倾听', think: '思考', talk: '说话', remind: '提醒', error: '出错' };
 
 // 桌面跟着“静下来”：窗口失焦、整体略暗；输入框从第一刻就在
 function ambient() {
@@ -108,7 +109,11 @@ function ambient() {
 let ms = 0;
 function render() {
   const t0 = performance.now();
-  look.time = life.clock.t;
+  const h = life.dyn.halo ?? 1;
+  look.iri = LOOK.iri * (life.dyn.iri ?? 1);
+  look.near = LOOK.near * h; look.far = LOOK.far * h;
+  look.time = life.clock.t; look.tint = life.dyn.tint; look.gain = life.dyn.gain;
+  Object.assign(look.edge, { x: 0, y: 0, w: view.w, h: view.h, enable: life.present ? 1 : 0, gain: life.dyn.edge ?? 0, burst: life.dyn.edgeBurst ?? 0, time: life.dyn.edgePhase ?? life.clock.t, tint: life.dyn.tint });
   renderer.draw(mesh.update({ scale: 1, ox: 0, oy: 0 }, life.dyn), view, look);
   ms += (performance.now() - t0 - ms) * 0.06;
   ambient();
@@ -129,6 +134,19 @@ for (const name of Object.keys(STATES)) {
   b.onclick = () => { life.setState(name); mark(); };
   $('#gState').append(b);
 }
+const FREE_NAMES = ['天际极光', '凌空新月', '垂天羽流', '星海波涛', '舒展天翼', '莫比乌斯', '霓虹涟漪'];
+for (let i = 0; i < life.free(-1); i++) {
+  const b = document.createElement('button'); b.textContent = FREE_NAMES[i] || `#${i + 1}`;
+  b.onclick = () => { life.setState('think'); mark(); life.free(i); };
+  $('#gFree').append(b);
+}
+const ACC_NAMES = { happy: '开心', surprised: '惊讶', confused: '困惑', sad: '难过', sleepy: '困倦', annoyed: '烦躁', done: '完成' };
+for (const tag of Object.keys(ACCENTS)) {
+  const b = document.createElement('button'); b.textContent = ACC_NAMES[tag] || tag;
+  b.onclick = () => life.accent(tag);
+  $('#gAcc').append(b);
+}
+$('#bPoke').onclick = () => life.poke(1);
 $('#bIn').onclick = () => { life.hide(); life.arrive(); };
 $('#bShort').onclick = () => { life.hide(); life.arrive(true); };
 $('#bClose').onclick = () => life.depart('close');
@@ -152,7 +170,7 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); if (life.present) life.depart('close'); else life.arrive(); }
   if (e.key === 'Enter' && life.present) life.depart('go');
   if (e.key === 'Escape' && life.present) life.depart('close');
-  const n = { 1: 'idle', 2: 'listen', 3: 'think' }[e.key];
+  const n = { 1: 'idle', 2: 'listen', 3: 'think', 4: 'talk', 5: 'remind', 6: 'error' }[e.key];
   if (n) { clearTimeout(quiet); life.setState(n); mark(); }
 });
 setInterval(() => {
@@ -167,7 +185,7 @@ requestAnimationFrame(tick);
 // 给截图用：停住时间，直接摆到某一刻
 const run = seconds => { for (let t = 0; t < seconds - 1e-6; t += 1 / 120) life.step(1 / 120); render(); };
 window.__lab = {
-  life, look,
+  life, look, STATES,
   /** 某个状态稳定后第 seconds 秒的样子。 */
   still(state, seconds = 3) { paused = true; life.reset(); life.show(); life.snap(state); run(seconds); return state; },
   /** 从 a 状态切到 b 状态，过了 seconds 秒。 */

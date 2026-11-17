@@ -66,18 +66,20 @@ void main() {
   float rw = min(uRimWidth, vWR.x * 0.3) + 0.6;
   float rim = vWR.y * exp(-dA / rw) + vWR.z * exp(-dB / rw);
   float body = 0.8 + 0.3 * pow(abs(v * 2.0 - 1.0), 2.0);
-  // 虹彩：很淡。一是顺着丝拉开的细彩条（橙、青相间），二是纱边上的一圈彩边，纱面中间基本还是本色
-  float streak = smoothstep(0.45, 1.0, 0.5 + 0.5 * sin(v * 58.0 + 3.0 * sin(t * 7.0 + v * 4.0 + uTime * 0.35)));
+  // 虹彩：全丝面释放流动虹彩，顺着丝拉开的细彩条与双向焦散光波
+  float shimmer = 0.5 + 0.5 * sin(t * 14.0 - uTime * 1.45 + v * 6.0);
+  float caustic = pow(0.5 + 0.5 * sin(t * 22.0 - uTime * 2.1 + 2.6 * sin(v * 9.0 + uTime * 0.9)), 3.0);
+  float streak = smoothstep(0.42, 1.0, 0.5 + 0.5 * sin(v * 58.0 + 3.0 * sin(t * 7.0 + v * 4.0 + uTime * 0.35)));
   streak *= 0.6 + 0.4 * sin(t * 23.0 + v * 11.0 - uTime * 0.8);
   float edge = pow(abs(v * 2.0 - 1.0), 3.0);
-  float h = 0.3 + 0.3 * sin(v * 21.0 + t * 5.0 + uTime * 0.22) + 0.2 * edge;
-  float k = vIF.x * uIri;
-  vec3 c = mix(vCol.rgb, rainbow(h), k * (0.08 + 0.55 * streak + 0.4 * edge));
+  float h = 0.3 + 0.3 * sin(v * 21.0 + t * 5.0 + uTime * 0.22) + 0.2 * edge + 0.14 * shimmer + 0.1 * caustic;
+  float k = max(vIF.x, 0.34) * uIri;
+  vec3 c = mix(vCol.rgb, rainbow(h), clamp(k * (0.14 + 0.62 * streak + 0.45 * edge + 0.22 * caustic + 0.1 * shimmer), 0.0, 0.95));
   c = mix(c, uTint.rgb * max(c.r, max(c.g, c.b)), uTint.a);
-  // 薄膜：正常覆盖；亮边：叠在上面的白光
-  float a = min(0.95, vCol.a * body * (1.0 + k * 0.55 * streak) * w * uGain);
-  float r = min(1.0, rim * uRim * w * uGain);
-  gl_FragColor = vec4(c * a + mix(vec3(1.0), uTint.rgb, uTint.a) * r, min(1.0, a + r));
+  // 薄膜：正常覆盖；亮边：叠在上面的高亮光带
+  float a = min(0.95, vCol.a * body * (1.0 + k * (0.55 * streak + 0.14 * shimmer + 0.18 * caustic)) * w * uGain);
+  float r = min(1.0, rim * (1.0 + 0.35 * caustic) * uRim * w * uGain);
+  gl_FragColor = vec4(c * a + mix(vec3(1.0), uTint.rgb, 0.72 * uTint.a) * r, min(1.0, a + r));
 }`;
 
 const BLOB_VS = `
@@ -121,7 +123,7 @@ void main() {
 // 像一个肥皂泡：中间几乎是空的，越靠边越亮，最外面一圈细线；朝光的一侧亮，背光的一侧淡；左上一道月牙形的高光
 const SHELL_FS = `
 precision mediump float;
-uniform float uAlpha, uTime, uPx, uRim, uBody;
+uniform float uAlpha, uTime, uPx, uRim, uBody, uIri;
 uniform vec4 uTint;
 varying vec2 vUv;
 void main() {
@@ -130,19 +132,26 @@ void main() {
   float z = sqrt(max(0.0, 1.0 - d * d));
   vec2 n = vUv / max(d, 1e-4);
   float ang = atan(vUv.y, vUv.x);
-  // 薄膜上的虹彩，沿着边慢慢流
-  float h = 0.56 + 0.2 * sin(ang * 2.0 + uTime * 0.21) + 0.1 * sin(ang * 3.0 - uTime * 0.13 + 1.7) + 0.45 * z;
-  vec3 film = 0.8 + 0.2 * cos(6.2831853 * (h - vec3(0.0, 0.3333, 0.6667)));
-  float lit = 0.55 + 0.45 * dot(n, vec2(-0.6, -0.8));
-  float rim = (0.5 * pow(1.0 - z, 2.6) + 0.55 * pow(d, 30.0)) * (0.35 + 0.65 * lit) * uRim;
-  // 月牙高光：贴着左上的边，两头收尖；右下还有一点很淡的反光
-  float arc = pow(max(0.0, dot(n, vec2(-0.66, -0.75))), 9.0);
-  float q = (d - 0.84) / 0.045;
-  float spec = 0.5 * arc * exp(-q * q);
+  // 全息能量外壳：双频旋转极光弧 + 色散菲涅尔棱镜边 + 状态气氛场
+  float waveA = pow(0.5 + 0.5 * sin(ang * 3.0 - uTime * 1.85 + d * 4.5), 2.0);
+  float waveB = pow(0.5 + 0.5 * sin(ang * 5.0 + uTime * 1.15 - d * 3.0), 2.0);
+  float aurora = 0.58 * waveA + 0.42 * waveB;
+  float h = 0.54 + 0.24 * sin(ang * 2.0 + uTime * 0.35) + 0.14 * sin(ang * 3.0 - uTime * 0.22 + 1.7) + 0.48 * z + 0.14 * aurora * uIri;
+  float iriBoost = clamp(uIri, 0.2, 2.2);
+  vec3 film = 0.72 + 0.28 * cos(6.2831853 * (h - vec3(0.0, 0.3333, 0.6667)) - vec3(0.0, 0.08, 0.16) * (1.0 - z) * iriBoost);
+  float lit = 0.52 + 0.48 * dot(n, vec2(-0.6, -0.8));
+  float fresnel = pow(1.0 - z, 2.3) + 0.62 * pow(d, 26.0);
+  float rim = fresnel * (0.35 + 0.65 * lit) * (1.0 + 0.48 * aurora * iriBoost) * uRim;
+  // 月牙高光 + 全息对角折光反光
+  float arc = pow(max(0.0, dot(n, vec2(-0.66, -0.75))), 8.0);
+  float q = (d - 0.85) / 0.045;
+  float spec = (0.64 + 0.24 * aurora) * arc * exp(-q * q);
   vec2 b = vUv - vec2(0.48, 0.58);
-  float bounce = 0.07 * exp(-dot(b, b) * 9.0);
-  vec3 c = film * rim + vec3(spec) + vec3(0.84, 0.88, 1.0) * (bounce + uBody * (0.4 + 0.6 * (1.0 - z)));
-  c = mix(c, uTint.rgb * max(c.r, max(c.g, c.b)), uTint.a);
+  float bounce = 0.11 * exp(-dot(b, b) * 8.0);
+  float coreHaze = uBody * (0.45 + 0.75 * (1.0 - z)) + 0.11 * uTint.a * pow(1.0 - z, 1.35) * (0.75 + 0.25 * aurora);
+  vec3 bodyCol = mix(vec3(0.84, 0.88, 1.0), uTint.rgb, 0.85 * uTint.a);
+  vec3 rimCol = mix(film, uTint.rgb * 1.12, uTint.a * 0.62);
+  vec3 c = rimCol * rim + vec3(spec) * mix(vec3(1.0), uTint.rgb, 0.35 * uTint.a) + bodyCol * (bounce + coreHaze);
   c = min(c * edge * uAlpha, 1.0);
   gl_FragColor = vec4(c, max(c.r, max(c.g, c.b)));
 }`;
@@ -156,6 +165,44 @@ void main() {
   float a = uAlpha * clamp((1.0 - d) / (1.5 * uPx), 0.0, 1.0);
   vec3 c = mix(vec3(0.15, 0.16, 0.31), vec3(0.06, 0.07, 0.16), smoothstep(0.0, 1.0, d));
   gl_FragColor = vec4(c * a, a);
+}`;
+
+// 屏幕与窗口边缘流体极光回应：圆角矩形距离场 + 三频正余弦液态行波，平流微亮、输入与发声时顺四边涌起
+const EDGE_FS = `
+precision mediump float;
+uniform vec2 uRes;
+uniform vec4 uRect, uGeom, uEdge, uTint;
+uniform float uTime;
+varying vec2 vUv;
+void main() {
+  if (uEdge.z <= 0.004 || uEdge.x <= 0.004) discard;
+  vec2 p = vec2(vUv.x * uRes.x, (1.0 - vUv.y) * uRes.y);
+  vec2 h = max(vec2(1.0), uRect.zw - uGeom.x);
+  vec2 q = abs(p - uRect.xy) - h;
+  float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uGeom.x;
+  float panel = uGeom.y;
+  float dist = mix(max(0.0, -sd), abs(sd + 1.5), panel);
+  if (sd > 0.0 && panel < 0.5) discard;
+  if (sd > 38.0) discard;
+  float ang = atan(p.y - uRect.y, p.x - uRect.x);
+  float t = uTime;
+  float w1 = sin(ang * 4.0 - t * 1.35 + 0.65 * sin(ang * 2.0 + t * 0.72));
+  float w2 = sin(ang * 7.0 + t * 2.15 + p.x * 0.0065 - p.y * 0.0055);
+  float w3 = cos((p.x - p.y) * 0.01 + t * 2.8) * sin((p.x + p.y) * 0.0085 - t * 1.9);
+  float ripple = 0.48 * w1 + 0.34 * w2 + 0.18 * w3;
+  float surge = uEdge.y;
+  float hairW = mix(1.45, 2.35, clamp(surge, 0.0, 1.0)) + 0.35 * sin(ang * 3.0 - t * 1.1);
+  float breath = 0.55 + 0.45 * sin(ang * 2.0 - t * 0.85 + 0.8 * ripple);
+  float hair = exp(-pow(dist / max(0.7, hairW), 1.65)) * (0.28 + 0.36 * breath + 0.65 * surge);
+  float spread = 7.0 + 26.0 * surge + max(0.0, ripple) * (4.0 + 18.0 * surge);
+  float body = exp(-dist / spread) * (0.11 + 0.52 * surge) * (0.68 + 0.32 * ripple);
+  float crest = exp(-pow((dist - (3.5 + 12.0 * surge * (0.55 + 0.45 * ripple))) / (4.5 + 8.5 * surge), 2.0)) * surge * 0.42;
+  vec3 prism = 0.78 + 0.22 * cos(6.2831853 * (ang * 0.15915 + 0.18 * ripple - t * 0.14 - vec3(0.0, 0.18, 0.38)));
+  vec3 stateCol = uTint.rgb * (0.86 + 0.28 * ripple);
+  vec3 col = clamp(mix(prism, stateCol, clamp(uTint.a * 1.15, 0.0, 0.94)), 0.0, 1.0);
+  float mask = (hair * 0.62 + body * 0.44 + crest) * clamp(uEdge.x, 0.0, 1.6) * uEdge.z;
+  float a = clamp(mask * 0.72, 0.0, 0.88);
+  gl_FragColor = vec4(col * a, a);
 }`;
 
 const QUAD_VS = `
@@ -189,14 +236,15 @@ const NO_TINT = [1, 1, 1, 0];
 
 export const LOOK = {
   line: 1, fill: 1, iri: 1, time: 0,
-  rim: 0.5, rimWidth: 6,                        // 折边柔光带的强度和宽度（CSS 像素）
-  lineSoft: 0.36,                               // 细丝边缘的柔化（CSS 像素）
-  near: 0.55, mid: 1, far: 0.3,                 // 三层各自的强度：光晕、失焦的翼、远处的雾
-  glowLine: 0.4, glowFill: 0.25, glowBlob: 0.5, // 画进光晕底图的量
-  shell: 1, shellBody: 0.022, glowShell: 0.4,   // 玻璃泡外壳：边线的强度、泡身的一点乳白、画进光晕底图的量
-  gain: 1, tint: null,                          // 整体亮度；染色 [r, g, b, 程度]
-  plate: null,                                  // 垫在后面的深色圆片 { x, y, r, a }（CSS 像素），浅色外观下用
-  fogLine: 0.5, fogFill: 1,                     // 失焦部分画进雾里的量
+  rim: 0.52, rimWidth: 6.0,                      // 折边柔光带的强度和宽度（CSS 像素）
+  lineSoft: 0.36,                                // 细丝边缘的柔化（CSS 像素）
+  near: 0.54, mid: 1, far: 0.32,                 // 三层各自的强度：保持通透色阶不曝白
+  glowLine: 0.4, glowFill: 0.25, glowBlob: 0.48, // 画进光晕底图的量
+  shell: 1.0, shellBody: 0.028, glowShell: 0.45, // 玻璃泡外壳：边线与轻薄大气辉光
+  gain: 1, tint: null,                           // 整体亮度；染色 [r, g, b, 程度]
+  plate: null,                                   // 垫在后面的深色圆片 { x, y, r, a }（CSS 像素），浅色外观下用
+  edge: null,                                    // 全屏或对话窗边缘流体波浪回应 { x, y, w, h, r, mode, enable, gain, burst, time, tint }
+  fogLine: 0.54, fogFill: 1,                     // 失焦部分画进雾里的量
 };
 
 export function createRenderer(canvas, { preserve = false } = {}) {
@@ -222,8 +270,9 @@ export function createRenderer(canvas, { preserve = false } = {}) {
   const blob = program(BLOB_VS, BLOB_FS, ['uRes', 'uGain', 'uTint'], ['aPos', 'aUv', 'aCol']);
   const blur = program(QUAD_VS, BLUR_FS, ['uTex', 'uStep', 'uGain'], ['aPos']);
   const mix = program(QUAD_VS, MIX_FS, ['uNear', 'uMid', 'uFar', 'uGains'], ['aPos']);
-  const shell = program(SHELL_VS, SHELL_FS, ['uRes', 'uCenter', 'uR', 'uM', 'uAlpha', 'uTime', 'uPx', 'uRim', 'uBody', 'uTint'], ['aPos']);
+  const shell = program(SHELL_VS, SHELL_FS, ['uRes', 'uCenter', 'uR', 'uM', 'uAlpha', 'uTime', 'uPx', 'uRim', 'uBody', 'uIri', 'uTint'], ['aPos']);
   const plate = program(SHELL_VS, PLATE_FS, ['uRes', 'uCenter', 'uR', 'uM', 'uAlpha', 'uPx'], ['aPos']);
+  const edge = program(QUAD_VS, EDGE_FS, ['uRes', 'uRect', 'uGeom', 'uEdge', 'uTint', 'uTime'], ['aPos']);
   const LAYOUT = {
     line: { stride: LINE_STRIDE, attribs: [[2, 0], [2, 2], [1, 4], [1, 5], [4, 6], [1, 10]] },
     fill: { stride: FILL_STRIDE, attribs: [[2, 0], [2, 2], [4, 4], [2, 8], [3, 10]] },
@@ -330,7 +379,7 @@ export function createRenderer(canvas, { preserve = false } = {}) {
       gl.uniform2f(shell.u.uRes, view.w, view.h); gl.uniform2f(shell.u.uCenter, sh.x, sh.y); gl.uniform1f(shell.u.uR, sh.r);
       gl.uniform4f(shell.u.uM, sh.m[0], sh.m[1], sh.m[2], sh.m[3]);
       gl.uniform1f(shell.u.uAlpha, sh.a * gain); gl.uniform1f(shell.u.uTime, look.time || 0); gl.uniform1f(shell.u.uPx, px / sh.r);
-      gl.uniform1f(shell.u.uRim, look.shell); gl.uniform1f(shell.u.uBody, look.shellBody);
+      gl.uniform1f(shell.u.uRim, look.shell); gl.uniform1f(shell.u.uBody, look.shellBody); gl.uniform1f(shell.u.uIri, look.iri ?? 1);
       gl.uniform4f(shell.u.uTint, tint[0], tint[1], tint[2], tint[3]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
@@ -385,6 +434,19 @@ export function createRenderer(canvas, { preserve = false } = {}) {
     shells(1);
     fills(1, 0, look.fill);
     lines(0, Math.max(px * 0.5, look.lineSoft), 1, 0, look.line);
+    const ed = look.edge;
+    if (ed && ed.enable > 0.004 && ed.gain > 0.004 && ed.w > 1 && ed.h > 1) {
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      useQuad(edge);
+      const et = ed.tint || tint;
+      gl.uniform2f(edge.u.uRes, view.w, view.h);
+      gl.uniform4f(edge.u.uRect, ed.x + ed.w * 0.5, ed.y + ed.h * 0.5, ed.w * 0.5, ed.h * 0.5);
+      gl.uniform4f(edge.u.uGeom, ed.r || 0, ed.mode || 0, 0, 0);
+      gl.uniform4f(edge.u.uEdge, ed.gain, ed.burst || 0, ed.enable, 0);
+      gl.uniform4f(edge.u.uTint, et[0], et[1], et[2], et[3]);
+      gl.uniform1f(edge.u.uTime, ed.time || 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
   }
 
   return { draw, clear: () => bind(null, true), finish: () => gl.finish() };

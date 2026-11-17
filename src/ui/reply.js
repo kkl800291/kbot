@@ -31,9 +31,9 @@
   };
 
   // 编辑已发送的消息：就地改成输入框，发送后从这条开始重新对话
-  C.edit = id => {
+  C.edit = (id, targetEl) => {
     if (C.generating) C.stop();
-    const m = C.find(id), el = $(`.msg[data-id="${id}"]`);
+    const m = C.find(id), el = targetEl || $(`.msg[data-id="${id}"]`);
     if (!m || !el) return;
     el.innerHTML = '';
     const ta = h('textarea', { class: 'edit-box', rows: '2' });

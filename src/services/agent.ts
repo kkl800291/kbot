@@ -1524,7 +1524,7 @@ export function installAgent(A: any) {
 
     if (ev.type === 'question/request') {
       attachPendingQuestion(ev);
-      if (A.voice?.realtimeBridging && !A.panel?.isOpen?.()) {
+      if (A.voice?.realtimeBridging && !A.panel?.isOpen?.() && !A.summon?.isOpen?.()) {
         A.panel?.open?.(
           activeTurn && sessionId === activeTurn.sessionId
             ? { convId: activeTurn.conv?.id, msgId: activeTurn.msg?.id }
@@ -1541,7 +1541,7 @@ export function installAgent(A: any) {
     // 1. Events belonging to the active user turn in KBOT's chat window
     if (activeTurn && sessionId === activeTurn.sessionId) {
       const m = activeTurn.msg;
-      if (ev.type === 'approval/request' && A.voice?.realtimeBridging && !A.panel?.isOpen?.()) {
+      if (ev.type === 'approval/request' && A.voice?.realtimeBridging && !A.panel?.isOpen?.() && !A.summon?.isOpen?.()) {
         A.panel?.open?.({ convId: activeTurn.conv?.id, msgId: m?.id });
       }
       switch (ev.type) {

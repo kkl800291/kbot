@@ -23,22 +23,28 @@
         <div class="n-acts" id="tNoteActs"></div>
       </div>
       <section id="summon" inert aria-label="召唤 KBOT">
+        <div class="s-cap" id="sCap">
+          <div class="s-cap-in">
+            <div class="s-cap-bar" id="sCapBar">
+              <span class="s-cap-title" id="sTitle">KBOT 对话</span>
+              <div class="s-cap-tools">
+                <button type="button" class="s-cap-btn" id="sTall" title="展开更多阅读空间" aria-label="展开更多阅读空间" aria-pressed="false" data-icon="expand" data-size="13"></button>
+                <button type="button" class="s-cap-btn text" id="sNew" title="开启新对话">新对话</button>
+              </div>
+            </div>
+            <div class="s-scroll" id="sScroll">
+              <div class="s-thread" id="sThread"></div>
+              <div class="s-note-slot" id="sNoteSlot" hidden></div>
+              <div class="s-interim" id="sInterim" aria-live="polite" hidden></div>
+            </div>
+          </div>
+        </div>
         <div class="s-field">
           <button type="button" class="s-mic" id="sMic" title="点击开启或静音语音交流" aria-label="语音交流" data-icon="mic" data-size="15">
             <span class="s-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           </button>
           <input id="sInput" type="text" autocomplete="off" spellcheck="false" aria-label="吩咐 KBOT">
-          <button type="button" class="s-btn" id="sBtn" title="在窗口中继续（⌘↩）" aria-label="在窗口中继续" data-icon="expand"></button>
-        </div>
-        <div class="s-cap" id="sCap" aria-live="polite">
-          <div class="s-cap-in">
-            <div class="s-said" id="sSaid"></div>
-            <div class="s-body">
-              <div class="s-reply" id="sReply"></div>
-              <button type="button" class="s-more" id="sMore">在窗口中查看全文 ›</button>
-            </div>
-            <div class="s-acts" id="sActs"></div>
-          </div>
+          <button type="button" class="s-btn" id="sBtn" title="固定为对话小窗（⌘↩）" aria-label="在窗口中继续" data-icon="expand"></button>
         </div>
       </section>
       <section id="panel" hidden inert aria-label="对话窗口">
@@ -78,6 +84,14 @@
           <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic" multiple hidden>
         </footer>
         <div class="drop-overlay">松手即可发送</div>
+        <div class="p-rz" data-rz="n" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="s" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="w" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="e" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="nw" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="ne" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="sw" aria-hidden="true"></div>
+        <div class="p-rz" data-rz="se" aria-hidden="true"></div>
       </section>
     </div>
   </div>
